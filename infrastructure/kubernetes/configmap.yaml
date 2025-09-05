@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mywebdrive-config
+  namespace: mywebdrive
+data:
+  JWT_SECRET: "your-jwt-secret-key-change-in-production"
+  DATABASE_PATH: "/app/data"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  MINIO_ENDPOINT: "minio-service:9000"
+  MINIO_ACCESS_KEY: "minioadmin"
+  MINIO_SECRET_KEY: "minioadmin"

@@ -1,0 +1,24 @@
+database:
+  path: "./data/mywebdrive.db"
+
+user:
+  default_quota_gb: 5  # 5GB
+
+registration:
+  require_invite: true
+  invite_code_length: 16
+  invite_default_usage_limit: 1
+  invite_default_ttl: "168h"  # 7 days
+
+security:
+  bcrypt_cost: 10            # bcrypt.DefaultCost
+  access_token_duration: "2h"
+  refresh_token_duration: "720h"  # 30 days
+
+cors:
+  allowed_origins:
+    - "*"  # 生产建议改为具体域名
+
+storage:
+  max_file_size_mb: 500
+  allowed_extensions: [".jpg", ".png", ".pdf", ".md", ".zip", ".mp4"]

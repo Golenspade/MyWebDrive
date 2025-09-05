@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("SHARING_DATABASE_URL")
+}
+
+model Share {
+  id           String   @id
+  token        String   @unique
+  ownerId      String
+  fileId       String
+  passwordHash String?
+  expiresAt    DateTime?
+  isActive     Boolean  @default(true)
+  failedAttempts Int    @default(0)
+  lockUntil    DateTime?
+  maxDownloads Int?
+  downloadCount Int     @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([ownerId])
+  @@index([fileId])
+  @@index([isActive])
+}

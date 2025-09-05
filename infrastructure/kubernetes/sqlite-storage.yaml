@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sqlite-data-pvc
+  namespace: mywebdrive
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: alicloud-disk-ssd  # 阿里云SSD存储类
+
+---
+# 为了在多个Pod间共享SQLite数据库，我们需要使用ReadWriteMany
+# 在阿里云上可以使用NAS存储
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sqlite-shared-pvc
+  namespace: mywebdrive
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: alicloud-nas  # 阿里云NAS存储类

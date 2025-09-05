@@ -1,0 +1,49 @@
+# Binaries and build artifacts
+bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Runtime files
+logs/
+*.log
+*.pid
+
+# Database files (runtime generated)
+*.db
+auth.db
+sharing.db
+
+# Data directories (runtime generated)
+data/
+storage/
+
+# Go workspace
+go.work.sum
+
+# Frontend build artifacts
+frontend/dist/
+frontend/node_modules/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+node_modules

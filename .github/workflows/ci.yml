@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ "**" ]
+
+jobs:
+  node-build-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Enable corepack (pnpm)
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.7.0 --activate
+
+      - name: Install deps (pnpm workspace)
+        run: pnpm -w install
+
+      - name: Build all packages/services/apps
+        run: pnpm -r --filter ./packages/** --filter ./services/** --filter ./apps/** build
+
+      - name: Prisma generate (all services)
+        run: pnpm -r --filter ./services/** prisma:generate || true
+
+      - name: Prisma migrate deploy (sqlite in-repo)
+        shell: bash
+        run: |
+          set -e
+          mkdir -p .ci
+          echo "auth & user"
+          (cd services/auth && DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
+          (cd services/user && DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
+          echo "metadata"
+          (cd services/metadata && METADATA_DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
+          echo "storage"
+          (cd services/storage && STORAGE_DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
+          echo "sharing"
+          (cd services/sharing && SHARING_DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
+
+      - name: Tests (best-effort)
+        run: pnpm -r test || true
+

@@ -1,0 +1,14 @@
+go 1.21
+
+use (
+	./backend/api-gateway
+	./backend/auth-service
+	./backend/common
+	./backend/metadata-service
+	./backend/pkg/config
+	./backend/pkg/database
+	./backend/pkg/metrics
+	./backend/sharing-service
+	./backend/storage-service
+	./backend/user-service
+)

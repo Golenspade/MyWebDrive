@@ -1,0 +1,187 @@
+version: '3.8'
+
+# Node-based stack for MyWebDrive (development/staging friendly)
+# - Uses official node image, mounts workspace, and runs pnpm scripts
+# - SQLite files live under ./services/*/prisma/*.db (persisted via bind volume)
+
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mywebdrive
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - mywebdrive
+
+  auth:
+    image: node:20-bullseye
+    working_dir: /workspace
+    volumes:
+      - ../../:/workspace:cached
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      AUTH_PORT: 7081
+      DATABASE_URL: file:./services/auth/prisma/auth.db
+    command: >
+      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      pnpm -w install && pnpm -r --filter ./packages/** build && \
+      pnpm --filter ./services/auth prisma:generate && \
+      pnpm --filter ./services/auth build && \
+      (pnpm --filter ./services/auth run migrate:deploy || pnpm --filter ./services/auth run db:push || true) && \
+      pnpm --filter ./services/auth start"
+    ports:
+      - "7081:7081"
+    networks:
+      - mywebdrive
+
+  user:
+    image: node:20-bullseye
+    working_dir: /workspace
+    volumes:
+      - ../../:/workspace:cached
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      USER_PORT: 7082
+      DATABASE_URL: file:./services/user/prisma/user.db
+    command: >
+      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      pnpm -w install && pnpm -r --filter ./packages/** build && \
+      pnpm --filter ./services/user prisma:generate && \
+      pnpm --filter ./services/user build && \
+      (pnpm --filter ./services/user run migrate:deploy || pnpm --filter ./services/user run db:push || true) && \
+      pnpm --filter ./services/user start"
+    ports:
+      - "7082:7082"
+    networks:
+      - mywebdrive
+
+  metadata:
+    image: node:20-bullseye
+    working_dir: /workspace
+    volumes:
+      - ../../:/workspace:cached
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      METADATA_PORT: 7083
+      METADATA_DATABASE_URL: file:./services/metadata/prisma/metadata.db
+    command: >
+      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      pnpm -w install && pnpm -r --filter ./packages/** build && \
+      pnpm --filter ./services/metadata prisma:generate && \
+      pnpm --filter ./services/metadata build && \
+      (pnpm --filter ./services/metadata run migrate:deploy || pnpm --filter ./services/metadata run db:push || true) && \
+      pnpm --filter ./services/metadata start"
+    ports:
+      - "7083:7083"
+    networks:
+      - mywebdrive
+
+  storage:
+    image: node:20-bullseye
+    working_dir: /workspace
+    volumes:
+      - ../../:/workspace:cached
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      STORAGE_PORT: 7084
+      STORAGE_PATH: ./storage
+      METADATA_SERVICE_URL: http://metadata:7083
+      STORAGE_DATABASE_URL: file:./services/storage/prisma/storage.db
+      MINIO_ENDPOINT: minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
+      MINIO_USE_SSL: "false"
+      MINIO_BUCKET: mywebdrive
+    depends_on:
+      - minio
+      - metadata
+    command: >
+      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      pnpm -w install && pnpm -r --filter ./packages/** build && \
+      pnpm --filter ./services/storage prisma:generate && \
+      pnpm --filter ./services/storage build && \
+      (pnpm --filter ./services/storage run migrate:deploy || pnpm --filter ./services/storage run db:push || true) && \
+      pnpm --filter ./services/storage start"
+    ports:
+      - "7084:7084"
+    networks:
+      - mywebdrive
+
+  sharing:
+    image: node:20-bullseye
+    working_dir: /workspace
+    volumes:
+      - ../../:/workspace:cached
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      SHARING_PORT: 7085
+      STORAGE_SERVICE_URL: http://storage:7084
+      METADATA_SERVICE_URL: http://metadata:7083
+      SHARING_DATABASE_URL: file:./services/sharing/prisma/sharing.db
+    depends_on:
+      - storage
+      - metadata
+    command: >
+      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      pnpm -w install && pnpm -r --filter ./packages/** build && \
+      pnpm --filter ./services/sharing prisma:generate && \
+      pnpm --filter ./services/sharing build && \
+      (pnpm --filter ./services/sharing run migrate:deploy || pnpm --filter ./services/sharing run db:push || true) && \
+      pnpm --filter ./services/sharing start"
+    ports:
+      - "7085:7085"
+    networks:
+      - mywebdrive
+
+  api-gateway-node:
+    image: node:20-bullseye
+    working_dir: /workspace
+    volumes:
+      - ../../:/workspace:cached
+    environment:
+      JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      GATEWAY_PORT: 9080
+      AUTH_SERVICE_URL: http://auth:7081
+      USER_SERVICE_URL: http://user:7082
+      METADATA_SERVICE_URL: http://metadata:7083
+      STORAGE_SERVICE_URL: http://storage:7084
+      SHARING_SERVICE_URL: http://sharing:7085
+    depends_on:
+      - auth
+      - user
+      - metadata
+      - storage
+      - sharing
+    command: >
+      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      pnpm -w install && pnpm -r --filter ./packages/** build && \
+      pnpm --filter ./services/api-gateway-node build && \
+      pnpm --filter ./services/api-gateway-node start"
+    ports:
+      - "9080:9080"
+    networks:
+      - mywebdrive
+
+volumes:
+  redis_data:
+  minio_data:
+
+networks:
+  mywebdrive:
+    driver: bridge
+

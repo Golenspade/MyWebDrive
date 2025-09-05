@@ -1,0 +1,205 @@
+version: '3.8'
+
+services:
+  # Redis缓存 - 使用阿里云Redis
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mywebdrive-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # MinIO对象存储 - 可选择使用阿里云OSS替代
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - mywebdrive-network
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 512M
+
+  # API网关
+  api-gateway:
+    image: ${REGISTRY_URL}/mywebdrive/api-gateway:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - auth-service
+      - user-service
+      - metadata-service
+    networks:
+      - mywebdrive-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # 认证服务
+  auth-service:
+    image: ${REGISTRY_URL}/mywebdrive/auth-service:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_PATH=/app/data/auth.db
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - sqlite_data:/app/data
+    networks:
+      - mywebdrive-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # 用户服务
+  user-service:
+    image: ${REGISTRY_URL}/mywebdrive/user-service:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      - DATABASE_PATH=/app/data/user.db
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - sqlite_data:/app/data
+    networks:
+      - mywebdrive-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # 元数据服务
+  metadata-service:
+    image: ${REGISTRY_URL}/mywebdrive/metadata-service:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      - DATABASE_PATH=/app/data/metadata.db
+      - JWT_SECRET=${JWT_SECRET}
+    volumes:
+      - sqlite_data:/app/data
+    networks:
+      - mywebdrive-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # 存储服务
+  storage-service:
+    image: ${REGISTRY_URL}/mywebdrive/storage-service:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "8084:8084"
+    environment:
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY:-minioadmin}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY:-minioadmin}
+      - JWT_SECRET=${JWT_SECRET}
+      # 如果使用阿里云OSS，可以配置以下环境变量
+      # - OSS_ENDPOINT=${OSS_ENDPOINT}
+      # - OSS_ACCESS_KEY=${OSS_ACCESS_KEY}
+      # - OSS_SECRET_KEY=${OSS_SECRET_KEY}
+      # - OSS_BUCKET=${OSS_BUCKET}
+    depends_on:
+      - minio
+    networks:
+      - mywebdrive-network
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 256M
+
+  # 前端应用
+  frontend:
+    image: ${REGISTRY_URL}/mywebdrive/frontend:${VERSION:-latest}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - mywebdrive-network
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+        reservations:
+          memory: 128M
+
+  # Nginx反向代理（生产环境推荐）
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - frontend
+      - api-gateway
+    networks:
+      - mywebdrive-network
+
+volumes:
+  redis_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/redis
+  minio_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/minio
+  sqlite_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /data/sqlite
+
+networks:
+  mywebdrive-network:
+    driver: bridge

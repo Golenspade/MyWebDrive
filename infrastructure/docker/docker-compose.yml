@@ -1,0 +1,142 @@
+version: '3.8'
+
+services:
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - mywebdrive-network
+
+  # MinIO对象存储
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - mywebdrive-network
+
+  # API网关
+  api-gateway:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.api-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      - JWT_SECRET=your-jwt-secret-key
+    depends_on:
+      - auth-service
+      - user-service
+      - metadata-service
+      - sharing-service
+    networks:
+      - mywebdrive-network
+
+  # 认证服务
+  auth-service:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.auth-service
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_PATH=/app/data/auth.db
+      - JWT_SECRET=your-jwt-secret-key
+    volumes:
+      - sqlite_data:/app/data
+    networks:
+      - mywebdrive-network
+
+  # 用户服务
+  user-service:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.user-service
+    ports:
+      - "8082:8082"
+    environment:
+      - DATABASE_PATH=/app/data/user.db
+      - JWT_SECRET=your-jwt-secret-key
+    volumes:
+      - sqlite_data:/app/data
+    networks:
+      - mywebdrive-network
+
+  # 元数据服务
+  metadata-service:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.metadata-service
+    ports:
+      - "8083:8083"
+    environment:
+      - DATABASE_PATH=/app/data/metadata.db
+      - JWT_SECRET=your-jwt-secret-key
+    volumes:
+      - sqlite_data:/app/data
+    networks:
+      - mywebdrive-network
+
+  # 分享服务
+  sharing-service:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.sharing-service
+    ports:
+      - "8085:8085"
+    environment:
+      - DATABASE_PATH=/app/data/sharing.db
+      - JWT_SECRET=your-jwt-secret-key
+    volumes:
+      - sqlite_data:/app/data
+    networks:
+      - mywebdrive-network
+
+  # 存储服务
+  storage-service:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.storage-service
+    ports:
+      - "8084:8084"
+    environment:
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - JWT_SECRET=your-jwt-secret-key
+    depends_on:
+      - minio
+    networks:
+      - mywebdrive-network
+
+  # 前端应用
+  frontend:
+    build:
+      context: ../../
+      dockerfile: infrastructure/docker/Dockerfile.frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - mywebdrive-network
+
+volumes:
+  redis_data:
+  minio_data:
+  sqlite_data:  # SQLite数据库文件存储
+
+networks:
+  mywebdrive-network:
+    driver: bridge

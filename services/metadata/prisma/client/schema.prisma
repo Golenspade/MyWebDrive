@@ -1,0 +1,79 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "./client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("METADATA_DATABASE_URL")
+}
+
+model File {
+  id        String    @id
+  name      String
+  type      String // 'file' | 'folder'
+  size      Int?
+  mimeType  String?
+  parentId  String?
+  ownerId   String
+  path      String
+  version   Int       @default(1)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  parent     File?           @relation("FolderChildren", fields: [parentId], references: [id])
+  children   File[]          @relation("FolderChildren")
+  versions   FileVersion[]
+  tags       FileTag[]
+  accessLogs FileAccessLog[]
+
+  @@index([parentId])
+  @@index([ownerId])
+  @@index([type])
+  @@index([path])
+}
+
+model FileVersion {
+  id          String   @id
+  fileId      String
+  version     Int
+  size        Int
+  storagePath String
+  md5Hash     String
+  comment     String?
+  createdAt   DateTime @default(now())
+
+  file File @relation(fields: [fileId], references: [id])
+
+  @@unique([fileId, version])
+  @@index([fileId])
+}
+
+model FileTag {
+  id        String   @id
+  fileId    String
+  tagName   String
+  createdAt DateTime @default(now())
+
+  file File @relation(fields: [fileId], references: [id])
+
+  @@index([fileId])
+  @@index([tagName])
+}
+
+model FileAccessLog {
+  id         Int      @id @default(autoincrement())
+  fileId     String
+  userId     String
+  action     String // 'view' | 'download' | 'edit' | 'delete'
+  ipAddress  String?
+  userAgent  String?
+  accessedAt DateTime @default(now())
+
+  file File @relation(fields: [fileId], references: [id])
+
+  @@index([fileId])
+  @@index([userId])
+  @@index([accessedAt])
+}

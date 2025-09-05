@@ -1,0 +1,447 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mywebdrive
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mywebdrive-config
+  namespace: mywebdrive
+data:
+  JWT_SECRET: "your-jwt-secret-key-change-in-production"
+  DATABASE_PATH: "/app/data"
+  REDIS_HOST: "redis-service"
+  REDIS_PORT: "6379"
+  MINIO_ENDPOINT: "minio-service:9000"
+  MINIO_ACCESS_KEY: "minioadmin"
+  MINIO_SECRET_KEY: "minioadmin"
+
+---
+# SQLite共享存储 - 使用阿里云NAS
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sqlite-shared-pvc
+  namespace: mywebdrive
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: alicloud-nas
+
+---
+# Redis部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: mywebdrive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service
+  namespace: mywebdrive
+spec:
+  selector:
+    app: redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+
+---
+# MinIO部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minio
+  namespace: mywebdrive
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+    spec:
+      containers:
+      - name: minio
+        image: minio/minio:latest
+        command: ["minio", "server", "/data", "--console-address", ":9001"]
+        ports:
+        - containerPort: 9000
+        - containerPort: 9001
+        env:
+        - name: MINIO_ROOT_USER
+          value: "minioadmin"
+        - name: MINIO_ROOT_PASSWORD
+          value: "minioadmin"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: minio-service
+  namespace: mywebdrive
+spec:
+  selector:
+    app: minio
+  ports:
+  - name: api
+    port: 9000
+    targetPort: 9000
+  - name: console
+    port: 9001
+    targetPort: 9001
+
+---
+# 认证服务部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: mywebdrive
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+      - name: auth-service
+        image: registry.cn-hangzhou.aliyuncs.com/your-namespace/auth-service:latest
+        ports:
+        - containerPort: 8081
+        env:
+        - name: DATABASE_PATH
+          value: "/app/data/auth.db"
+        - name: JWT_SECRET
+          valueFrom:
+            configMapKeyRef:
+              name: mywebdrive-config
+              key: JWT_SECRET
+        volumeMounts:
+        - name: sqlite-storage
+          mountPath: /app/data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8081
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: sqlite-storage
+        persistentVolumeClaim:
+          claimName: sqlite-shared-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: mywebdrive
+spec:
+  selector:
+    app: auth-service
+  ports:
+  - port: 8081
+    targetPort: 8081
+
+---
+# 用户服务部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: user-service
+  namespace: mywebdrive
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: user-service
+  template:
+    metadata:
+      labels:
+        app: user-service
+    spec:
+      containers:
+      - name: user-service
+        image: registry.cn-hangzhou.aliyuncs.com/your-namespace/user-service:latest
+        ports:
+        - containerPort: 8082
+        env:
+        - name: DATABASE_PATH
+          value: "/app/data/user.db"
+        - name: JWT_SECRET
+          valueFrom:
+            configMapKeyRef:
+              name: mywebdrive-config
+              key: JWT_SECRET
+        volumeMounts:
+        - name: sqlite-storage
+          mountPath: /app/data
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8082
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8082
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: sqlite-storage
+        persistentVolumeClaim:
+          claimName: sqlite-shared-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: user-service
+  namespace: mywebdrive
+spec:
+  selector:
+    app: user-service
+  ports:
+  - port: 8082
+    targetPort: 8082
+
+---
+# 元数据服务部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: metadata-service
+  namespace: mywebdrive
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: metadata-service
+  template:
+    metadata:
+      labels:
+        app: metadata-service
+    spec:
+      containers:
+      - name: metadata-service
+        image: registry.cn-hangzhou.aliyuncs.com/your-namespace/metadata-service:latest
+        ports:
+        - containerPort: 8083
+        env:
+        - name: DATABASE_PATH
+          value: "/app/data/metadata.db"
+        - name: JWT_SECRET
+          valueFrom:
+            configMapKeyRef:
+              name: mywebdrive-config
+              key: JWT_SECRET
+        volumeMounts:
+        - name: sqlite-storage
+          mountPath: /app/data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8083
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: sqlite-storage
+        persistentVolumeClaim:
+          claimName: sqlite-shared-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: metadata-service
+  namespace: mywebdrive
+spec:
+  selector:
+    app: metadata-service
+  ports:
+  - port: 8083
+    targetPort: 8083
+
+---
+# API网关部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: mywebdrive
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+    spec:
+      containers:
+      - name: api-gateway
+        image: registry.cn-hangzhou.aliyuncs.com/your-namespace/api-gateway:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: JWT_SECRET
+          valueFrom:
+            configMapKeyRef:
+              name: mywebdrive-config
+              key: JWT_SECRET
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-gateway-service
+  namespace: mywebdrive
+spec:
+  selector:
+    app: api-gateway
+  ports:
+  - port: 8080
+    targetPort: 8080
+  type: LoadBalancer  # 阿里云会自动创建SLB
+
+---
+# 前端部署
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: mywebdrive
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: frontend
+        image: registry.cn-hangzhou.aliyuncs.com/your-namespace/frontend:latest
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+  namespace: mywebdrive
+spec:
+  selector:
+    app: frontend
+  ports:
+  - port: 80
+    targetPort: 80
+  type: LoadBalancer  # 阿里云会自动创建SLB
