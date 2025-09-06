@@ -1,11 +1,11 @@
 # MyWebDrive - 云存储服务
 
-基于微服务架构的云存储（网盘）服务。后端正逐步从 Go 迁移到 Node.js（Monorepo + pnpm），前端保留现有 Vite，同时支持 Next.js 开发体验。
+基于微服务架构的云存储（网盘）服务。后端已全面迁移到 Node.js（Monorepo + pnpm），前端使用 Vite，并提供 Next.js 开发体验。
 
 ## 🚀 特性
 
 - **微服务架构**: 模块化设计，易于扩展和维护
-- **现代化技术栈**: Go + Echo + React + TypeScript + Vite
+- **现代化技术栈**: Node.js + React + TypeScript + Vite
 - **安全认证**: JWT令牌认证，支持访问令牌和刷新令牌
 - **文件管理**: 完整的文件和文件夹操作功能
 - **断点续传**: 基于TUS协议的可续传文件上传
@@ -17,11 +17,7 @@
 
 ### 后端微服务
 
-Go 与 Node 并行阶段（开发中）：
-
-- Go 版端口：网关 8080、Auth 8081、User 8082、Metadata 8083、Storage 8084、Sharing 8085
-- Node 版端口：网关 9080、Auth 7081、User 7082、Metadata 7083、Storage 7084、Sharing 7085
-- 切换与启动：见 `manage-services.sh` 与 `MIGRATION_TO_NODE.md`
+后端已全面迁移为 Node 微服务：网关 9080、Auth 7081、User 7082、Metadata 7083、Storage 7084、Sharing 7085。
 
 ### 前端应用
 
@@ -44,7 +40,6 @@ Go 与 Node 并行阶段（开发中）：
 
 ### 环境要求
 
-- Go 1.21+
 - Node.js 18+
 - Docker & Docker Compose
 - Make (可选)
@@ -184,7 +179,6 @@ Authorization: Bearer <access_token>
 
 ```
 mywebdrive/
-├── backend/                 # Go 版后端（迁移阶段保留）
 ├── services/                # Node 微服务（auth/user/metadata/storage/sharing/gateway）
 ├── packages/                # Node 共享包（common、observability 等）
 ├── frontend/                # 前端应用（Vite）
@@ -214,9 +208,6 @@ mywebdrive/
 GATEWAY_PORT=9080 bash ./test_guest_download.sh
 GATEWAY_PORT=9080 bash ./test_complete_flow.sh
 
-# Go 端测试（如需与 Node 对照）
-cd backend/auth-service && go test ./...
-
 # 运行前端测试
 cd frontend && npm test
 ```
@@ -226,23 +217,17 @@ cd frontend && npm test
 ### 有用的Make命令
 
 ```bash
-make help          # 显示所有可用命令
-make build         # 构建所有Go服务
-make run-dev       # 启动开发环境
-make docker-build  # 构建Docker镜像
-make k8s-deploy    # 部署到Kubernetes
-make migrate-up    # 运行数据库迁移
-make generate-api  # 从OpenAPI规范生成代码
+make help           # 显示所有可用命令
+make build          # pnpm 递归构建 (packages/services/apps)
+make test           # pnpm 递归测试 (允许为空)
+make docker-build   # 基于 Node 版 compose 构建
+make docker-up      # 启动 Node 版 compose
+make docker-down    # 停止 Node 版 compose
+make format         # 前端/Node 代码格式化
+make lint           # 前端/Node 代码检查
+make quality-check  # 构建+测试+lint
 ```
 
-### 代码生成
-
-项目使用代码生成来确保API契约的一致性：
-
-```bash
-# 从OpenAPI规范生成Go服务器代码
-make generate-api
-```
 
 ## 🤝 贡献
 
@@ -258,7 +243,6 @@ make generate-api
 
 ## 🙏 致谢
 
-- [Echo](https://echo.labstack.com/) - Go Web框架
 - [React](https://reactjs.org/) - 前端框架
 - [TUS](https://tus.io/) - 可续传上传协议
 - [MinIO](https://min.io/) - 对象存储服务

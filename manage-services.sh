@@ -160,18 +160,10 @@ start_backend() {
 
     # 编译所有服务（如果需要）
     if [ ! -f "bin/auth-service" ] || [ ! -f "bin/user-service" ] || [ ! -f "bin/metadata-service" ] || [ ! -f "bin/storage-service" ] || [ ! -f "bin/sharing-service" ] || [ ! -f "bin/api-gateway" ]; then
-        log_info "Compiling services..."
-        
-        cd backend/auth-service && go build -o ../../bin/auth-service . && cd ../..
-        cd backend/user-service && go build -o ../../bin/user-service . && cd ../..
-        cd backend/metadata-service && go build -o ../../bin/metadata-service . && cd ../..
-        cd backend/storage-service && go build -o ../../bin/storage-service . && cd ../..
-        cd backend/sharing-service && go build -o ../../bin/sharing-service . && cd ../..
-        cd backend/api-gateway && go build -o ../../bin/api-gateway . && cd ../..
-        
-        log_info "All services compiled successfully"
+        # Go 版本后端已移除，此处不再编译；Node 版由 pnpm 构建/启动。
+        log_info "Skipping Go builds: repository has migrated to Node services."
     fi
-    
+
     # 启动服务
     # 可选：使用 Node 版元数据服务（USE_NODE_METADATA=true 时）
     if [ "${USE_NODE_METADATA}" = "true" ]; then
