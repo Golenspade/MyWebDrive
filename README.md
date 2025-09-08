@@ -48,27 +48,24 @@
 
 1. **克隆仓库**
    ```bash
-   git clone https://github.com/yourusername/mywebdrive.git
+git clone https://github.com/yourusername/mywebdrive.git
    cd mywebdrive
-   ```
+```
 
 2. **安装依赖并设置开发环境**（pnpm workspace）
    ```bash
-   cp .env.example .env
+cp .env.example .env
    pnpm -w install
    pnpm -w build
-   ```
+```
 
 3. **启动 Node 服务（开发）**
    ```bash
-   # 并行启动 gateway + auth + user + metadata + storage + sharing
-   pnpm dev
-   # 或使用脚本按需启动
-   ./manage-services.sh start-gateway-node
-   ./manage-services.sh start-metadata-node
-   ./manage-services.sh start-storage-node
-   ./manage-services.sh start-sharing-node
-   ```
+# 一键启动后端（gateway + auth + user + metadata + storage + sharing）
+./manage-services.sh start-backend
+# 或前后端一起启动
+./manage-services.sh start
+```
 
 6. **访问应用**
    - 前端: http://localhost:3000
@@ -77,21 +74,16 @@
 
 7. 端到端回归（Next 4000 + Gateway 9080）
    ```bash
-   # 启动 Node 网关与 Next 开发服
-   ./manage-services.sh start-gateway-node
-   ./manage-services.sh start-next
-
-   # 启动 Node 元数据/存储/分享服务（或通过 start-backend 统一启动）
-   ./manage-services.sh start-metadata-node
-   ./manage-services.sh start-storage-node
-   ./manage-services.sh start-sharing-node
+# 启动后端（包含网关）与 Next 开发服
+./manage-services.sh start-backend
+./manage-services.sh start-next
 
    # 运行回归脚本（切到 9080 网关）
    GATEWAY_PORT=9080 bash ./test_guest_download.sh
    GATEWAY_PORT=9080 bash ./test_complete_flow.sh
    GATEWAY_PORT=9080 bash ./test_invitation_flow.sh
    GATEWAY_PORT=9080 bash ./test_invitation_system.sh
-   ```
+```
 
 ## CORS/跨域
 
@@ -197,9 +189,9 @@ mywebdrive/
 - 关联 ID：自动注入/透传 `x-request-id`，用于跨服务排障。
 - 快速验证：
   ```bash
-  curl -s http://localhost:7081/metrics | head
+curl -s http://localhost:7081/metrics | head
   curl -H 'x-request-id: test-123' -i http://localhost:7083/health
-  ```
+```
 
 ## 🧪 测试
 
@@ -243,17 +235,3 @@ make quality-check  # 构建+测试+lint
 
 ## 🙏 致谢
 
-- [React](https://reactjs.org/) - 前端框架
-- [TUS](https://tus.io/) - 可续传上传协议
-- [MinIO](https://min.io/) - 对象存储服务
-
-## 📞 联系
-
-如有问题或建议，请通过以下方式联系：
-
-- 提交 [Issue](https://github.com/yourusername/mywebdrive/issues)
-- 邮箱: support@mywebdrive.com
-
----
-
-⭐ 如果这个项目对你有帮助，请给它一个星标！
