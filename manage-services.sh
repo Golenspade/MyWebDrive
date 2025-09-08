@@ -10,6 +10,9 @@ log_warn(){ echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error(){ echo -e "${RED}[ERROR]${NC} $1"; }
 log_service(){ echo -e "${BLUE}[SERVICE]${NC} $1"; }
 
+PNPM_VERSION="9.7.0"
+ensure_pnpm(){ if ! command -v pnpm >/dev/null 2>&1; then corepack enable >/dev/null 2>&1 || true; corepack prepare "pnpm@${PNPM_VERSION}" --activate >/dev/null 2>&1 || true; fi }
+
 # --- 加载根目录 .env（如存在）---
 if [ -f ".env" ]; then set -a; source .env; set +a; log_info ".env loaded"; fi
 
@@ -22,7 +25,7 @@ start_frontend(){
   log_service "Starting frontend (Vite) on :3000..."
   if [ "$(check_on_port 3000)" != "STOPPED" ]; then log_warn "Frontend already running"; return; fi
   mkdir -p logs
-  (cd frontend && nohup npm run dev > ../logs/frontend.log 2>&1 & echo $! > ../logs/frontend.pid)
+  (cd frontend && nohup pnpm dev > ../logs/frontend.log 2>&1 & echo $! > ../logs/frontend.pid)
   sleep 2; kill -0 $(cat logs/frontend.pid) 2>/dev/null && log_info "Frontend started (PID: $(cat logs/frontend.pid))" || log_error "Frontend failed"
 }
 stop_frontend(){ log_service "Stopping frontend"; kill_on_port 3000; log_info "Frontend stopped"; }
@@ -68,6 +71,11 @@ start_storage(){
   (cd services/storage && JWT_SECRET=${JWT_SECRET:-your-secret-key} STORAGE_PORT=$STOR_PORT \
     STORAGE_PATH=${STORAGE_PATH:-./storage} METADATA_SERVICE_URL=${METADATA_SERVICE_URL:-http://localhost:${META_PORT}} \
     STORAGE_DATABASE_URL=${STORAGE_DATABASE_URL:-file:./storage.db} \
+    REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
+    DOWNLOAD_CONCURRENCY_LIMIT=${DOWNLOAD_CONCURRENCY_LIMIT:-3} \
+    DOWNLOAD_Mbps=${DOWNLOAD_Mbps:-300} \
+    OWNER_COOKIE_SECRET=${OWNER_COOKIE_SECRET:-please-change-me} \
+    OWNER_COOKIE_TTL_SEC=${OWNER_COOKIE_TTL_SEC:-86400} \
     nohup pnpm dev > ../../logs/storage.log 2>&1 & echo $! > ../../logs/storage.pid)
 }
 start_sharing(){
@@ -130,16 +138,83 @@ start_next(){
   (cd apps/web && API_BASE_URL="http://localhost:${GW_PORT}" nohup pnpm dev > ../../logs/next.log 2>&1 & echo $! > ../../logs/next.pid)
 }
 
+# --- 环境模板与工具 ---
+print_common_env(){ cat <<EOF
+# Common limits & Redis
+DOWNLOAD_CONCURRENCY_LIMIT=3
+DOWNLOAD_Mbps=300
+REDIS_URL=redis://localhost:6379/0
+
+# Owner cookie (same in auth & storage)
+OWNER_COOKIE_SECRET=please-change-me
+OWNER_COOKIE_TTL_SEC=86400
+COOKIE_SECURE=false
+# Generate hash via: node -e "console.log(require('bcryptjs').hashSync('your-owner-code', 10))"
+OWNER_CODE_HASH=
+
+# Aliyun RAM Role for STS
+ALIYUN_ROLE_ARN=
+EOF
+}
+print_auth_env(){ cat <<EOF
+# Auth service
+AUTH_PORT=7081
+JWT_SECRET=please-change-me
+ACCESS_TOKEN_TTL=900
+REFRESH_TOKEN_TTL=604800
+REGISTRATION_REQUIRE_INVITE=false
+EOF
+}
+print_storage_env(){ cat <<EOF
+# Storage service
+STORAGE_PORT=7084
+STORAGE_PATH=./storage
+USE_MINIO=false
+MINIO_ENDPOINT=localhost:9000
+MINIO_ACCESS_KEY=
+MINIO_SECRET_KEY=
+MINIO_USE_SSL=false
+MINIO_BUCKET=mywebdrive
+METADATA_SERVICE_URL=http://localhost:7083
+EOF
+}
+cmd_env_print(){
+  local svc="${1:-all}"
+  case "$svc" in
+    all) print_common_env; print_auth_env; print_storage_env ;;
+    auth) print_common_env; print_auth_env ;;
+    storage) print_common_env; print_storage_env ;;
+    *) echo "[!] Unknown service for env: $svc (use all|auth|storage)" >&2; exit 1 ;;
+  esac
+}
+cmd_env_write(){
+  local out="${1:-.env.example}"
+  echo "[i] Writing env template to $out"
+  { print_common_env; print_auth_env; print_storage_env; } > "$out"
+}
+
+# --- PNPM 基础命令 ---
+cmd_setup(){ corepack enable || true; corepack prepare "pnpm@${PNPM_VERSION}" --activate || true; pnpm --version; }
+cmd_install(){ ensure_pnpm; pnpm install; }
+cmd_build(){ ensure_pnpm; pnpm build:all; }
+
 # --- 主入口 ---
 case ${1:-status} in
-  start)         start_backend; start_frontend ;;
-  stop)          stop_frontend; stop_backend ;;
-  restart)       stop_frontend; stop_backend; start_backend; start_frontend ;;
+  help|-h|--help)
+    echo "Usage: $0 {setup|install|build|start|stop|restart|start-backend|stop-backend|start-frontend|stop-frontend|start-next|status|env:print|env:write}" ;;
+  setup)          cmd_setup ;;
+  install)        cmd_install ;;
+  build)          cmd_build ;;
+  start)          start_backend; start_frontend ;;
+  stop)           stop_frontend; stop_backend ;;
+  restart)        stop_frontend; stop_backend; start_backend; start_frontend ;;
   start-frontend) start_frontend ;;
   stop-frontend)  stop_frontend ;;
   start-backend)  start_backend ;;
   stop-backend)   stop_backend ;;
   start-next)     start_next ;;
+  env:print)      shift; cmd_env_print "$@" ;;
+  env:write)      shift; cmd_env_write "$@" ;;
   status)         show_status ;;
-  *) echo "Usage: $0 {start|stop|restart|start-backend|stop-backend|start-frontend|stop-frontend|start-next|status}"; exit 1;;
+  *) echo "Usage: $0 {setup|install|build|start|stop|restart|start-backend|stop-backend|start-frontend|stop-frontend|start-next|status|env:print|env:write}"; exit 1;;
 esac
