@@ -16,6 +16,13 @@ const REFRESH_TOKEN_TTL = parseInt(process.env.REFRESH_TOKEN_TTL || '604800', 10
 const REQUIRE_INVITE = (process.env.REGISTRATION_REQUIRE_INVITE || 'false').toLowerCase() === 'true'
 const PORT = parseInt(process.env.AUTH_PORT || '7081', 10)
 
+
+// Owner auth (static code -> owner cookie)
+const OWNER_CODE_HASH = process.env.OWNER_CODE_HASH || ''
+const OWNER_COOKIE_SECRET = process.env.OWNER_COOKIE_SECRET || 'owner-dev-secret'
+const OWNER_COOKIE_TTL_SEC = parseInt(process.env.OWNER_COOKIE_TTL_SEC || '86400', 10) // 24h
+const OWNER_COOKIE_SECURE = (process.env.COOKIE_SECURE || 'false').toLowerCase() === 'true'
+
 // DB
 const prisma = new PrismaClient()
 
@@ -137,6 +144,46 @@ app.post('/api/v1/auth/login', async (req, res, next) => {
     next(err)
   }
 })
+
+
+// Owner login (sets HttpOnly owner cookie) and logout
+app.post('/api/v1/auth/owner-login', async (req, res) => {
+  try {
+    const { code } = req.body || {}
+    if (!code) return res.status(400).json({ error: 'Invalid request' })
+    if (!OWNER_CODE_HASH) return res.status(503).json({ error: 'Owner code not configured' })
+    const ok = await bcrypt.compare(String(code), OWNER_CODE_HASH)
+    if (!ok) return res.status(401).json({ error: 'Invalid owner code' })
+    const token = jwt.sign({ role: 'owner', issuedAt: Date.now() }, OWNER_COOKIE_SECRET, { expiresIn: OWNER_COOKIE_TTL_SEC })
+    const cookie = [
+      `owner=${token}`,
+      'Path=/',
+      'HttpOnly',
+      'SameSite=Lax',
+      `Max-Age=${OWNER_COOKIE_TTL_SEC}`,
+      OWNER_COOKIE_SECURE ? 'Secure' : '',
+    ].filter(Boolean).join('; ')
+    res.setHeader('Set-Cookie', cookie)
+    return res.json({ ok: true })
+  } catch {
+    return res.status(500).json({ error: 'Failed to set owner cookie' })
+  }
+})
+
+app.post('/api/v1/auth/owner-logout', async (_req, res) => {
+  const cookie = [
+    'owner=deleted',
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    'Max-Age=0',
+    OWNER_COOKIE_SECURE ? 'Secure' : '',
+  ].filter(Boolean).join('; ')
+  res.setHeader('Set-Cookie', cookie)
+  return res.json({ ok: true })
+})
+
+
 
 // Refresh
 app.post('/api/v1/auth/refresh', async (req, res, next) => {

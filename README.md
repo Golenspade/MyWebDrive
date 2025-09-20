@@ -48,16 +48,22 @@
 
 1. **克隆仓库**
    ```bash
-git clone https://github.com/yourusername/mywebdrive.git
-   cd mywebdrive
-```
+   git clone https://github.com/Golenspade/MyWebDrive.git
+   cd MyWebDrive
+   # 可选：更快的浅克隆
+   # git clone --depth=1 https://github.com/Golenspade/MyWebDrive.git
+   ```
 
 2. **安装依赖并设置开发环境**（pnpm workspace）
    ```bash
-cp .env.example .env
+   # 方式A：使用提供的环境示例
+   cp docs/env.sample .env
+   # 方式B：用脚本生成模板（可自定义输出文件名）
+   ./manage-services.sh env:write .env.example
+
    pnpm -w install
    pnpm -w build
-```
+   ```
 
 3. **启动 Node 服务（开发）**
    ```bash
@@ -74,16 +80,15 @@ cp .env.example .env
 
 7. 端到端回归（Next 4000 + Gateway 9080）
    ```bash
-# 启动后端（包含网关）与 Next 开发服
-./manage-services.sh start-backend
-./manage-services.sh start-next
+   # 启动后端（包含网关）与 Next 开发服
+   ./manage-services.sh start-backend
+   ./manage-services.sh start-next
 
    # 运行回归脚本（切到 9080 网关）
    GATEWAY_PORT=9080 bash ./test_guest_download.sh
-   GATEWAY_PORT=9080 bash ./test_complete_flow.sh
    GATEWAY_PORT=9080 bash ./test_invitation_flow.sh
    GATEWAY_PORT=9080 bash ./test_invitation_system.sh
-```
+   ```
 
 ## CORS/跨域
 
@@ -198,7 +203,6 @@ curl -s http://localhost:7081/metrics | head
 ```bash
 # 回归脚本（指向 Node 网关 9080）
 GATEWAY_PORT=9080 bash ./test_guest_download.sh
-GATEWAY_PORT=9080 bash ./test_complete_flow.sh
 
 # 运行前端测试
 cd frontend && npm test

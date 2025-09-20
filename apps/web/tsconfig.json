@@ -9,6 +9,9 @@
       ],
       "@/components/*": [
         "components/*"
+      ],
+      "@/public/*": [
+        "public/*"
       ]
     },
     "allowJs": true,

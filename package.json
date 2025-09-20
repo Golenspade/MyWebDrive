@@ -11,6 +11,6 @@
     "build:all": "pnpm -r --filter ./packages/** --filter ./services/** --filter ./apps/** build",
     "typecheck": "tsc -b --pretty false",
     "clean": "pnpm -r run clean || true",
-    "dev": "pnpm -r --parallel --filter ./services/** --filter ./apps/** --filter ./frontend run dev"
+    "dev": "pnpm -r --parallel --filter ./services/** --filter ./apps/** run dev"
   }
 }

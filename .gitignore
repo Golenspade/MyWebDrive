@@ -1,49 +1,275 @@
-# Binaries and build artifacts
-bin/
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# MyWebDrive - 云存储服务
 
-# Runtime files
-logs/
-*.log
-*.pid
+基于微服务架构的云存储（网盘）服务。后端已全面迁移到 Node.js（Monorepo + pnpm），前端使用 Vite，并提供 Next.js 开发体验。
 
-# Database files (runtime generated)
-*.db
-auth.db
-sharing.db
+## 🚀 特性
 
-# Data directories (runtime generated)
-data/
-storage/
+- **微服务架构**: 模块化设计，易于扩展和维护
+- **现代化技术栈**: Go + Echo + React + TypeScript + Vite
+- **安全认证**: JWT令牌认证，支持访问令牌和刷新令牌
+- **文件管理**: 完整的文件和文件夹操作功能
+- **断点续传**: 基于TUS协议的可续传文件上传
+- **响应式UI**: 现代化的用户界面，支持多种视图模式
+- **容器化部署**: Docker和Kubernetes支持
+- **API优先**: 完整的OpenAPI 3.0规范文档
 
-# Go workspace
-go.work.sum
+## 📋 系统架构
 
-# Frontend build artifacts
-frontend/dist/
-frontend/node_modules/
+### 后端微服务
 
-# IDE and editor files
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
+Go 与 Node 并行阶段（开发中）：
 
-# OS files
-.DS_Store
-Thumbs.db
+- Go 版端口：网关 8080、Auth 8081、User 8082、Metadata 8083、Storage 8084、Sharing 8085
+- Node 版端口：网关 9080、Auth 7081、User 7082、Metadata 7083、Storage 7084、Sharing 7085
+- 切换与启动：见 `manage-services.sh` 与 `MIGRATION_TO_NODE.md`
 
-# Environment files
-.env
-.env.local
-.env.*.local
+### 前端应用
 
-# Temporary files
-*.tmp
-*.temp
-node_modules
+- **React 18** - 用户界面框架
+- **TypeScript** - 类型安全
+- **Vite** - 快速开发和构建
+- **Zustand** - 轻量级状态管理
+- **TailwindCSS** - 现代化样式框架
+- **React Query** - 数据获取和缓存
+
+### 基础设施
+
+- **SQLite** - 轻量级关系型数据库
+- **MinIO** - S3兼容对象存储
+- **Redis** - 缓存和会话存储
+- **Docker** - 容器化
+- **Kubernetes** - 容器编排
+
+## 🛠️ 快速开始
+
+### 环境要求
+
+- Go 1.21+
+- Node.js 18+
+- Docker & Docker Compose
+- Make (可选)
+
+### 开发环境设置（Node Monorepo）
+
+1. **克隆仓库**
+   ```bash
+git clone https://github.com/yourusername/mywebdrive.git
+   cd mywebdrive
+```
+
+2. **安装依赖并设置开发环境**（pnpm workspace）
+   ```bash
+cp .env.example .env
+   pnpm -w install
+   pnpm -w build
+```
+
+3. **启动 Node 服务（开发）**
+   ```bash
+# 并行启动 gateway + auth + user + metadata + storage + sharing
+   pnpm dev
+   # 或使用脚本按需启动
+   ./manage-services.sh start-gateway-node
+   ./manage-services.sh start-metadata-node
+   ./manage-services.sh start-storage-node
+   ./manage-services.sh start-sharing-node
+```
+
+6. **访问应用**
+   - 前端: http://localhost:3000
+   - API 网关 (Node): http://localhost:9080
+   - MinIO控制台: http://localhost:9001 (minioadmin/minioadmin)
+
+7. 端到端回归（Next 4000 + Gateway 9080）
+   ```bash
+# 启动 Node 网关与 Next 开发服
+   ./manage-services.sh start-gateway-node
+   ./manage-services.sh start-next
+
+   # 启动 Node 元数据/存储/分享服务（或通过 start-backend 统一启动）
+   ./manage-services.sh start-metadata-node
+   ./manage-services.sh start-storage-node
+   ./manage-services.sh start-sharing-node
+
+   # 运行回归脚本（切到 9080 网关）
+   GATEWAY_PORT=9080 bash ./test_guest_download.sh
+   GATEWAY_PORT=9080 bash ./test_complete_flow.sh
+   GATEWAY_PORT=9080 bash ./test_invitation_flow.sh
+   GATEWAY_PORT=9080 bash ./test_invitation_system.sh
+```
+
+## CORS/跨域
+
+- 默认（开发态）: Node 网关开启宽松 CORS（`*`），Next 开发服（`apps/web`，端口 4000）通过 `rewrites` 代理到网关，无需额外配置。
+- 指定来源: 使用环境变量 `CORS_ALLOWED_ORIGINS` 以逗号分隔（示例：`http://localhost:3000,http://localhost:4000`）。
+- Next 网关地址: `apps/web/next.config.js` 中 `API_BASE_URL` 默认指向 `http://localhost:9080`，可通过 `apps/web/.env.local` 覆盖。
+- 生产建议: 显式设置允许来源域名，避免使用 `*`。
+
+详见 `docs/CORS.md`。
+
+### 生产部署
+
+#### Docker Compose部署
+
+```bash
+# 构建镜像
+make docker-build
+
+# 启动所有服务
+make docker-up
+```
+
+#### Kubernetes部署
+
+```bash
+# 部署到K8s集群
+make k8s-deploy
+
+# 检查部署状态
+kubectl get pods -n mywebdrive
+```
+
+#### 阿里云部署
+
+```bash
+# 设置环境变量
+export REGISTRY_URL=registry.cn-hangzhou.aliyuncs.com/your-namespace
+export VERSION=v1.0.0
+
+# 构建并推送镜像到阿里云
+make alicloud-build
+
+# 部署到阿里云
+make alicloud-deploy
+```
+
+或者使用Docker Compose在阿里云ECS上部署：
+
+```bash
+# 复制配置文件
+cd infrastructure/alicloud
+cp env.example .env
+
+# 编辑.env文件，填入实际配置
+vim .env
+
+# 部署
+./deploy.sh production
+```
+
+## 📖 API文档
+
+完整的API文档基于OpenAPI 3.0规范，位于 `docs/openapi.yaml`。
+
+### 主要API端点
+
+- `POST /api/v1/auth/register` - 用户注册
+- `POST /api/v1/auth/login` - 用户登录
+- `GET /api/v1/users/me` - 获取用户信息
+- `POST /api/v1/folders` - 创建文件夹
+- `GET /api/v1/folders/{id}/children` - 获取文件夹内容
+- `POST /api/v1/storage/uploads` - 创建上传会话
+- `PATCH /api/v1/storage/uploads/{id}` - 上传文件分片（支持 TUS `Upload-Offset`，或自定义 `X-Chunk-Index`）
+- `HEAD /api/v1/storage/uploads/{id}` - 查询上传状态（返回 `Upload-Length` 与 `Upload-Offset`）
+
+### 认证
+
+所有受保护的端点都需要在请求头中包含JWT令牌：
+
+```
+Authorization: Bearer <access_token>
+```
+
+## 🏗️ 项目结构
+
+```
+mywebdrive/
+├── backend/                 # Go 版后端（迁移阶段保留）
+├── services/                # Node 微服务（auth/user/metadata/storage/sharing/gateway）
+├── packages/                # Node 共享包（common、observability 等）
+├── frontend/                # 前端应用（Vite）
+├── apps/                    # Next.js（可选，开发态）
+├── docs/                    # 文档（OpenAPI、FAQ 等）
+└── scripts|infrastructure   # 脚本与部署
+```
+
+## 🔭 日志与指标（Node 统一）
+
+- 日志：`pino` 输出结构化 JSON，默认字段包含 `service`、`instance`、`env` 与请求 `req.id`；级别由 `LOG_LEVEL` 控制（默认 `info`）。
+- 指标：`prom-client` 暴露 `/metrics`，包含：
+  - `http_requests_total{method,route,status,service,instance}`
+  - `http_request_duration_ms{method,route,status,service,instance}`（直方图）
+  - 每个服务均提供 `/health`、`/metrics`；网关还提供 `/api/v1/admin/health` 汇总健康检查。
+- 关联 ID：自动注入/透传 `x-request-id`，用于跨服务排障。
+- 快速验证：
+  ```bash
+curl -s http://localhost:7081/metrics | head
+  curl -H 'x-request-id: test-123' -i http://localhost:7083/health
+```
+
+## 🧪 测试
+
+```bash
+# 回归脚本（指向 Node 网关 9080）
+GATEWAY_PORT=9080 bash ./test_guest_download.sh
+GATEWAY_PORT=9080 bash ./test_complete_flow.sh
+
+# Go 端测试（如需与 Node 对照）
+cd backend/auth-service && go test ./...
+
+# 运行前端测试
+cd frontend && npm test
+```
+
+## 🔧 开发工具
+
+### 有用的Make命令
+
+```bash
+make help          # 显示所有可用命令
+make build         # 构建所有Go服务
+make run-dev       # 启动开发环境
+make docker-build  # 构建Docker镜像
+make k8s-deploy    # 部署到Kubernetes
+make migrate-up    # 运行数据库迁移
+make generate-api  # 从OpenAPI规范生成代码
+```
+
+### 代码生成
+
+项目使用代码生成来确保API契约的一致性：
+
+```bash
+# 从OpenAPI规范生成Go服务器代码
+make generate-api
+```
+
+## 🤝 贡献
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add some amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 开启 Pull Request
+
+## 📄 许可证
+
+本项目基于 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
+
+## 🙏 致谢
+
+- [Echo](https://echo.labstack.com/) - Go Web框架
+- [React](https://reactjs.org/) - 前端框架
+- [TUS](https://tus.io/) - 可续传上传协议
+- [MinIO](https://min.io/) - 对象存储服务
+
+## 📞 联系
+
+如有问题或建议，请通过以下方式联系：
+
+- 提交 [Issue](https://github.com/yourusername/mywebdrive/issues)
+- 邮箱: support@mywebdrive.com
+
+---
+
+⭐ 如果这个项目对你有帮助，请给它一个星标！

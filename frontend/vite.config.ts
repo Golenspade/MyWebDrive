@@ -15,9 +15,9 @@ export default defineConfig({
     // Proxy API to Node gateway in dev
     proxy: {
       '/api/v1': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:9080',
         changeOrigin: true,
-      },
+      }
     },
   },
 })

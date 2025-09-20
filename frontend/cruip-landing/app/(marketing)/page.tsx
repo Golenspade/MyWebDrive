@@ -1,0 +1,22 @@
+export const metadata = {
+  title: "MyWebDrive - 云端文件存储与分享平台",
+  description: "安全、高效的云端文件存储与分享解决方案，支持多用户权限管理和实时协作。",
+};
+
+import Hero from "@/components/hero-home";
+import BusinessCategories from "@/components/business-categories";
+import FeaturesPlanet from "@/components/features-planet";
+import LargeTestimonial from "@/components/large-testimonial";
+import Cta from "@/components/cta";
+
+export default function Home() {
+  return (
+    <>
+      <Hero />
+      <BusinessCategories />
+      <FeaturesPlanet />
+      <LargeTestimonial />
+      <Cta />
+    </>
+  );
+}

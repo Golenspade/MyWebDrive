@@ -6,8 +6,13 @@ export type Overview = {
   last7d: Record<string, { date: string; value: number }[]>
 }
 
-export async function fetchAdminOverview(): Promise<Overview> {
-  const { data } = await api.get('/admin/overview')
+export type OverviewQuery = {
+  start?: string
+  end?: string
+}
+
+export async function fetchAdminOverview(params?: OverviewQuery): Promise<Overview> {
+  const { data } = await api.get('/admin/overview', { params })
   return data as Overview
 }
 

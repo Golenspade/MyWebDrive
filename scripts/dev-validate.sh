@@ -2,7 +2,7 @@
 
 # Local dev startup and validation for unified Next proxy (4000)
 # - Starts Go backend services
-# - Starts Next (4000) and Vite (3000)
+# - Starts Next (4000)
 # - Verifies basic reachability and proxy behavior
 
 set -euo pipefail
@@ -80,13 +80,10 @@ main() {
   info "Starting Next (apps/web) on :4000"
   pnpm --filter ./apps/web dev > logs/next-dev.log 2>&1 &
   NEXT_PID=$!
-  info "Starting Vite (frontend) on :3000"
-  pnpm --filter ./frontend dev > logs/vite-dev.log 2>&1 &
-  VITE_PID=$!
 
   cleanup() {
     warn "Shutting down dev processes..."
-    kill "$NEXT_PID" "$VITE_PID" "$GATEWAY_NODE_PID" >/dev/null 2>&1 || true
+    kill "$NEXT_PID" "$GATEWAY_NODE_PID" >/dev/null 2>&1 || true
     warn "Stopping backend services..."
     ./manage-services.sh stop-backend || true
   }
@@ -95,7 +92,7 @@ main() {
   # 6) Wait for ports
   wait_for_port 8080 "API Gateway"
   wait_for_port 9080 "Node API Gateway"
-  wait_for_port 3000 "Vite"
+
   wait_for_port 4000 "Next"
 
   # 7) Sanity checks
@@ -123,11 +120,11 @@ main() {
   echo
   info "Dev is up!"
   echo "- Next:         http://localhost:4000 (unified dev entry)"
-  echo "- Vite:         http://localhost:3000 (HMR direct debug)"
+
   echo "- Go Gateway:   http://localhost:8080"
   echo "- Node Gateway: http://localhost:9080"
   echo
-  echo "Logs: logs/next-dev.log, logs/vite-dev.log, logs/gateway-node.log"
+  echo "Logs: logs/next-dev.log, logs/gateway-node.log"
   echo "Press Ctrl+C to stop and cleanup."
 
   # Keep script running to hold background processes

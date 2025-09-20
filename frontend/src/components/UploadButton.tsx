@@ -20,6 +20,9 @@ export default function UploadButton() {
   const [showNewFolderModal, setShowNewFolderModal] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
 
+
+  const MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024 // 2GB
+
   const { createFolder, currentFolderId, fetchFiles } = useFileStore()
   const user = useAuthStore((state) => state.user)
 
@@ -47,7 +50,14 @@ export default function UploadButton() {
       return
     }
 
-    const newUploads: UploadFile[] = acceptedFiles.map(file => ({
+    const validFiles = acceptedFiles.filter(f => f.size <= MAX_UPLOAD_BYTES)
+    const tooLarge = acceptedFiles.filter(f => f.size > MAX_UPLOAD_BYTES)
+    if (tooLarge.length) {
+      toast.error(`以下文件超过 2GB，已跳过: ${tooLarge.slice(0, 3).map(f => f.name).join(', ')}${tooLarge.length > 3 ? ' 等' : ''}`)
+    }
+    if (validFiles.length === 0) return
+
+    const newUploads: UploadFile[] = validFiles.map(file => ({
       id: Math.random().toString(36).substr(2, 9),
       file,
       progress: 0,
@@ -80,8 +90,8 @@ export default function UploadButton() {
       },
       onError: (error) => {
         console.error('Upload failed:', error)
-        setUploadFiles(prev => prev.map(f => 
-          f.id === uploadFile.id 
+        setUploadFiles(prev => prev.map(f =>
+          f.id === uploadFile.id
             ? { ...f, status: 'error' as const }
             : f
         ))
@@ -89,19 +99,19 @@ export default function UploadButton() {
       },
       onProgress: (bytesUploaded, bytesTotal) => {
         const percentage = Math.round((bytesUploaded / bytesTotal) * 100)
-        setUploadFiles(prev => prev.map(f => 
-          f.id === uploadFile.id 
+        setUploadFiles(prev => prev.map(f =>
+          f.id === uploadFile.id
             ? { ...f, progress: percentage }
             : f
         ))
       },
       onSuccess: async () => {
-        setUploadFiles(prev => prev.map(f => 
-          f.id === uploadFile.id 
+        setUploadFiles(prev => prev.map(f =>
+          f.id === uploadFile.id
             ? { ...f, status: 'completed' as const, progress: 100 }
             : f
         ))
-        
+
         // 完成上传后通知后端处理
         try {
           await fetch(`/api/v1/storage/uploads/${upload.url?.split('/').pop()}/finalize`, {
@@ -121,9 +131,9 @@ export default function UploadButton() {
     })
 
     upload.start()
-    
-    setUploadFiles(prev => prev.map(f => 
-      f.id === uploadFile.id 
+
+    setUploadFiles(prev => prev.map(f =>
+      f.id === uploadFile.id
         ? { ...f, upload, status: 'uploading' as const }
         : f
     ))
@@ -138,7 +148,7 @@ export default function UploadButton() {
 
   const handleCreateFolder = async () => {
     if (!newFolderName.trim()) return
-    
+
     try {
       await createFolder(newFolderName.trim(), currentFolderId || undefined)
       setNewFolderName('')
@@ -178,7 +188,7 @@ export default function UploadButton() {
         >
           <FolderPlus className="w-6 h-6" />
         </button>
-        
+
         <button
           onClick={() => document.getElementById('file-upload')?.click()}
           className="bg-primary-600 text-white p-4 rounded-full shadow-lg hover:bg-primary-700 transition-colors"
@@ -186,7 +196,7 @@ export default function UploadButton() {
         >
           <Upload className="w-6 h-6" />
         </button>
-        
+
         <input
           id="file-upload"
           type="file"
@@ -230,7 +240,7 @@ export default function UploadButton() {
                       <p className="text-xs text-gray-500">
                         {formatFileSize(uploadFile.file.size)}
                       </p>
-                      
+
                       {uploadFile.status === 'uploading' && (
                         <div className="mt-2">
                           <div className="w-full bg-gray-200 rounded-full h-2">
@@ -242,16 +252,16 @@ export default function UploadButton() {
                           <p className="text-xs text-gray-500 mt-1">{uploadFile.progress}%</p>
                         </div>
                       )}
-                      
+
                       {uploadFile.status === 'completed' && (
                         <p className="text-xs text-green-600 mt-1">上传完成</p>
                       )}
-                      
+
                       {uploadFile.status === 'error' && (
                         <p className="text-xs text-red-600 mt-1">上传失败</p>
                       )}
                     </div>
-                    
+
                     {uploadFile.status === 'uploading' && (
                       <button
                         onClick={() => cancelUpload(uploadFile)}

@@ -17,26 +17,7 @@ export async function downloadFileById(
   try {
     console.warn('开始下载文件:', fileId)
     
-    const token = localStorage.getItem('auth-storage')
-    let accessToken = null
-    
-    if (token) {
-      try {
-        const authData = JSON.parse(token)
-        accessToken = authData.state?.accessToken
-      } catch (e) {
-        console.warn('解析token失败:', e)
-      }
-    }
-
-    if (!accessToken) {
-      throw new Error('未找到访问令牌')
-    }
-
     const res = await axios.get(`/api/v1/storage/files/${fileId}/download`, {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`
-      },
       responseType: 'blob'
     })
 
@@ -85,6 +66,8 @@ export async function downloadFileById(
         errorMessage = '无权限下载此文件'
       } else if (axiosError.response?.status === 403) {
         errorMessage = '下载受限，请检查权限'
+      } else if (axiosError.response?.status === 429) {
+        errorMessage = '下载并发已达上限，请稍后重试'
       }
     } else if (err && typeof err === 'object' && 'message' in err) {
       errorMessage = (err as { message: string }).message
@@ -106,9 +89,9 @@ export async function downloadFileById(
  * @param user 用户对象
  * @returns 是否有下载权限
  */
-export function canUserDownload(user: { role?: string } | null): boolean {
-  if (!user) return false
-  return user.role !== 'guest'
+export function canUserDownload(_user: { role?: string } | null): boolean {
+  // 匿名用户也允许下载
+  return true
 }
 
 /**
@@ -120,31 +103,11 @@ export function canUserDownload(user: { role?: string } | null): boolean {
  * @returns 是否通过权限检查
  */
 export function handleDownloadPermission(
-  user: { role?: string } | null,
-  navigate: (path: string, options?: { state?: Record<string, unknown> }) => void,
-  fileId: string,
-  returnUrl: string = '/files'
+  _user: { role?: string } | null,
+  _navigate: (path: string, options?: { state?: Record<string, unknown> }) => void,
+  _fileId: string,
+  _returnUrl: string = '/files'
 ): boolean {
-  if (!user) {
-    navigate('/login', {
-      state: {
-        message: '请登录后下载文件',
-        returnUrl,
-        action: 'download',
-        fileId
-      }
-    })
-    return false
-  }
-
-  if (user.role === 'guest') {
-    toast({
-      title: "下载受限",
-      description: "游客无法下载文件，请注册成为用户",
-      variant: "destructive"
-    })
-    return false
-  }
-
+  // 匿名用户可直接下载，不做前端拦截
   return true
 }
