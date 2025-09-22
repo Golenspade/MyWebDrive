@@ -13,25 +13,25 @@ function RootLayout() {
   )
 }
 
-
-
-// 简化：将所有前端路由重定向到 Cruip 落地页
-function CruipRedirect() {
-  React.useEffect(() => {
-    window.location.replace('/');
-  }, []);
-  return null;
+// 临时首页，避免空白和重定向循环
+function Home() {
+  return (
+    <div className="p-8">
+      <h1 className="text-2xl font-semibold">MyWebDrive 前端已运行</h1>
+      <p className="text-muted-foreground mt-2">这是占位首页。需要的话我可以接入实际页面或落地页。</p>
+    </div>
+  )
 }
 
-// 创建路由配置（最小化）
+// 路由：根路径渲染首页
 const router = createBrowserRouter([
   {
-    path: "/",
+    path: '/',
     element: <RootLayout />,
     children: [
-      { path: "*", element: <CruipRedirect /> },
-    ]
-  }
+      { index: true, element: <Home /> },
+    ],
+  },
 ])
 
 function App() {

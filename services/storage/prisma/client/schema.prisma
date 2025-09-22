@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "./client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("STORAGE_DATABASE_URL")
+}
+
+model UploadSession {
+  id             String   @id
+  fileName       String
+  fileSize       Int
+  mimeType       String
+  chunkSize      Int
+  totalChunks    Int
+  uploadedChunks String // JSON string of Record<Int, true>
+  chunkMd5s      String? // JSON string of Record<Int, String>
+  ownerId        String
+  status         String   @default("uploading")
+  storagePath    String?
+  md5Hash        String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  expiresAt      DateTime
+
+  @@index([ownerId])
+  @@index([status])
+  @@index([expiresAt])
+}
