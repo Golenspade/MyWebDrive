@@ -2,6 +2,21 @@
 
 All notable changes to this repository will be documented in this file.
 
+## Unreleased - 2025-09-25
+
+### Changed
+- refactor(auth,user): Establish clear SoR boundaries. Auth owns credentials/role; User owns profile and quotas. Remove duplicate user fields to prevent drift.
+- chore(prisma): Standardize per-service local Prisma Client output and local imports (Auth/User/Sharing) to avoid cross-service schema overwrites and align with NodeNext resolution.
+- fix(storage): Remove duplicate Transform import; drop invalid Worker option `type: 'module'`. Build now passes.
+
+### Added
+- chore(auth,sharing): Minimal `bcryptjs` module declaration to satisfy TS without extra deps.
+
+### Notes
+- Initialized fresh SQLite DBs for each service with `prisma db push` (no data migration needed).
+- All services build successfully after the changes.
+
+
 ## v0.1.0 - 2025-09-08
 
 ### Added
