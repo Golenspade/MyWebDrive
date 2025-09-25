@@ -1,10 +1,9 @@
 import express from 'express';
-import morgan from 'morgan';
+import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '../prisma/client';
 import { randomUUID } from 'crypto';
 import { getEnv } from '@mywebdrive/common';
-import { Registry, collectDefaultMetrics, Counter, Histogram } from 'prom-client';
 const app = express();
 app.disable('x-powered-by');
 // Config
@@ -16,39 +15,10 @@ process.env.METADATA_DATABASE_URL = DATABASE_URL;
 const prisma = new PrismaClient();
 // Middleware
 app.use(express.json());
-app.use((req, res, next) => {
-    const rid = req.headers['x-request-id'] || randomUUID();
-    req.headers['x-request-id'] = rid;
-    res.setHeader('x-request-id', rid);
-    next();
-});
-app.use(morgan(':method :url :status :res[content-length] - :response-time ms rid=:req[x-request-id]'));
-// Metrics
-const register = new Registry();
-collectDefaultMetrics({ register });
-const httpRequestsTotal = new Counter({
-    name: 'http_requests_total',
-    help: 'Total number of HTTP requests',
-    labelNames: ['method', 'route', 'status'],
-    registers: [register],
-});
-const httpRequestDurationMs = new Histogram({
-    name: 'http_request_duration_ms',
-    help: 'Duration of HTTP requests in ms',
-    buckets: [5, 10, 25, 50, 100, 250, 500, 1000, 2500],
-    labelNames: ['method', 'route', 'status'],
-    registers: [register],
-});
-app.use((req, res, next) => {
-    const start = Date.now();
-    res.on('finish', () => {
-        const route = req.route?.path || req.path;
-        const labels = { method: req.method, route, status: String(res.statusCode) };
-        httpRequestsTotal.inc(labels);
-        httpRequestDurationMs.observe(labels, Date.now() - start);
-    });
-    next();
-});
+const logger = createLogger({ service: 'metadata-service-node' });
+app.use(createHttpLogger(logger));
+const { register, metricsMiddleware, metricsHandler } = createMetrics('metadata-service-node');
+app.use(metricsMiddleware);
 // Helpers
 function parseBearerToken(req) {
     const header = req.headers.authorization || '';
@@ -74,10 +44,7 @@ function requireAuth(req, res, next) {
 }
 // Health & metrics
 app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'metadata-service-node' }));
-app.get('/metrics', async (_req, res) => {
-    res.set('Content-Type', register.contentType);
-    res.end(await register.metrics());
-});
+app.get('/metrics', metricsHandler);
 // --- Folder routes ---
 app.post('/api/v1/folders', requireAuth, async (req, res, next) => {
     try {
@@ -124,6 +91,22 @@ app.get('/api/v1/folders/:folderId/children', requireAuth, async (req, res, next
     try {
         const folderId = req.params.folderId;
         const userId = req.auth.userId;
+        const limitParam = Number.parseInt(String(req.query.limit || '50'), 10);
+        const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(100, limitParam)) : 50;
+        const cursorRaw = String(req.query.cursor || '');
+        // Offset-based cursor for simplicity: base64-encoded integer offset
+        let offset = 0;
+        if (cursorRaw) {
+            try {
+                const decoded = Buffer.from(cursorRaw, 'base64').toString('utf8');
+                const parsed = Number.parseInt(decoded, 10);
+                if (Number.isFinite(parsed) && parsed >= 0)
+                    offset = parsed;
+            }
+            catch {
+                // ignore invalid cursor
+            }
+        }
         if (folderId !== 'root') {
             const folder = await prisma.file.findFirst({ where: { id: folderId, ownerId: userId, type: 'folder', deletedAt: null }, select: { id: true } });
             if (!folder)
@@ -139,9 +122,11 @@ app.get('/api/v1/folders/:folderId/children', requireAuth, async (req, res, next
                 { type: 'desc' },
                 { name: 'asc' },
             ],
-            take: 50,
+            skip: offset,
+            take: limit,
         });
-        return res.json({ items, nextCursor: null });
+        const nextCursor = items.length === limit ? Buffer.from(String(offset + limit), 'utf8').toString('base64') : null;
+        return res.json({ items, nextCursor });
     }
     catch (err) {
         next(err);
@@ -186,7 +171,8 @@ app.patch('/api/v1/folders/:folderId', requireAuth, async (req, res, next) => {
                 await tx.file.update({ where: { id: d.id }, data: { path: newPath + suffix, updatedAt: new Date() } });
             }
         });
-        return res.status(204).send();
+        const updated = await prisma.file.findFirst({ where: { id: folderId, ownerId: userId, deletedAt: null } });
+        return res.json(updated);
     }
     catch (err) {
         next(err);
@@ -315,7 +301,8 @@ app.patch('/api/v1/files/:fileId', requireAuth, async (req, res, next) => {
         }
         const newPath = (parentPath ? parentPath : '') + '/' + name;
         await prisma.file.update({ where: { id: fileId }, data: { name, path: newPath, updatedAt: new Date() } });
-        return res.status(204).send();
+        const updated = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId, deletedAt: null } });
+        return res.json(updated);
     }
     catch (err) {
         next(err);
@@ -379,7 +366,9 @@ app.get('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =>
             return res.status(404).json({ error: 'File not found' });
         if (file.ownerId !== userId)
             return res.status(403).json({ error: 'Access denied' });
-        const versions = await prisma.fileVersion.findMany({ where: { fileId }, orderBy: { version: 'desc' }, take: 20 });
+        const limitParam = Number.parseInt(String(req.query.limit || '20'), 10);
+        const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(100, limitParam)) : 20;
+        const versions = await prisma.fileVersion.findMany({ where: { fileId }, orderBy: { version: 'desc' }, take: limit });
         return res.json({ versions });
     }
     catch (err) {
@@ -399,37 +388,30 @@ app.post('/api/v1/files/:fileId/versions/:versionId/restore', requireAuth, async
         const version = await prisma.fileVersion.findFirst({ where: { id: versionId, fileId } });
         if (!version)
             return res.status(404).json({ error: 'Version not found' });
-        await prisma.$transaction(async (tx) => {
-            if (file.size !== null && file.size !== undefined) {
-                // Backup current file state as a version if has storage info
-                const currentVersion = file.version;
-                const storagePath = file.storagePath;
-                const md5Hash = file.md5Hash;
-                if (storagePath && md5Hash) {
-                    await tx.fileVersion.create({
-                        data: {
-                            id: randomUUID(),
-                            fileId: file.id,
-                            version: currentVersion,
-                            size: file.size || 0,
-                            storagePath,
-                            md5Hash,
-                            comment: 'Auto-backup before restore',
-                        },
-                    });
-                }
-            }
+        const updated = await prisma.$transaction(async (tx) => {
+            const newVersion = (file.version || 1) + 1;
+            await tx.fileVersion.create({
+                data: {
+                    id: randomUUID(),
+                    fileId: file.id,
+                    version: newVersion,
+                    size: version.size,
+                    storagePath: version.storagePath,
+                    md5Hash: version.md5Hash,
+                    comment: `Restore from version ${version.version}`,
+                },
+            });
             await tx.file.update({
                 where: { id: file.id },
                 data: {
-                    version: file.version + 1,
+                    version: newVersion,
                     size: version.size,
-                    // storagePath/md5Hash columns are not modeled on File; kept on versions table
                     updatedAt: new Date(),
                 },
             });
+            return tx.file.findFirst({ where: { id: file.id } });
         });
-        return res.json({ message: 'Version restored successfully', newVersion: file.version + 1 });
+        return res.json(updated);
     }
     catch (err) {
         next(err);
@@ -619,6 +601,7 @@ app.get('/api/v1/search', requireAuth, async (req, res, next) => {
 app.use((err, _req, res, _next) => {
     const status = typeof err?.status === 'number' ? err.status : 500;
     const message = err?.message || 'Internal Server Error';
+    logger.error({ err, status }, 'unhandled error');
     res.status(status).json({ error: { code: 'INTERNAL_ERROR', message } });
 });
 async function ensureSchema() {
@@ -681,7 +664,6 @@ async function ensureSchema() {
 }
 app.listen(PORT, async () => {
     await ensureSchema();
-    // eslint-disable-next-line no-console
-    console.log(`[metadata-service-node] listening on http://localhost:${PORT}`);
+    logger.info({ port: PORT }, 'metadata-service-node listening');
 });
 //# sourceMappingURL=index.js.map

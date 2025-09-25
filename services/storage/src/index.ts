@@ -470,13 +470,12 @@ app.head('/api/v1/storage/uploads/:uploadId', requireAuth, (req, res) => {
 // Finalize upload -> merge chunks with MD5 and commit
 import { createHash } from 'crypto'
 import { pipeline } from 'stream/promises'
-import { Transform } from 'stream'
 
 async function computeMd5InWorker(filePath: string): Promise<string> {
   return new Promise((resolve, reject) => {
     // Use a dedicated worker module to avoid booting the server in the worker thread
     const workerUrl = new URL('./md5-worker.js', import.meta.url)
-    const worker = new Worker(workerUrl, { type: 'module', workerData: { filePath } as any })
+    const worker = new Worker(workerUrl, { workerData: { filePath } as any })
     const cleanup = () => { try { worker.terminate() } catch {} }
     worker.on('message', (msg: any) => {
       if (msg?.hash) { cleanup(); resolve(String(msg.hash)) } else if (msg?.error) { cleanup(); reject(new Error(String(msg.error))) }

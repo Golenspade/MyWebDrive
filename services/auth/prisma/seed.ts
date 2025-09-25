@@ -16,9 +16,7 @@ async function main() {
           name: 'Administrator',
           email: adminEmail,
           password: hash,
-          role: 'admin',
-          storageQuota: BigInt(process.env.DEFAULT_QUOTA_BYTES || '5368709120'),
-          storageUsed: BigInt(0),
+          role: 'admin'
         },
       })
       // eslint-disable-next-line no-console

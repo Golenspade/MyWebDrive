@@ -1,8 +1,7 @@
 import express from 'express'
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability'
 import jwt from 'jsonwebtoken'
-import bcrypt from 'bcryptjs'
-import { PrismaClient } from '@prisma/client'
+import { PrismaClient } from '../prisma/client/index.js'
 import { getEnv } from '@mywebdrive/common'
 
 const app = express()
@@ -53,17 +52,20 @@ app.get('/metrics', metricsHandler)
 app.get('/api/v1/users/me', requireAuth, async (req, res, next) => {
   try {
     const userId = (req as any).auth.userId as string
-    const user = await prisma.user.findUnique({ where: { id: userId } })
-    if (!user) return res.status(401).json({ error: 'Unauthorized' })
+    let user = await prisma.user.findUnique({ where: { id: userId } })
+    if (!user) {
+      user = await prisma.user.create({
+        data: { id: userId, name: 'User', storageQuota: BigInt(0), storageUsed: BigInt(0) },
+      })
+    }
     return res.json({
       id: user.id,
       name: user.name,
-      email: user.email,
       storageQuota: Number(user.storageQuota),
       storageUsed: Number(user.storageUsed),
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
-      role: user.role,
+      role: (req as any).auth?.role || 'user',
     })
   } catch (err) {
     next(err)
@@ -74,35 +76,25 @@ app.get('/api/v1/users/me', requireAuth, async (req, res, next) => {
 app.patch('/api/v1/users/me', requireAuth, async (req, res, next) => {
   try {
     const userId = (req as any).auth.userId as string
-    const { name, currentPassword, newPassword } = (req.body || {}) as {
-      name?: string
-      currentPassword?: string
-      newPassword?: string
-    }
-
-    const user = await prisma.user.findUnique({ where: { id: userId } })
-    if (!user) return res.status(401).json({ error: 'Unauthorized' })
+    const { name } = (req.body || {}) as { name?: string }
 
     const data: any = {}
     if (name && typeof name === 'string' && name.trim().length >= 2) data.name = name.trim()
-    if (newPassword) {
-      if (!currentPassword) return res.status(403).json({ error: 'Current password required' })
-      const ok = await bcrypt.compare(currentPassword, user.password)
-      if (!ok) return res.status(403).json({ error: 'Current password incorrect' })
-      if (newPassword.length < 8) return res.status(400).json({ error: 'New password too short' })
-      data.password = await bcrypt.hash(newPassword, 10)
-    }
 
-    const updated = await prisma.user.update({ where: { id: userId }, data })
+    const updated = await prisma.user.upsert({
+      where: { id: userId },
+      update: data,
+      create: { id: userId, name: data.name || 'User', storageQuota: BigInt(0), storageUsed: BigInt(0) },
+    })
+
     return res.json({
       id: updated.id,
       name: updated.name,
-      email: updated.email,
       storageQuota: Number(updated.storageQuota),
       storageUsed: Number(updated.storageUsed),
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
-      role: updated.role,
+      role: (req as any).auth?.role || 'user',
     })
   } catch (err) {
     next(err)
