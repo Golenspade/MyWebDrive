@@ -1,13 +1,14 @@
 {
   "name": "mywebdrive-frontend",
-  "private": true,
   "version": "0.1.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
-    "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 10",
-    "preview": "vite preview"
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 5173",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint . --ext .ts,.tsx"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.1",
@@ -61,3 +62,4 @@
     "vite": "^5.0.8"
   }
 }
+
