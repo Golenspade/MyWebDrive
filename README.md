@@ -151,7 +151,7 @@ vim .env
 
 ## 📖 API文档
 
-完整的API文档基于OpenAPI 3.0规范，位于 `docs/openapi.yaml`。
+OpenAPI 文档正在按最新 SoR 边界与 Node 实现重写。历史版本暂存于 `docs/_archive/openapi.yaml`。如需端点速查，参见下方列表与各服务实现。
 
 ### 主要API端点
 

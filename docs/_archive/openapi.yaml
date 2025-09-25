@@ -1,0 +1,794 @@
+openapi: 3.0.3
+info:
+  title: MyWebDrive API
+  description: 基于Go语言的云存储（网盘）服务API
+  version: 1.0.0
+  contact:
+    name: MyWebDrive Team
+    email: support@mywebdrive.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080/api/v1
+    description: 开发环境
+  - url: https://api.mywebdrive.com/v1
+    description: 生产环境
+
+security:
+  - bearerAuth: []
+
+paths:
+  # 认证服务端点
+  /auth/register:
+    post:
+      tags:
+        - Authentication
+      summary: 用户注册
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - email
+                - password
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                  example: "张三"
+                email:
+                  type: string
+                  format: email
+                  example: "zhangsan@example.com"
+                password:
+                  type: string
+                  minLength: 8
+                  example: "password123"
+      responses:
+        '201':
+          description: 注册成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: 邮箱已存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: 用户登录
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "zhangsan@example.com"
+                password:
+                  type: string
+                  example: "password123"
+      responses:
+        '200':
+          description: 登录成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/refresh:
+    post:
+      tags:
+        - Authentication
+      summary: 刷新访问令牌
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+                  example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        '200':
+          description: 刷新成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken:
+                    type: string
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: 用户登出
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - refreshToken
+              properties:
+                refreshToken:
+                  type: string
+      responses:
+        '204':
+          description: 登出成功
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # 用户服务端点
+  /users/me:
+    get:
+      tags:
+        - User
+      summary: 获取当前用户信息
+      responses:
+        '200':
+          description: 用户信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      tags:
+        - User
+      summary: 更新用户信息
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  minLength: 2
+                  maxLength: 100
+                currentPassword:
+                  type: string
+                  description: 修改密码时需要提供当前密码
+                newPassword:
+                  type: string
+                  minLength: 8
+                  description: 新密码
+      responses:
+        '200':
+          description: 更新成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: 当前密码错误
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # 文件夹端点
+  /folders:
+    post:
+      tags:
+        - Folders
+      summary: 创建文件夹
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+                  example: "我的文档"
+                parentId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: 父文件夹ID，null表示根目录
+      responses:
+        '201':
+          description: 文件夹创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          description: 父文件夹不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /folders/{folderId}/children:
+    get:
+      tags:
+        - Folders
+      summary: 获取文件夹内容
+      parameters:
+        - name: folderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+          description: 文件夹ID，使用"root"表示根目录
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            minimum: 1
+            maximum: 100
+          description: 每页数量
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: 分页游标
+      responses:
+        '200':
+          description: 文件夹内容
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListResponse'
+        '404':
+          description: 文件夹不存在
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /folders/{folderId}:
+    patch:
+      tags:
+        - Folders
+      summary: 重命名文件夹
+      parameters:
+        - name: folderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+      responses:
+        '200':
+          description: 重命名成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Folders
+      summary: 删除文件夹
+      parameters:
+        - name: folderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: 删除成功
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /folders/{folderId}/move:
+    post:
+      tags:
+        - Folders
+      summary: 移动文件夹
+      parameters:
+        - name: folderId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - newParentId
+              properties:
+                newParentId:
+                  type: string
+                  format: uuid
+                  nullable: true
+                  description: 新的父文件夹ID，null表示移动到根目录
+      responses:
+        '204':
+          description: 移动成功
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # 文件端点
+  /files/{fileId}:
+    get:
+      tags:
+        - Files
+      summary: 获取文件信息
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: 文件信息
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags:
+        - Files
+      summary: 重命名文件
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 255
+      responses:
+        '200':
+          description: 重命名成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileMetadata'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags:
+        - Files
+      summary: 删除文件
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: 删除成功
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /files/{fileId}/move:
+    post:
+      tags:
+        - Files
+      summary: 移动文件
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - newParentId
+              properties:
+                newParentId:
+                  type: string
+                  format: uuid
+                  nullable: true
+      responses:
+        '204':
+          description: 移动成功
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # 存储服务端点（TUS协议）
+  /storage/uploads:
+    post:
+      tags:
+        - Storage
+      summary: 创建上传会话
+      parameters:
+        - name: Upload-Length
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: 文件总字节数
+        - name: Upload-Metadata
+          in: header
+          required: true
+          schema:
+            type: string
+          description: 文件元数据（Base64编码的键值对）
+      responses:
+        '201':
+          description: 上传会话创建成功
+          headers:
+            Location:
+              schema:
+                type: string
+              description: 上传URL
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /storage/uploads/{uploadId}:
+    patch:
+      tags:
+        - Storage
+      summary: 上传文件分片
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: Content-Type
+          in: header
+          required: true
+          schema:
+            type: string
+            enum: [application/offset+octet-stream]
+        - name: Upload-Offset
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: 分片在文件中的偏移量
+        - name: Content-Length
+          in: header
+          required: true
+          schema:
+            type: integer
+          description: 分片大小
+      requestBody:
+        required: true
+        content:
+          application/offset+octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '204':
+          description: 分片上传成功
+          headers:
+            Upload-Offset:
+              schema:
+                type: integer
+              description: 已接收的总字节数
+        '404':
+          description: 上传会话不存在
+        '409':
+          description: 偏移量冲突
+
+    head:
+      tags:
+        - Storage
+      summary: 查询上传状态
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 上传状态
+          headers:
+            Upload-Length:
+              schema:
+                type: integer
+              description: 文件总大小
+            Upload-Offset:
+              schema:
+                type: integer
+              description: 已上传字节数
+        '404':
+          description: 上传会话不存在
+
+  /storage/uploads/{uploadId}/finalize:
+    post:
+      tags:
+        - Storage
+      summary: 完成上传
+      parameters:
+        - name: uploadId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 上传完成
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "File processing initiated."
+                  fileId:
+                    type: string
+                    format: uuid
+                    description: 文件ID
+        '400':
+          description: 上传未完成
+        '500':
+          description: 内部处理失败
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              example: "INVALID_REQUEST"
+            message:
+              type: string
+              example: "请求参数无效"
+
+    UserProfile:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          example: "张三"
+        email:
+          type: string
+          format: email
+          example: "zhangsan@example.com"
+        storageQuota:
+          type: integer
+          format: int64
+          description: 存储配额（字节）
+          example: 10737418240
+        storageUsed:
+          type: integer
+          format: int64
+          description: 已使用存储（字节）
+          example: 1073741824
+        createdAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T00:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T00:00:00Z"
+
+    TokenResponse:
+      type: object
+      properties:
+        accessToken:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+        refreshToken:
+          type: string
+          example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+    FileMetadata:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        name:
+          type: string
+          example: "document.pdf"
+        type:
+          type: string
+          enum: [file, folder]
+          example: "file"
+        size:
+          type: integer
+          format: int64
+          description: 文件大小（字节），文件夹为null
+          example: 1024000
+        mimeType:
+          type: string
+          description: MIME类型，仅文件有此字段
+          example: "application/pdf"
+        parentId:
+          type: string
+          format: uuid
+          nullable: true
+          description: 父文件夹ID，null表示根目录
+        path:
+          type: string
+          description: 完整路径
+          example: "/Documents/document.pdf"
+        version:
+          type: integer
+          description: 文件版本号
+          example: 1
+        createdAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T00:00:00Z"
+        updatedAt:
+          type: string
+          format: date-time
+          example: "2023-01-01T00:00:00Z"
+
+    ListResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/FileMetadata'
+        nextCursor:
+          type: string
+          nullable: true
+          description: 下一页游标，null表示没有更多数据
+
+  responses:
+    BadRequest:
+      description: 请求参数错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "INVALID_REQUEST"
+              message: "请求参数无效"
+
+    Unauthorized:
+      description: 未授权
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "UNAUTHORIZED"
+              message: "访问令牌无效或已过期"
+
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "NOT_FOUND"
+              message: "请求的资源不存在"
+
+    InternalServerError:
+      description: 服务器内部错误
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            error:
+              code: "INTERNAL_ERROR"
+              message: "服务器内部错误"
