@@ -56,8 +56,8 @@
 
 2. **安装依赖并设置开发环境**（pnpm workspace）
    ```bash
-   # 方式A：使用提供的环境示例
-   cp docs/env.sample .env
+   # 方式A：使用提供的环境示例（最新）
+   cp docs/env.example .env
    # 方式B：用脚本生成模板（可自定义输出文件名）
    ./manage-services.sh env:write .env.example
 

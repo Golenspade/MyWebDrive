@@ -274,3 +274,15 @@ make generate-api
 
 ⭐ 如果这个项目对你有帮助，请给它一个星标！
 node_modules
+
+# --- Generated artifacts (Node services) ---
+services/*/dist/
+packages/*/dist/
+**/.tsbuildinfo
+services/*/prisma/client/
+services/*/prisma/*.db
+services/*/prisma/services/**
+data/**/*.db
+logs/
+**/*.log
+

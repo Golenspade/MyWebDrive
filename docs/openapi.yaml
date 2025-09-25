@@ -1,0 +1,368 @@
+openapi: 3.0.3
+info:
+  title: MyWebDrive API (Node, SoR-aligned)
+  version: 0.1.0
+  description: |
+    Minimal OpenAPI reflecting current Node services and SoR boundaries.
+    - Auth: identity/credentials/roles
+    - User: profile and quotas (no email/password/role)
+servers:
+  - url: http://localhost:9080
+    description: Local API Gateway (Node)
+tags:
+  - name: auth
+  - name: users
+  - name: storage
+  - name: sharing
+  - name: metadata
+paths:
+  /api/v1/auth/register:
+    post:
+      tags: [auth]
+      summary: Register new user (Auth SoR)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, email, password]
+              properties:
+                name: { type: string, maxLength: 100 }
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthUserPublic'
+        '409': { description: Email already exists }
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      summary: Login and obtain access/refresh tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tokens'
+        '401': { description: Invalid credentials }
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Get a new access token from a refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+        '401': { description: Invalid refresh token }
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Invalidate a refresh token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '204': { description: No Content }
+
+  /api/v1/users/me:
+    get:
+      tags: [users]
+      summary: Get current user's profile and quota (User SoR)
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401': { description: Unauthorized }
+    patch:
+      tags: [users]
+      summary: Update current user's profile (name only)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: { type: string, minLength: 2, maxLength: 100 }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401': { description: Unauthorized }
+
+  /api/v1/storage/uploads:
+    post:
+      tags: [storage]
+      summary: Create an upload session
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileName, fileSize]
+              properties:
+                fileName: { type: string }
+                fileSize: { type: integer, format: int64 }
+                chunkSize: { type: integer, format: int32, description: Optional preferred chunk size }
+                mimeType: { type: string, nullable: true }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uploadId: { type: string }
+                  expiresAt: { type: string, format: date-time }
+        '401': { description: Unauthorized }
+  /api/v1/storage/uploads/{uploadId}:
+    parameters:
+      - in: path
+        name: uploadId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [storage]
+      summary: Get upload session status
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadSession'
+        '404': { description: Not Found }
+    patch:
+      tags: [storage]
+      summary: Upload a chunk (multipart form)
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [chunkIndex, chunk]
+              properties:
+                chunkIndex: { type: integer, format: int32 }
+                chunk: { type: string, format: binary }
+      responses:
+        '204': { description: No Content }
+        '404': { description: Not Found }
+  /api/v1/storage/uploads/{uploadId}/finalize:
+    post:
+      tags: [storage]
+      summary: Finalize upload and create file version
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expectedMd5: { type: string, nullable: true }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  fileId: { type: string }
+        '409': { description: Incomplete upload }
+  /api/v1/storage/files/{fileId}:
+    get:
+      tags: [storage]
+      summary: Download file content (requires auth or inter-service auth)
+      parameters:
+        - in: path
+          name: fileId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK (binary)
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '404': { description: Not Found }
+
+  /api/v1/files/{fileId}/shares:
+    post:
+      tags: [sharing]
+      summary: Create a share for a file (authenticated)
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - in: path
+          name: fileId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type: { type: string, enum: [link] }
+                password: { type: string, nullable: true }
+                expiresAt: { type: string, format: date-time, nullable: true }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharePublic'
+  /api/v1/shares/{shareToken}:
+    get:
+      tags: [sharing]
+      summary: Get public share info
+      parameters:
+        - in: path
+          name: shareToken
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharePublic'
+        '404': { description: Not Found }
+  /api/v1/shares/{shareToken}/access:
+    post:
+      tags: [sharing]
+      summary: Validate share password and obtain short-lived access (if protected)
+      parameters:
+        - in: path
+          name: shareToken
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                password: { type: string }
+      responses:
+        '200': { description: OK }
+        '403': { description: Forbidden / invalid password }
+  /api/v1/shares/{shareToken}/download:
+    get:
+      tags: [sharing]
+      summary: Download via sharing (may require x-share-access-token)
+      parameters:
+        - in: path
+          name: shareToken
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: OK (binary)
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        '403': { description: Forbidden }
+        '404': { description: Not Found }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    Tokens:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+    AuthUserPublic:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        email: { type: string, format: email }
+    UserProfile:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        storageQuota: { type: integer, format: int64 }
+        storageUsed: { type: integer, format: int64 }
+    UploadSession:
+      type: object
+      properties:
+        id: { type: string }
+        fileName: { type: string }
+        fileSize: { type: integer, format: int64 }
+        chunkSize: { type: integer, format: int32, nullable: true }
+        uploadedChunks: { type: array, items: { type: integer, format: int32 } }
+        status: { type: string, enum: [uploading, finalized] }
+        expiresAt: { type: string, format: date-time }
+    SharePublic:
+      type: object
+      properties:
+        id: { type: string }
+        token: { type: string }
+        fileId: { type: string }
+        protected: { type: boolean }
+        expiresAt: { type: string, format: date-time, nullable: true }
+
