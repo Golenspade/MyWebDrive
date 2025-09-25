@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "build:all": "pnpm -r --filter ./packages/** --filter ./services/** --filter ./apps/** --filter ./frontend/** build",
+    "build:all": "pnpm -r --filter ./packages/** --filter ./services/** --filter ./apps/** build",
     "typecheck": "tsc -b --pretty false",
     "clean": "pnpm -r run clean || true",
     "dev": "pnpm -C frontend/cruip-landing dev"
