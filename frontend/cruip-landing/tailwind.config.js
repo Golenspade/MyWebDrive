@@ -49,6 +49,15 @@ module.exports = {
       backgroundImage: {
         'linear-to-t': 'linear-gradient(to top, var(--tw-gradient-stops))',
       },
+      keyframes: {
+        shine: {
+          '0%': { backgroundPosition: '200% 0%' },
+          '100%': { backgroundPosition: '-200% 0%' },
+        },
+      },
+      animation: {
+        shine: 'shine 5s linear infinite',
+      },
     },
   },
   plugins: [],

@@ -1,5 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import PageIllustration from "@/components/page-illustration";
+import SplitText from "@/components/SplitText";
 // Custom avatars from public/images/avatars (place files anon.png, soyo.png, tomori.png, taki.png, rana.png)
 
 export default function HeroHome() {
@@ -30,7 +33,7 @@ export default function HeroHome() {
                   [-webkit-mask-composite:source-over,destination-out,destination-out]
                   [mask-composite:subtract]">
                     {avatars.map((a, i) => (
-                      <div key={i} className="relative h-28 sm:h-36 md:h-44 lg:h-56">
+                      <div key={i} className="relative h-24 sm:h-28 md:h-32 lg:h-36 overflow-hidden rounded-md">
                         <Image
                           src={a.src}
                           alt={a.alt}
@@ -44,23 +47,43 @@ export default function HeroHome() {
                 );
               })()}
             </div>
-            <h1
-              className="mb-6 border-y text-5xl font-bold [border-image:linear-gradient(to_right,transparent,--theme(--color-slate-300/.8),transparent)1] md:text-6xl"
-              data-aos="zoom-y-out"
-              data-aos-delay={150}
-            >
-              The website builder you're <br className="max-lg:hidden" />
-              looking for
-            </h1>
+            {(() => {
+              const handleAnimationComplete = () => {
+                console.log('All letters have animated!');
+              };
+              return (
+                <SplitText
+                  text={"写下属于你的二创"}
+                  className="mb-6 border-y text-5xl font-bold [border-image:linear-gradient(to_right,transparent,--theme(--color-slate-300/.8),transparent)1] md:text-6xl"
+                  delay={100}
+                  duration={0.6}
+                  ease="power3.out"
+                  splitType="chars"
+                  from={{ opacity: 0, y: 40 }}
+                  to={{ opacity: 1, y: 0 }}
+                  threshold={0.1}
+                  rootMargin="-100px"
+                  textAlign="center"
+                  tag="h1"
+                  onLetterAnimationComplete={handleAnimationComplete}
+                />
+              );
+            })()}
             <div className="mx-auto max-w-3xl">
-              <p
+              <SplitText
+                text={"无需担心技术问题，mygo.studio为你提供一站式解决方案"}
                 className="mb-8 text-lg text-gray-700"
-                data-aos="zoom-y-out"
-                data-aos-delay={300}
-              >
-                Simple is a modern website builder powered by AI that changes
-                how companies create user interfaces together.
-              </p>
+                delay={70}
+                duration={0.5}
+                ease="power3.out"
+                splitType="chars"
+                from={{ opacity: 0, y: 40 }}
+                to={{ opacity: 1, y: 0 }}
+                threshold={0.28}
+                rootMargin="-10px"
+                textAlign="center"
+                tag="p"
+              />
               <div className="relative before:absolute before:inset-0 before:border-y before:[border-image:linear-gradient(to_right,transparent,--theme(--color-slate-300/.8),transparent)1]">
                 <div
                   className="mx-auto max-w-xs sm:flex sm:max-w-none sm:justify-center"
@@ -69,7 +92,7 @@ export default function HeroHome() {
                 >
                   <a
                     className="btn group mb-4 w-full bg-linear-to-t from-brand-primary-600 to-brand-primary-500 bg-[length:100%_100%] bg-[bottom] text-white shadow-sm hover:bg-[length:100%_150%] sm:mb-0 sm:w-auto"
-                    href="#0"
+                    href="/download"
                   >
                     <span className="relative inline-flex items-center">
                       Start Free Trial{" "}

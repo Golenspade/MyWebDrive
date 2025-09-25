@@ -1,5 +1,6 @@
 import Link from "next/link";
 import Logo from "./logo";
+import ShinyText from "@/components/ShinyText";
 
 export default function Header() {
   return (
@@ -15,7 +16,7 @@ export default function Header() {
           <ul className="flex flex-1 items-center justify-end gap-3">
             <li>
               <Link href="/download" className="btn-sm bg-white text-gray-800 shadow-sm hover:bg-gray-50">
-                下载
+                <ShinyText text="下载" speed={3} />
               </Link>
             </li>
 
@@ -24,7 +25,7 @@ export default function Header() {
                 href="/login"
                 className="btn-sm bg-white text-gray-800 shadow-sm hover:bg-gray-50"
               >
-                登录
+                <ShinyText text="登录" speed={3} />
               </Link>
             </li>
             <li>
@@ -32,7 +33,7 @@ export default function Header() {
                 href="/register"
                 className="btn-sm bg-gray-800 text-gray-200 shadow-sm hover:bg-gray-900"
               >
-                注册
+                <ShinyText text="注册" speed={3} />
               </Link>
             </li>
           </ul>

@@ -7,6 +7,7 @@ import "aos/dist/aos.css";
 
 import Header from "@/components/ui/header";
 import Footer from "@/components/ui/footer";
+import { SmoothCursor } from "@/components/ui/smooth-cursor";
 
 export default function MarketingLayout({
   children,
@@ -23,12 +24,13 @@ export default function MarketingLayout({
   });
 
   return (
-    <>
+    <div className="cursor-none">
+      <SmoothCursor />
       <Header />
 
       <main className="grow">{children}</main>
 
       <Footer border={true} />
-    </>
+    </div>
   );
 }
