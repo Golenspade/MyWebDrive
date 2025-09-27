@@ -2,6 +2,27 @@
 
 All notable changes to this repository will be documented in this file.
 
+
+## release-20250927-2230 - 2025-09-27
+
+### Changed
+- frontend(web + landing): adopt self-hosted CN typography via next/font/local; default body font Noto Sans SC, display font ZCOOL XiaoWei restricted to `h1` and explicit `.heading` only.
+- frontend(landing): enforce Bento card headings to body font for consistency.
+- frontend(landing): globe section titles updated to "随时 随地" and subtitle to "全平台工具链解决方案".
+
+### Removed
+- frontend(landing): remove badges strip (Next.js/React/Tailwind/AOS/TypeScript/Vercel) section.
+
+### Added
+- docs: `docs/typography-and-landing-updates.md` with usage, fallback, and rollback guidance.
+
+### Chore
+- gitignore: ignore `assetsReal/` to prevent large artifacts being tracked.
+- repo: cleaned repository history to remove oversized files under `assetsReal/`; force-pushed `main`.
+
+### Notes
+- After history rewrite, collaborators must resync: `git fetch --all --tags --prune` then `git reset --hard origin/main` (if no local work) or rebase accordingly.
+
 ## Unreleased - 2025-09-25
 
 ### Changed
