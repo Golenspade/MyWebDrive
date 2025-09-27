@@ -42,3 +42,7 @@ coverage/
 .idea/
 .vscode/
 
+
+
+# Large local assets (not tracked)
+assetsReal/
