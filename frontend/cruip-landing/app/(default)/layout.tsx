@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { usePathname } from "next/navigation";
 
 import AOS from "aos";
 import "aos/dist/aos.css";
@@ -22,13 +23,16 @@ export default function DefaultLayout({
     });
   });
 
+  const pathname = usePathname();
+  const hideChrome = pathname?.startsWith("/download");
+
   return (
     <>
-      <Header />
+      {!hideChrome && <Header />}
 
-      <main className="grow">{children}</main>
+      <main className={hideChrome ? "" : "grow"}>{children}</main>
 
-      <Footer border={true} />
+      {!hideChrome && <Footer border={true} />}
     </>
   );
 }

@@ -1,13 +1,15 @@
 import express from 'express'
+import path from 'path'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 import { getEnv } from '@mywebdrive/common'
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability'
 import jwt from 'jsonwebtoken'
+import { fileURLToPath } from 'url'
 
 // Read downstream services from env (align with existing Go services)
 const AUTH = getEnv('AUTH_SERVICE_URL', 'http://localhost:8081')
 const USER = getEnv('USER_SERVICE_URL', 'http://localhost:8082')
-const METADATA = getEnv('METADATA_SERVICE_URL', 'http://localhost:8083')
+const METADATA = getEnv('METADATA_SERVICE_URL', 'http://localhost:7083')
 const STORAGE = getEnv('STORAGE_SERVICE_URL', 'http://localhost:8084')
 const SHARING = getEnv('SHARING_SERVICE_URL', 'http://localhost:8085')
 
@@ -34,6 +36,13 @@ app.use((req, res, next) => {
 // Prometheus metrics (unified)
 const { register, metricsMiddleware, metricsHandler } = createMetrics('api-gateway-node')
 app.use(metricsMiddleware)
+
+// Serve static assets from repo (dev only) so frontend can link /assets/* to assetsReal/*
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const REPO_ROOT = path.resolve(__dirname, '../../../')
+const ASSETS_DIR = path.resolve(REPO_ROOT, 'assetsReal')
+app.use('/assets', express.static(ASSETS_DIR))
 
 // Health check
 app.get('/health', (_req, res) => {
@@ -181,6 +190,7 @@ app.use(
     },
   })
 )
+mountProxy('/api/v1/catalog', METADATA)
 mountProxy('/api/v1/files', METADATA)
 mountProxy('/api/v1/folders', METADATA)
 mountProxy('/api/v1/storage', STORAGE)

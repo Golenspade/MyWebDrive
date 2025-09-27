@@ -50,6 +50,169 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
 app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'metadata-service-node' }))
 app.get('/metrics', metricsHandler)
 
+// -------- Catalog (Public read) --------
+// Build a public software catalog from File + FileTag with "catalog:*" tags
+// tag format: catalog:key=value; required: catalog:kind=project|asset, catalog:slug=..., catalog:public=true
+
+function parseCatalogTags(tags: Array<{ tagName: string }>): Record<string, string> {
+  const kv: Record<string, string> = {}
+  for (const t of tags) {
+    if (!t.tagName?.startsWith('catalog:')) continue
+    const rest = t.tagName.slice('catalog:'.length)
+    const eq = rest.indexOf('=')
+    if (eq === -1) continue
+    const key = rest.slice(0, eq).trim()
+    const value = rest.slice(eq + 1).trim()
+    if (key) kv[key] = value
+  }
+  return kv
+}
+
+function baseUrl(req: express.Request): string {
+  const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http'
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'localhost'
+  return `${proto}://${host}`
+}
+
+type CatalogAsset = {
+  id: string
+  filename: string
+  sizeBytes: number
+  sha256?: string
+  os?: 'windows' | 'darwin' | 'linux' | 'any'
+  arch?: 'amd64' | 'arm64' | 'any'
+  channel: 'stable' | 'beta' | 'dev'
+  version: string
+  url?: string
+}
+
+type CatalogRelease = { version: string; channel: 'stable'|'beta'|'dev'; publishedAt?: string; assets: CatalogAsset[] }
+
+type CatalogProject = { slug: string; name: string; description?: string; category?: string; license?: string; repo?: string; releases: CatalogRelease[] }
+
+app.get('/api/v1/catalog', async (req, res, next) => {
+  try {
+    // Read all files and their tags; filter in memory for dev-scale data
+    const files = await prisma.file.findMany({
+      where: { deletedAt: null },
+      include: { tags: true, versions: { orderBy: { version: 'desc' }, take: 1 } },
+    })
+
+    const bySlug: Map<string, CatalogProject & { _assets: CatalogAsset[] }> = new Map()
+    const pubOnly = true // gray switch via tag catalog:public=true
+
+    for (const f of files) {
+      const kv = parseCatalogTags(f.tags as any)
+      if (kv.public !== 'true' && pubOnly) continue
+      const kind = kv.kind // 'project' | 'asset' (optional 'release' not required for MVP)
+      const slug = kv.slug
+      if (!slug) continue
+
+      if (kind === 'project') {
+        const proj = bySlug.get(slug) || { slug, name: kv.name || slug, description: kv.description, category: kv.category, license: kv.license, repo: kv.repo, releases: [], _assets: [] }
+        // fill missing fields but don't override existing
+        proj.name ||= kv.name || slug
+        proj.description ||= kv.description
+        proj.category ||= kv.category
+        proj.license ||= kv.license
+        proj.repo ||= kv.repo
+        bySlug.set(slug, proj)
+        continue
+      }
+
+      if (kind === 'asset') {
+        const version = kv.version || '1.0.0'
+        const channel = (kv.channel as any) || 'stable'
+        const os = (kv.os as any) || 'any'
+        const arch = (kv.arch as any) || 'any'
+        const url = kv.url // optional direct URL (e.g., OSS)
+        const size = f.size ?? (f.versions?.[0]?.size || 0)
+        const proj = bySlug.get(slug) || { slug, name: kv.name || slug, description: kv.description, category: kv.category, license: kv.license, repo: kv.repo, releases: [], _assets: [] }
+        bySlug.set(slug, proj)
+        const asset: CatalogAsset = {
+          id: f.id,
+          filename: f.name,
+          sizeBytes: size,
+          sha256: undefined,
+          os, arch, channel: channel as any, version,
+          url: url || `${baseUrl(req)}/api/v1/storage/files/${encodeURIComponent(f.id)}/download`,
+        }
+        proj._assets.push(asset)
+      }
+    }
+
+    // Group assets into releases by version+channel
+    const projects: CatalogProject[] = []
+    for (const proj of bySlug.values()) {
+      const groups = new Map<string, CatalogRelease>()
+      for (const a of proj._assets) {
+        const key = `${a.version}|${a.channel}`
+        let r = groups.get(key)
+        if (!r) { r = { version: a.version, channel: a.channel, assets: [] }; groups.set(key, r) }
+        r.assets.push(a)
+      }
+      proj.releases = Array.from(groups.values()).sort((x, y) => x.version.localeCompare(y.version))
+      // @ts-expect-error remove temp
+      delete (proj as any)._assets
+      projects.push(proj)
+    }
+
+    res.json({ projects })
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.get('/api/v1/catalog/:slug', async (req, res, next) => {
+  try {
+    const slugQ = req.params.slug
+    const files = await prisma.file.findMany({ where: { deletedAt: null }, include: { tags: true, versions: { orderBy: { version: 'desc' }, take: 1 } } })
+    const filtered = files.filter(f => {
+      const kv = parseCatalogTags(f.tags as any)
+      return kv.public === 'true' && kv.slug === slugQ && (kv.kind === 'project' || kv.kind === 'asset')
+    })
+    if (filtered.length === 0) return res.status(404).json({ error: 'Not Found' })
+    ;(req as any).url // no-op to satisfy linter
+    // Reuse the builder via a fake request to include correct baseUrl
+    const fakeReq = req
+    const bySlug: Map<string, CatalogProject & { _assets: CatalogAsset[] }> = new Map()
+    for (const f of filtered) {
+      const kv = parseCatalogTags(f.tags as any)
+      if (kv.kind === 'project') {
+        const proj = bySlug.get(slugQ) || { slug: slugQ, name: kv.name || slugQ, description: kv.description, category: kv.category, license: kv.license, repo: kv.repo, releases: [], _assets: [] }
+        bySlug.set(slugQ, proj)
+      } else if (kv.kind === 'asset') {
+        const proj = bySlug.get(slugQ) || { slug: slugQ, name: kv.name || slugQ, description: kv.description, category: kv.category, license: kv.license, repo: kv.repo, releases: [], _assets: [] }
+        bySlug.set(slugQ, proj)
+        const asset: CatalogAsset = {
+          id: f.id,
+          filename: f.name,
+          sizeBytes: f.size ?? (f.versions?.[0]?.size || 0),
+          os: (kv.os as any) || 'any', arch: (kv.arch as any) || 'any',
+          channel: (kv.channel as any) || 'stable', version: kv.version || '1.0.0',
+          url: kv.url || `${baseUrl(fakeReq)}/api/v1/storage/files/${encodeURIComponent(f.id)}/download`,
+        }
+        ;(proj as any)._assets.push(asset)
+      }
+    }
+    const proj = Array.from(bySlug.values())[0]
+    if (!proj) return res.status(404).json({ error: 'Not Found' })
+    const groups = new Map<string, CatalogRelease>()
+    for (const a of (proj as any)._assets as CatalogAsset[]) {
+      const key = `${a.version}|${a.channel}`
+      let r = groups.get(key)
+      if (!r) { r = { version: a.version, channel: a.channel, assets: [] }; groups.set(key, r) }
+      r.assets.push(a)
+    }
+    proj.releases = Array.from(groups.values())
+    // @ts-expect-error remove temp
+    delete (proj as any)._assets
+    res.json(proj)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // Types
 type CreateFolderRequest = { name: string; parentId?: string | null }
 type MoveRequest = { newParentId?: string | null }
@@ -626,10 +789,10 @@ async function ensureSchema() {
       updatedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       deletedAt DATETIME
     )`)
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS File_parentId_idx ON File(parentId)`) 
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS File_ownerId_idx ON File(ownerId)`) 
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS File_type_idx ON File(type)`) 
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS File_path_idx ON File(path)`) 
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS File_parentId_idx ON File(parentId)`)
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS File_ownerId_idx ON File(ownerId)`)
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS File_type_idx ON File(type)`)
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS File_path_idx ON File(path)`)
 
     await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS FileVersion (
       id TEXT PRIMARY KEY,
@@ -641,8 +804,8 @@ async function ensureSchema() {
       comment TEXT,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`)
-    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS FileVersion_fileId_version_unique ON FileVersion(fileId, version)`) 
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileVersion_fileId_idx ON FileVersion(fileId)`) 
+    await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS FileVersion_fileId_version_unique ON FileVersion(fileId, version)`)
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileVersion_fileId_idx ON FileVersion(fileId)`)
 
     await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS FileTag (
       id TEXT PRIMARY KEY,
@@ -650,8 +813,8 @@ async function ensureSchema() {
       tagName TEXT NOT NULL,
       createdAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`)
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileTag_fileId_idx ON FileTag(fileId)`) 
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileTag_tagName_idx ON FileTag(tagName)`) 
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileTag_fileId_idx ON FileTag(fileId)`)
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileTag_tagName_idx ON FileTag(tagName)`)
 
     await prisma.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS FileAccessLog (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -662,9 +825,9 @@ async function ensureSchema() {
       userAgent TEXT,
       accessedAt DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     )`)
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileAccessLog_fileId_idx ON FileAccessLog(fileId)`) 
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileAccessLog_userId_idx ON FileAccessLog(userId)`) 
-    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileAccessLog_accessedAt_idx ON FileAccessLog(accessedAt)`) 
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileAccessLog_fileId_idx ON FileAccessLog(fileId)`)
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileAccessLog_userId_idx ON FileAccessLog(userId)`)
+    await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS FileAccessLog_accessedAt_idx ON FileAccessLog(accessedAt)`)
   } catch {
     // ignore
   }

@@ -12,7 +12,9 @@
     "clean": "rimraf dist",
     "prisma:generate": "prisma generate",
     "db:push": "prisma db push",
-    "migrate:deploy": "prisma migrate deploy"
+    "migrate:deploy": "prisma migrate deploy",
+    "catalog:import": "tsx src/scripts/catalog-import.ts",
+    "catalog:scan": "tsx src/scripts/catalog-scan.ts"
   },
   "dependencies": {
     "@mywebdrive/common": "workspace:*",

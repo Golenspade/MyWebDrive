@@ -16,6 +16,10 @@ All notable changes to this repository will be documented in this file.
 - chore(auth,sharing): Minimal `bcryptjs` module declaration to satisfy TS without extra deps.
 - docs: Minimal OpenAPI (SoR-aligned) at `docs/openapi.yaml`.
 - docs: Add `docs/env.example` with per-service `DATABASE_URL` guidance.
+- feat(metadata): Catalog API endpoints `/api/v1/catalog` and `/api/v1/catalog/:slug` (Plan A) aggregating `catalog:*` tags with grayscale `catalog:public=true`.
+- feat(gateway): Dev static mapping `/assets` -> repo `assetsReal`; proxy `/api/v1/catalog` -> metadata.
+- feat(metadata): Import script `src/scripts/catalog-import.ts` and auto-scan script `src/scripts/catalog-scan.ts` for assetsReal → DB tags.
+- feat(frontend): Download page fetches backend catalog with fallback to sample data.
 
 ### Fixed
 - fix(frontend): Restore valid Vite React `package.json` (was accidentally overwritten).

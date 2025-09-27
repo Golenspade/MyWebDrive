@@ -90,6 +90,18 @@
    GATEWAY_PORT=9080 bash ./test_invitation_system.sh
    ```
 
+## 下载目录（方案 A）开发期用法
+
+- 把文件放到仓库根目录 `assetsReal/`（可带子目录）
+- 导入方式（二选一）
+  - 映射清单导入：`pnpm -C services/metadata catalog:import`（清单：`assetsReal/catalog-import.json`）
+  - 自动扫描导入：`pnpm -C services/metadata catalog:scan`（从文件名/目录推断 slug/version/os/arch/channel/category）
+- 目录 API：`GET http://localhost:9080/api/v1/catalog`
+- 灰度开关：仅返回打了 `catalog:public=true` 的条目
+- 下载直链：开发期由网关将 `assetsReal/` 映射为 `/assets`，前端可直接下载；上线时将 `catalog:url` 换为 OSS/CDN 直链即可
+
+更多细节见 `docs/catalog-plan-A.md`。
+
 ## CORS/跨域
 
 - 默认（开发态）: Node 网关开启宽松 CORS（`*`），Next 开发服（`apps/web`，端口 4000）通过 `rewrites` 代理到网关，无需额外配置。

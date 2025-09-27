@@ -1,3 +1,10 @@
+## 更新日志（2025-09-27）
+- 下载中心 方案 A 已落地：后端 Catalog API（/api/v1/catalog）、灰度开关（catalog:public=true）、网关直链 /assets。
+- 新增导入与扫描脚本：services/metadata/src/scripts/catalog-import.ts、catalog-scan.ts，支持 assetsReal → 数据库自动建档与贴标签。
+- 前端下载页已接入后端目录，优先使用 /api/v1/catalog，若无数据回退示例数据。
+- 为未来阿里云 OSS 预留：将标签 catalog:url 指向 OSS/CDN 直链即可无缝切换。
+
+
 我来帮你整理和优化这些需求，按照逻辑分类并排序：
 
 ## **一、品牌识别系统**

@@ -159,7 +159,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "/Users/fankex/joint Project/myWebDrive/services/metadata/prisma/client",
+      "value": "D:\\各种练手的神奇小项目\\mygoStudio\\MyWebDrive\\services\\metadata\\prisma\\client",
       "fromEnvVar": null
     },
     "config": {
@@ -168,12 +168,16 @@ const config = {
     "binaryTargets": [
       {
         "fromEnvVar": null,
-        "value": "darwin-arm64",
+        "value": "windows",
         "native": true
+      },
+      {
+        "fromEnvVar": null,
+        "value": "windows"
       }
     ],
     "previewFeatures": [],
-    "sourceFilePath": "/Users/fankex/joint Project/myWebDrive/services/metadata/prisma/schema.prisma",
+    "sourceFilePath": "D:\\各种练手的神奇小项目\\mygoStudio\\MyWebDrive\\services\\metadata\\prisma\\schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {
@@ -195,8 +199,8 @@ const config = {
       }
     }
   },
-  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"./client\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  url      = env(\"METADATA_DATABASE_URL\")\n}\n\nmodel File {\n  id        String    @id\n  name      String\n  type      String // 'file' | 'folder'\n  size      Int?\n  mimeType  String?\n  parentId  String?\n  ownerId   String\n  path      String\n  version   Int       @default(1)\n  createdAt DateTime  @default(now())\n  updatedAt DateTime  @updatedAt\n  deletedAt DateTime?\n\n  parent     File?           @relation(\"FolderChildren\", fields: [parentId], references: [id])\n  children   File[]          @relation(\"FolderChildren\")\n  versions   FileVersion[]\n  tags       FileTag[]\n  accessLogs FileAccessLog[]\n\n  @@index([parentId])\n  @@index([ownerId])\n  @@index([type])\n  @@index([path])\n}\n\nmodel FileVersion {\n  id          String   @id\n  fileId      String\n  version     Int\n  size        Int\n  storagePath String\n  md5Hash     String\n  comment     String?\n  createdAt   DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@unique([fileId, version])\n  @@index([fileId])\n}\n\nmodel FileTag {\n  id        String   @id\n  fileId    String\n  tagName   String\n  createdAt DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@index([fileId])\n  @@index([tagName])\n}\n\nmodel FileAccessLog {\n  id         Int      @id @default(autoincrement())\n  fileId     String\n  userId     String\n  action     String // 'view' | 'download' | 'edit' | 'delete'\n  ipAddress  String?\n  userAgent  String?\n  accessedAt DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@index([fileId])\n  @@index([userId])\n  @@index([accessedAt])\n}\n",
-  "inlineSchemaHash": "58e1aed30ae080e7cb4a0f42b07a9686da618486db512ec6ebf7f2bfc1cb8548",
+  "inlineSchema": "generator client {\n  provider      = \"prisma-client-js\"\n  output        = \"./client\"\n  binaryTargets = [\"native\", \"windows\"]\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  url      = env(\"METADATA_DATABASE_URL\")\n}\n\nmodel File {\n  id        String    @id\n  name      String\n  type      String // 'file' | 'folder'\n  size      Int?\n  mimeType  String?\n  parentId  String?\n  ownerId   String\n  path      String\n  version   Int       @default(1)\n  createdAt DateTime  @default(now())\n  updatedAt DateTime  @updatedAt\n  deletedAt DateTime?\n\n  parent     File?           @relation(\"FolderChildren\", fields: [parentId], references: [id])\n  children   File[]          @relation(\"FolderChildren\")\n  versions   FileVersion[]\n  tags       FileTag[]\n  accessLogs FileAccessLog[]\n\n  @@index([parentId])\n  @@index([ownerId])\n  @@index([type])\n  @@index([path])\n}\n\nmodel FileVersion {\n  id          String   @id\n  fileId      String\n  version     Int\n  size        Int\n  storagePath String\n  md5Hash     String\n  comment     String?\n  createdAt   DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@unique([fileId, version])\n  @@index([fileId])\n}\n\nmodel FileTag {\n  id        String   @id\n  fileId    String\n  tagName   String\n  createdAt DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@index([fileId])\n  @@index([tagName])\n}\n\nmodel FileAccessLog {\n  id         Int      @id @default(autoincrement())\n  fileId     String\n  userId     String\n  action     String // 'view' | 'download' | 'edit' | 'delete'\n  ipAddress  String?\n  userAgent  String?\n  accessedAt DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@index([fileId])\n  @@index([userId])\n  @@index([accessedAt])\n}\n",
+  "inlineSchemaHash": "fdefdb0380441e7f6b72bec5cf7ce1cb7dc13f95a72e076012046d519a0b7b4d",
   "copyEngine": true
 }
 
@@ -234,8 +238,8 @@ exports.PrismaClient = PrismaClient
 Object.assign(exports, Prisma)
 
 // file annotations for bundling tools to include these files
-path.join(__dirname, "libquery_engine-darwin-arm64.dylib.node");
-path.join(process.cwd(), "prisma/client/libquery_engine-darwin-arm64.dylib.node")
+path.join(__dirname, "query_engine-windows.dll.node");
+path.join(process.cwd(), "prisma/client/query_engine-windows.dll.node")
 // file annotations for bundling tools to include these files
 path.join(__dirname, "schema.prisma");
 path.join(process.cwd(), "prisma/client/schema.prisma")
