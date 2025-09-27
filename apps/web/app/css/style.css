@@ -9,8 +9,10 @@
 }
 
 @theme {
-  --font-inter: Inter, sans-serif;
-  --font-mono: Roboto Mono, monospace;
+  --font-sans: "Noto Sans SC", system-ui, -apple-system, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "Sarasa Gothic SC", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-heading: "ZCOOL XiaoWei", "Noto Sans SC", sans-serif;
+  --font-handwrite: "Ma Shan Zheng", cursive;
 
   /* 品牌色变量 */
   --color-brand-primary: #3388bb;
@@ -85,7 +87,7 @@
   --animate-breath: breath;
   --animate-float: float;
   --animate-line: line;
-  --animate-infinite-scroll: infinite-scroll;  
+  --animate-infinite-scroll: infinite-scroll;
 
   @keyframes code-1 {
     0% {
@@ -237,4 +239,12 @@
     border-color: var(--color-gray-200, currentColor);
   }
 }
+
+@layer base {
+  h1, h2, h3, .heading { font-family: var(--font-heading); }
+  .signature, .font-handwrite { font-family: var(--font-handwrite); }
+  code, kbd, pre, samp, .font-mono { font-family: var(--font-mono); }
+  body { font-family: var(--font-sans); }
+}
+
 

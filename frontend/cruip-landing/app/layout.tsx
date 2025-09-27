@@ -1,10 +1,26 @@
 import "./css/style.css";
+import localFont from "next/font/local";
 
-import { Inter } from "next/font/google";
+// Self-hosted fonts
+const notoSansSC = localFont({
+  src: [
+    { path: "../public/fonts/noto-sans-sc-v39-chinese-simplified_latin-regular.woff2", weight: "400", style: "normal" },
+    { path: "../public/fonts/noto-sans-sc-v39-chinese-simplified_latin-700.woff2", weight: "700", style: "normal" },
+  ],
+  variable: "--font-sans",
+  display: "swap",
+});
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
+const zcoolXiaoWei = localFont({
+  src: "../public/fonts/zcool-xiaowei-v15-chinese-simplified_latin-regular.woff2",
+  variable: "--font-heading",
+  display: "swap",
+});
+
+
+const maShanZheng = localFont({
+  src: "../public/fonts/ma-shan-zheng-v14-latin-regular.woff2",
+  variable: "--font-handwrite",
   display: "swap",
 });
 
@@ -21,7 +37,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth">
       <body
-        className={`${inter.variable} bg-gray-50 font-inter tracking-tight text-gray-900 antialiased`}
+        className={`${notoSansSC.variable} ${zcoolXiaoWei.variable} ${maShanZheng.variable} bg-gray-50 font-sans tracking-tight text-gray-900 antialiased`}
       >
         <div className="flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip">
           {children}

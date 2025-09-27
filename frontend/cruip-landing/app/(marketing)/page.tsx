@@ -9,7 +9,6 @@ import LargeTestimonial from "@/components/large-testimonial";
 import Cta from "@/components/cta";
 
 import BentoDemo from "@/components/bento-demo";
-import LogosStrip from "@/components/logos-strip";
 import { GlobeDemo } from "@/components/globe-demo";
 
 export default function Home() {
@@ -20,7 +19,7 @@ export default function Home() {
       <GlobeDemo />
 
       <BentoDemo />
-      <LogosStrip />
+      {/* LogosStrip removed per request */}
 
       <LargeTestimonial />
       <Cta />
