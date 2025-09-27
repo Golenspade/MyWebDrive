@@ -21,8 +21,8 @@ const files = [
 const features = [
   {
     Icon: FileTextIcon,
-    name: "Save your files",
-    description: "We automatically save your files as you type.",
+    name: "实时保存",
+    description: "实时保存 我，无畏闪退！",
     href: "#",
     cta: "Learn more",
     className: "col-span-3 lg:col-span-1",
@@ -51,8 +51,8 @@ const features = [
   },
   {
     Icon: BellIcon,
-    name: "Notifications",
-    description: "Get notified when something happens.",
+    name: "自动推送",
+    description: "自动的更新发行版",
     href: "#",
     cta: "Learn more",
     className: "col-span-3 lg:col-span-2",
@@ -62,8 +62,8 @@ const features = [
   },
   {
     Icon: Share2Icon,
-    name: "Integrations",
-    description: "Supports 100+ integrations and counting.",
+    name: "分享 分发",
+    description: "去到任何平台获得共鸣",
     href: "#",
     cta: "Learn more",
     className: "col-span-3 lg:col-span-2",
@@ -73,8 +73,8 @@ const features = [
   },
   {
     Icon: CalendarIcon,
-    name: "Calendar",
-    description: "Use the calendar to filter your files by date.",
+    name: "写作日期",
+    description: "使用日历管理创作",
     className: "col-span-3 lg:col-span-1",
     href: "#",
     cta: "Learn more",
