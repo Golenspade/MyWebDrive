@@ -1,3 +1,15 @@
+## 更新日志（2025-09-28）
+- 下载目录数据核实：`/api/v1/catalog` 返回的 `webgal` / `l2dw` 两条为真实条目，但对应物理文件需位于仓库根 `assetsReal/` 才能通过 `/assets/...` 直链下载。
+- 路由与映射：Node 网关将 `assetsReal/` 映射为 `/assets`（开发期）。前端 `next.config` 已把 `/assets/*` 代理到网关。
+- 现状：本地 `assetsReal/` 仅有 `fonts/`，未见两包文件；需将以下文件拷回：
+  - `assetsReal/WebGAL_Terre_MyGO3.0.0.zip`
+  - `assetsReal/l2dw-1.4.21f1修复专注预览界面不换行不适配问题.7z`（URL 显示为已编码）
+- 快速验证：在 `assetsReal/` 建 `test.txt` 后访问 `http://localhost:9080/assets/test.txt`，若可见则映射正常。
+- 风险与建议：
+  - 避免在此仓库执行 `git clean -fdx` 之类清理（会清掉 `.gitignore` 忽略目录中的大文件）。
+  - 建议将真实分发包放在仓库外部持久目录，并用目录符号链接至 `assetsReal/`；或给网关增加 `ASSETS_DIR` 环境变量以指向外部目录。
+
+
 ## 更新日志（2025-09-27）
 - 下载中心 方案 A 已落地：后端 Catalog API（/api/v1/catalog）、灰度开关（catalog:public=true）、网关直链 /assets。
 - 新增导入与扫描脚本：services/metadata/src/scripts/catalog-import.ts、catalog-scan.ts，支持 assetsReal → 数据库自动建档与贴标签。

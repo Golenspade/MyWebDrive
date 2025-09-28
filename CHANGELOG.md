@@ -3,6 +3,17 @@
 All notable changes to this repository will be documented in this file.
 
 
+## 2025-09-28
+
+### Docs/Infra
+- catalog/docs: Clarify that download assets using `/assets/...` are served from repository root `assetsReal/` via Node gateway static mapping. Provide quick verification (`/assets/test.txt`) and recovery guidance.
+- ops: Advise avoiding `git clean -fdx` on this repo when using local large artifacts under `assetsReal/` (ignored by Git). Recommend using an external persistent directory with a directory symlink to `assetsReal/`, or making the gateway static dir configurable via env (e.g., `ASSETS_DIR`).
+
+### Notes
+- User confirmed two real catalog entries: `webgal` and `l2dw`. Their files should be located at `assetsReal/WebGAL_Terre_MyGO3.0.0.zip` and `assetsReal/l2dw-1.4.21f1修复专注预览界面不换行不适配问题.7z` respectively. Current working copy does not contain these files; they must be copied back for the links to work.
+- Frontend CSS/ShimmerButton experiment was rolled back to avoid global style overrides; no net UI change committed.
+
+
 ## release-20250927-2230 - 2025-09-27
 
 ### Changed
