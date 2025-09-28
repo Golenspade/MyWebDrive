@@ -15,67 +15,60 @@ export default function Footer({ border = false }: { border?: boolean }) {
               <Logo />
             </div>
             <div className="text-sm text-gray-600">
-              &copy; Cruip.com - All rights reserved.
+              &copy; mygoavemujica.top  && mygo.studio 
             </div>
           </div>
 
           {/* 2nd block */}
           <div className="space-y-2 sm:col-span-6 md:col-span-3 lg:col-span-2">
-            <h3 className="text-sm font-medium">Product</h3>
+            <h3 className="text-sm font-medium">资源</h3>
             <ul className="space-y-2 text-sm">
               <li>
                 <Link
                   className="text-gray-600 transition hover:text-gray-900"
-                  href="#0"
+                  href="/download"
                 >
-                  Features
+                  软件
                 </Link>
               </li>
               <li>
                 <Link
                   className="text-gray-600 transition hover:text-gray-900"
-                  href="#0"
+                  href="/docs"
                 >
-                  Integrations
+                  教程
                 </Link>
               </li>
               <li>
                 <Link
                   className="text-gray-600 transition hover:text-gray-900"
-                  href="#0"
+                  href="/download?category=modelAsset"
                 >
-                  Pricing & Plans
+                  模型
                 </Link>
               </li>
               <li>
                 <Link
                   className="text-gray-600 transition hover:text-gray-900"
-                  href="#0"
+                  href="/article"
                 >
-                  Changelog
+                  评价
                 </Link>
               </li>
-              <li>
-                <Link
-                  className="text-gray-600 transition hover:text-gray-900"
-                  href="#0"
-                >
-                  Our method
-                </Link>
-              </li>
+
             </ul>
           </div>
 
           {/* 3rd block */}
           <div className="space-y-2 sm:col-span-6 md:col-span-3 lg:col-span-2">
-            <h3 className="text-sm font-medium">Company</h3>
+            <h3 className="text-sm font-medium">关于我们</h3>
             <ul className="space-y-2 text-sm">
               <li>
                 <Link
                   className="text-gray-600 transition hover:text-gray-900"
                   href="#0"
                 >
-                  About us
+                  本网站
                 </Link>
               </li>
               <li>
@@ -83,7 +76,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
                   className="text-gray-600 transition hover:text-gray-900"
                   href="#0"
                 >
-                  Diversity & Inclusion
+                  资源分发与作者条例
                 </Link>
               </li>
               <li>
@@ -91,7 +84,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
                   className="text-gray-600 transition hover:text-gray-900"
                   href="#0"
                 >
-                  Blog
+                  通知
                 </Link>
               </li>
               <li>
@@ -99,7 +92,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
                   className="text-gray-600 transition hover:text-gray-900"
                   href="#0"
                 >
-                  Careers
+                  合作
                 </Link>
               </li>
               <li>
@@ -107,7 +100,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
                   className="text-gray-600 transition hover:text-gray-900"
                   href="#0"
                 >
-                  Financial statements
+                  buy me a coffee
                 </Link>
               </li>
             </ul>
@@ -115,14 +108,14 @@ export default function Footer({ border = false }: { border?: boolean }) {
 
           {/* 4th block */}
           <div className="space-y-2 sm:col-span-6 md:col-span-3 lg:col-span-2">
-            <h3 className="text-sm font-medium">Resources</h3>
+            <h3 className="text-sm font-medium">社区支持</h3>
             <ul className="space-y-2 text-sm">
               <li>
                 <Link
                   className="text-gray-600 transition hover:text-gray-900"
                   href="#0"
                 >
-                  Community
+                  群聊
                 </Link>
               </li>
               <li>
@@ -130,7 +123,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
                   className="text-gray-600 transition hover:text-gray-900"
                   href="#0"
                 >
-                  Terms of service
+                  使用条款
                 </Link>
               </li>
               <li>
@@ -138,7 +131,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
                   className="text-gray-600 transition hover:text-gray-900"
                   href="#0"
                 >
-                  Report a vulnerability
+                  报告问题
                 </Link>
               </li>
             </ul>
@@ -146,7 +139,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
 
           {/* 5th block */}
           <div className="space-y-2 sm:col-span-6 md:col-span-3 lg:col-span-2">
-            <h3 className="text-sm font-medium">Social</h3>
+            <h3 className="text-sm font-medium">社媒</h3>
             <ul className="flex gap-1">
               <li>
                 <Link

@@ -5,11 +5,12 @@ export const metadata = {
 
 import Hero from "@/components/hero-home";
 import BusinessCategories from "@/components/business-categories";
-import LargeTestimonial from "@/components/large-testimonial";
+
 import Cta from "@/components/cta";
 
 import BentoDemo from "@/components/bento-demo";
 import { GlobeDemo } from "@/components/globe-demo";
+import MarqueeDemo from "@/components/marquee-demo";
 
 export default function Home() {
   return (
@@ -21,7 +22,7 @@ export default function Home() {
       <BentoDemo />
       {/* LogosStrip removed per request */}
 
-      <LargeTestimonial />
+      <MarqueeDemo />
       <Cta />
     </>
   );

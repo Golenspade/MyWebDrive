@@ -3,6 +3,7 @@
 import Image from "next/image";
 import PageIllustration from "@/components/page-illustration";
 import SplitText from "@/components/SplitText";
+import { ShimmerButton } from "@/components/ui/shimmer-button";
 // Custom avatars from public/images/avatars (place files anon.png, soyo.png, tomori.png, taki.png, rana.png)
 
 export default function HeroHome() {
@@ -90,22 +91,22 @@ export default function HeroHome() {
                   data-aos="zoom-y-out"
                   data-aos-delay={450}
                 >
-                  <a
-                    className="btn group mb-4 w-full bg-linear-to-t from-brand-primary-600 to-brand-primary-500 bg-[length:100%_100%] bg-[bottom] text-white shadow-sm hover:bg-[length:100%_150%] sm:mb-0 sm:w-auto"
-                    href="/download"
+                  <ShimmerButton
+                    className="mb-4 w-full sm:mb-0 sm:w-auto shadow-2xl"
+                    onClick={() => window.location.assign('/download')}
                   >
-                    <span className="relative inline-flex items-center">
-                      Start Free Trial{" "}
-                      <span className="ml-1 tracking-normal text-brand-primary-300 transition-transform group-hover:translate-x-0.5">
+                    <span className="relative inline-flex items-center text-white">
+                      写下你的第一笔
+                      <span className="ml-1 tracking-normal text-white/70 transition-transform group-hover:translate-x-0.5">
                         -&gt;
                       </span>
                     </span>
-                  </a>
+                  </ShimmerButton>
                   <a
                     className="btn w-full bg-white text-gray-800 shadow-sm hover:bg-gray-50 sm:ml-4 sm:w-auto"
                     href="#0"
                   >
-                    Learn More
+                    了解更多
                   </a>
                 </div>
               </div>

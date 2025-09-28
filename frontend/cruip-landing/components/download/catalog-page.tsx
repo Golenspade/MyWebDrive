@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -41,11 +42,25 @@ export default function AppCatalogPage() {
       .catch(() => {});
   }, []);
 
+  const searchParams = useSearchParams();
+  useEffect(() => {
+    const cat = searchParams?.get("category");
+    const cats = ["all","base","writing","model","script","bundle","modelAsset","article"] as const;
+    if (cat && (cats as readonly string[]).includes(cat)) setCategory(cat as any);
+  }, [searchParams]);
+
   const filtered = useMemo(() => {
     return data.filter(p => {
       const matchQ = q ? (p.name.toLowerCase().includes(q.toLowerCase()) || p.description.toLowerCase().includes(q.toLowerCase())) : true;
       const matchCat = category === "all" ? true : p.category === category;
-      const matchAsset = p.releases.some(r => r.channel === channel && r.assets.some(a => (os === "all" || a.os === os) && (arch === "all" || a.arch === arch)));
+      // Accept assets that are generic (os/arch omitted or marked as "any"), consistent with filterAssets()
+      const matchAsset = p.releases.some(r =>
+        r.channel === channel &&
+        r.assets.some(a =>
+          (os === "all" || !a.os || a.os === "any" || a.os === os) &&
+          (arch === "all" || !a.arch || a.arch === "any" || a.arch === arch)
+        )
+      );
       return matchQ && matchCat && matchAsset;
     });
   }, [data, q, os, arch, channel, category]);
@@ -61,7 +76,7 @@ export default function AppCatalogPage() {
 
           <Tabs defaultValue="all" value={category} onValueChange={(v)=>setCategory(v as any)} className="mb-6">
             <TabsList className="flex flex-wrap gap-2">
-              {(["all","base","writing","model","script","bundle"] as const).map(c => (
+              {(["all","base","writing","model","script","bundle","modelAsset","article"] as const).map(c => (
                 <TabsTrigger key={c} value={c} className="capitalize">{c === "all" ? "全部" : LABELS.category[c]}</TabsTrigger>
               ))}
             </TabsList>
@@ -300,7 +315,7 @@ function ProjectModal({ project, channel }: { project: Project; channel: Channel
 type OS = "darwin" | "windows" | "linux";
 type Arch = "amd64" | "arm64";
 type Channel = "stable" | "beta" | "dev";
-type Category = "base" | "writing" | "model" | "script" | "bundle";
+type Category = "base" | "writing" | "model" | "script" | "bundle" | "modelAsset" | "article";
 
 interface Asset { id: string; filename: string; sizeBytes: number; sha256: string; os?: OS | "any"; arch?: Arch | "any"; url?: string; }
 interface Release { version: string; channel: Channel; publishedAt: string; notesUrl?: string; assets: Asset[]; }
@@ -315,6 +330,8 @@ const LABELS = {
     model: "模型工具",
     script: "脚本工具",
     bundle: "整合包",
+    modelAsset: "模型",
+    article: "文章",
     all: "全部",
   } as const,
 };
@@ -457,6 +474,41 @@ const SAMPLE_PROJECTS: Project[] = [
           { id: "b1", os: "windows", arch: "amd64", filename: "mygo-3.0.0_windows_amd64.zip", sizeBytes: 104857600, sha256: "..." },
           { id: "b2", os: "darwin", arch: "arm64", filename: "mygo-3.0.0_darwin_arm64.zip", sizeBytes: 94371840, sha256: "..." },
           { id: "b3", os: "linux", arch: "amd64", filename: "mygo-3.0.0_linux_amd64.tar.gz", sizeBytes: 94371840, sha256: "..." },
+        ]
+      }
+    ]
+  }
+,
+  {
+    slug: "sdxl-1-0",
+    name: "SDXL 1.0",
+    description: "AI 模型占位（模型分发示例）。",
+    category: "modelAsset",
+    license: "Proprietary",
+    releases: [
+      {
+        version: "1.0.0",
+        channel: "stable",
+        publishedAt: "2025-09-10T00:00:00Z",
+        assets: [
+          { id: "ma1", filename: "sdxl-1.0.safetensors", sizeBytes: 123456789, sha256: "..." }
+        ]
+      }
+    ]
+  },
+  {
+    slug: "article-sample",
+    name: "文章示例",
+    description: "文章分发占位，使用直链作为资源。",
+    category: "article",
+    license: "CC-BY-4.0",
+    releases: [
+      {
+        version: "2025.09",
+        channel: "stable",
+        publishedAt: "2025-09-18T00:00:00Z",
+        assets: [
+          { id: "ar1", filename: "如何使用工具.md", sizeBytes: 20480, sha256: "...", url: "https://example.com/docs/howto.md" }
         ]
       }
     ]

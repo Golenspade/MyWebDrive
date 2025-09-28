@@ -11,18 +11,18 @@ import { BentoCard, BentoGrid } from "@/components/magicui/bento-grid";
 import { Marquee } from "@/components/magicui/marquee";
 
 const files = [
-  { name: "bitcoin.pdf", body: "Bitcoin is a cryptocurrency invented in 2008 by an unknown person or group of people using the name Satoshi Nakamoto." },
-  { name: "finances.xlsx", body: "A spreadsheet or worksheet is a file made of rows and columns that help sort data, arrange data easily, and calculate numerical data." },
-  { name: "logo.svg", body: "Scalable Vector Graphics is an Extensible Markup Language-based vector image format for two-dimensional graphics with support for interactivity and animation." },
-  { name: "keys.gpg", body: "GPG keys are used to encrypt and decrypt email, files, directories, and whole disk partitions and to authenticate messages." },
-  { name: "seed.txt", body: "A seed phrase, seed recovery phrase or backup seed phrase is a list of words which store all the information needed to recover Bitcoin funds on-chain." },
+  { name: "scence.txt", body: "爱音无语凝噎，毕竟一开始也是她提出要组件这个乐队." },
+  { name: "soyohouse01.webp", body: "一间现代化的高层高端住在，内饰简约现代，阳光通过落地窗撒入室内，白天，无人，沙发，茶几，床." },
+  { name: "model.json", body: "基于官方的motis而制作的改模，哥特式裙摆，华丽而不繁杂的设计，主色调：黑/暗红 无手套，有帽子，有附件，是否拼好模：是." },
+  { name: "碧天伴走.mp3", body: "“疾走感”清爽摇滚：鼓点利落、贝斯有弹性，主歌略压抑，副歌抬升很爽" },
+  { name: "fadein.json", body: "渐入效果，默认参数：100，参数范围：0-无限大" },
 ];
 
 const features = [
   {
     Icon: FileTextIcon,
-    name: "实时保存",
-    description: "实时保存 我，无畏闪退！",
+    name: "多样化的素材来源",
+    description: "使用webgal的一切！",
     href: "#",
     cta: "Learn more",
     className: "col-span-3 lg:col-span-1",
@@ -51,8 +51,8 @@ const features = [
   },
   {
     Icon: BellIcon,
-    name: "自动推送",
-    description: "自动的更新发行版",
+    name: "清晰的版本分发",
+    description: "版本内容，更新特性，一目了然",
     href: "#",
     cta: "Learn more",
     className: "col-span-3 lg:col-span-2",
@@ -73,8 +73,8 @@ const features = [
   },
   {
     Icon: CalendarIcon,
-    name: "写作日期",
-    description: "使用日历管理创作",
+    name: "更新提醒",
+    description: "这倒是提醒我了，该写二创了",
     className: "col-span-3 lg:col-span-1",
     href: "#",
     cta: "Learn more",
