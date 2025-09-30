@@ -1,7 +1,7 @@
-const { default: nextra } = require('nextra');
-const withNextra = nextra({
-  // Nextra v4: theme and contentDir are not set here anymore
-  contentDirBasePath: '/docs',
+const withNextra = require('nextra').default({
+  theme: 'nextra-theme-docs',
+  themeConfig: './theme.config.jsx',
+  defaultShowCopyCode: true,
 });
 
 /** @type {import('next').NextConfig} */
@@ -16,21 +16,6 @@ const nextBase = {
         { source: '/assets/:path*', destination: `${apiBase}/assets/:path*` },
       ],
     }
-  },
-  // For Next.js < 15.3 use experimental.turbopack.resolveAlias
-  experimental: {
-    turbopack: {
-      resolveAlias: {
-        // map virtual import used by Nextra to our mdx-components file
-        'next-mdx-import-source-file': './mdx-components.ts',
-      },
-    },
-  },
-  // For Next.js >= 15.3, turbopack config moved to top-level
-  turbopack: {
-    resolveAlias: {
-      'next-mdx-import-source-file': './mdx-components.ts',
-    },
   },
 };
 

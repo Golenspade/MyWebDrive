@@ -3,6 +3,15 @@
 All notable changes to this repository will be documented in this file.
 
 
+
+## 2025-09-30
+
+### Docs/Infra
+- docs: 回退至 Nextra v3（迁移文档至 `pages/docs/`；删除 v4 遗留：`app/docs/*` 与 `mdx-components.ts`）。
+- config: 更新 `next.config.js`（withNextra v3）与 `theme.config.jsx`；新增 `pages/_app.tsx` 以满足 Nextra v3 要求。
+- docs: 迁移 `txt2mp4` 文档到 `pages/docs/txt2mp4/`；新增 `NEXTRA_V3_MIGRATION.md` 与 `docs/NEXTRA_QUICK_START.md`。
+- verify: 本地开发环境验证 `/docs` 与 `/docs/txt2mp4` 响应 200 OK。
+
 ## 2025-09-28
 
 ### Docs/Infra

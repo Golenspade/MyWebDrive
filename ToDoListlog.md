@@ -1,3 +1,11 @@
+## 更新日志（2025-09-30）
+- 文档系统：回退到 Nextra v3（Pages Router），目录迁移至 `frontend/cruip-landing/pages/docs/`。
+- 配置调整：更新 `next.config.js`（withNextra v3）、`theme.config.jsx`，新增 `pages/_app.tsx`。
+- 清理：删除 v4 遗留 `app/docs/*` 与 `mdx-components.ts`。
+- 验证：/docs、/docs/txt2mp4 在本地开发环境返回 200 OK。
+- 备注：打 annotated tag，名称使用日期格式，注释内（括号）写明本次变更摘要。
+
+
 ## 更新日志（2025-09-28）
 - 下载目录数据核实：`/api/v1/catalog` 返回的 `webgal` / `l2dw` 两条为真实条目，但对应物理文件需位于仓库根 `assetsReal/` 才能通过 `/assets/...` 直链下载。
 - 路由与映射：Node 网关将 `assetsReal/` 映射为 `/assets`（开发期）。前端 `next.config` 已把 `/assets/*` 代理到网关。
