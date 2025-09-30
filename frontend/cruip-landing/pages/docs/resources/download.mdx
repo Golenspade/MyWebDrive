@@ -1,0 +1,340 @@
+---
+title: 下载指南
+---
+
+# 下载指南
+
+本指南将帮助你顺利下载和使用平台提供的各类资源。
+
+## 📥 下载流程
+
+### 标准下载流程
+
+import { Steps } from 'nextra/components'
+
+<Steps>
+
+### 访问下载中心
+
+前往 [下载中心](/download) 页面。
+
+### 浏览资源
+
+查看可用的引擎、工具和资源。
+
+### 选择版本
+
+根据需求选择合适的版本。
+
+### 开始下载
+
+点击下载按钮，等待下载完成。
+
+### 验证文件
+
+检查文件完整性（可选）。
+
+### 解压使用
+
+解压文件到工作目录。
+
+</Steps>
+
+## 🎮 引擎下载
+
+### WebGAL 标准版
+
+**下载信息**
+- 文件名: `WebGAL_Standard_vX.X.X.zip`
+- 大小: 约 50MB
+- 格式: ZIP 压缩包
+
+**安装步骤**
+1. 下载压缩包
+2. 解压到任意目录
+3. 运行启动脚本
+4. 开始创作
+
+### WebGAL MyGO 专版
+
+**下载信息**
+- 文件名: `WebGAL_Terre_MyGO3.0.0.zip`
+- 大小: 约 60MB
+- 格式: ZIP 压缩包
+
+**特别说明**
+- 包含 MyGO 主题优化
+- 预装 MyGO 素材
+- 专属 UI 主题
+
+### 东山定制版
+
+**下载信息**
+- 文件名: `WebGAL_Dongshan_Custom.zip`
+- 大小: 约 70MB
+- 格式: ZIP 压缩包
+
+**特别功能**
+- 高级特效支持
+- 性能优化版本
+- 扩展 API 接口
+
+## 🛠️ 工具下载
+
+### Live2D Watcher
+
+**下载信息**
+- 文件名: `l2dw-1.4.21f1修复专注预览界面不换行不适配问题.7z`
+- 大小: 约 100MB
+- 格式: 7Z 压缩包
+
+**系统要求**
+- Windows 10/11 或 macOS 10.15+
+- 支持 OpenGL 3.3+
+- 至少 4GB RAM
+
+**安装说明**
+1. 下载 7Z 压缩包
+2. 使用 7-Zip 或 WinRAR 解压
+3. 运行可执行文件
+4. 首次启动可能需要配置权限
+
+### AnoGO 工具
+
+**下载信息**
+- 文件名: `AnoGO_vX.X.X.zip`
+- 大小: 约 30MB
+- 格式: ZIP 压缩包
+
+**快速开始**
+1. 解压到工作目录
+2. 运行 `anogo.exe` (Windows) 或 `anogo` (macOS/Linux)
+3. 创建或打开项目
+4. 开始管理资源
+
+### Bandori Craft
+
+**下载信息**
+- 文件名: `BandoriCraft_vX.X.X.zip`
+- 大小: 约 150MB
+- 格式: ZIP 压缩包
+
+**注意事项**
+- 首次启动需要下载资源库
+- 建议预留 2GB 存储空间
+- 需要稳定的网络连接
+
+## 📦 资源包下载
+
+### 改模资源包
+
+**分类下载**
+- 角色立绘包: 10-50MB
+- 场景背景包: 20-100MB
+- UI 素材包: 5-20MB
+- 音频资源包: 50-200MB
+
+**下载建议**
+- 按需下载，避免占用过多空间
+- 优先下载常用资源
+- 定期清理未使用的资源
+
+### 素材库
+
+**免费素材**
+- 基础背景图片
+- 常用音效
+- 开源字体
+- 示例脚本
+
+**付费素材**
+- 高质量立绘
+- 专业配乐
+- 商用字体
+- 完整项目模板
+
+## 🔍 文件验证
+
+### 验证文件完整性
+
+使用 MD5/SHA256 校验：
+
+```bash
+# Windows (PowerShell)
+Get-FileHash -Algorithm SHA256 filename.zip
+
+# macOS/Linux
+shasum -a 256 filename.zip
+```
+
+### 常见问题
+
+import { Callout } from 'nextra/components'
+
+<Callout type="warning">
+  **下载失败**
+  - 检查网络连接
+  - 尝试使用下载工具（如 IDM）
+  - 清除浏览器缓存
+  - 更换下载时间段
+</Callout>
+
+<Callout type="info">
+  **文件损坏**
+  - 重新下载文件
+  - 验证文件哈希值
+  - 检查磁盘空间
+  - 使用可靠的解压工具
+</Callout>
+
+## 💾 存储建议
+
+### 推荐目录结构
+
+```
+MyProjects/
+├── Engines/
+│   ├── WebGAL_Standard/
+│   ├── WebGAL_MyGO/
+│   └── WebGAL_Dongshan/
+├── Tools/
+│   ├── Live2D_Watcher/
+│   ├── AnoGO/
+│   ├── BandoriCraft/
+│   └── DongshanTools/
+├── Resources/
+│   ├── Characters/
+│   ├── Backgrounds/
+│   ├── Audio/
+│   └── UI/
+└── Projects/
+    ├── Project1/
+    └── Project2/
+```
+
+### 空间规划
+
+- **引擎**: 预留 500MB
+- **工具**: 预留 1GB
+- **资源**: 预留 5-10GB
+- **项目**: 根据需求
+
+## 🔄 更新管理
+
+### 检查更新
+
+定期访问下载中心查看：
+- 新版本发布
+- 功能更新
+- 错误修复
+- 安全补丁
+
+### 更新策略
+
+**稳定项目**
+- 使用稳定版本
+- 谨慎更新
+- 做好备份
+
+**新项目**
+- 使用最新版本
+- 体验新功能
+- 及时反馈问题
+
+## 🌐 下载加速
+
+### 使用 CDN
+
+部分资源提供 CDN 加速：
+- 国内 CDN: 阿里云 OSS
+- 国际 CDN: Cloudflare
+
+### 下载工具推荐
+
+- **Windows**: Internet Download Manager (IDM)
+- **macOS**: Folx
+- **Linux**: aria2
+- **跨平台**: Free Download Manager
+
+### 命令行下载
+
+```bash
+# 使用 wget
+wget https://example.com/resource.zip
+
+# 使用 curl
+curl -O https://example.com/resource.zip
+
+# 使用 aria2 (多线程)
+aria2c -x 16 https://example.com/resource.zip
+```
+
+## 📱 移动端下载
+
+### 注意事项
+
+- 移动端下载大文件可能不稳定
+- 建议使用 WiFi 网络
+- 确保有足够存储空间
+- 使用专业下载 App
+
+### 推荐 App
+
+- **iOS**: Documents by Readdle
+- **Android**: ADM (Advanced Download Manager)
+
+## 🔗 镜像站点
+
+### 官方镜像
+
+- 主站: [下载中心](/download)
+- 镜像1: (待添加)
+- 镜像2: (待添加)
+
+### 第三方镜像
+
+- GitHub Releases
+- 百度网盘 (备用)
+- 阿里云盘 (备用)
+
+## 🆘 下载问题
+
+### 速度慢
+
+- 更换下载时间
+- 使用下载工具
+- 尝试镜像站点
+- 使用 VPN (国际资源)
+
+### 无法下载
+
+- 检查浏览器设置
+- 禁用广告拦截器
+- 清除 Cookie
+- 更换浏览器
+
+### 文件打不开
+
+- 确认文件格式
+- 安装解压工具
+- 检查文件完整性
+- 重新下载
+
+## 📞 获取帮助
+
+遇到下载问题？
+
+- 查看 [常见问题](/docs/faq)
+- 访问 [GitHub Issues](https://github.com/Golenspade/MyWebDrive/issues)
+- 加入社区讨论群
+- 联系技术支持
+
+---
+
+## 📌 重要提示
+
+- 下载前请阅读资源说明
+- 遵守版权和使用协议
+- 定期备份重要文件
+- 保持软件更新
+

@@ -4,6 +4,28 @@ All notable changes to this repository will be documented in this file.
 
 
 
+## 2025-09-30-2220 - 2025-09-30
+
+### Added
+- docs: 搭建完整教学文档结构（pages/docs/ 下 getting-started、guide、resources、api、best-practices、faq）。
+- docs: 新增 API 认证与示例页面（api/authentication.mdx、api/examples.mdx）。
+- docs: 新增最佳实践子页（performance.mdx、workflow.mdx、quality.mdx）。
+- docs: 重写文档首页（/docs/index.mdx）提供快速导航与重要链接。
+
+### Changed
+- docs: 更新主侧边导航（_meta.js）与图标，结构更清晰。
+
+### Fixed
+- docs: 修复 Nextra _meta 校验错误（补齐缺失页面导致的 500）。
+
+### Verify
+- 本地启动 Next 开发服务器，/docs、/docs/guide、/docs/best-practices、/docs/api 均返回 200。
+
+### Notes
+- Tag: 2025-09-30-2220。
+- 仅本地提交与打 tag（未推送远程）。
+
+
 ## 2025-09-30-2145 - 2025-09-30
 
 ### Fixed

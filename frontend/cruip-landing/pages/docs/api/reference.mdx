@@ -1,0 +1,512 @@
+---
+title: API 参考
+---
+
+# API 参考
+
+完整的 API 端点参考文档。
+
+## 🔐 认证 API
+
+### 用户注册
+
+```http
+POST /api/v1/auth/register
+```
+
+**请求体**
+```json
+{
+  "email": "user@example.com",
+  "password": "secure_password",
+  "name": "用户名"
+}
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "用户名",
+    "createdAt": "2025-09-30T12:00:00Z"
+  }
+}
+```
+
+### 用户登录
+
+```http
+POST /api/v1/auth/login
+```
+
+**请求体**
+```json
+{
+  "email": "user@example.com",
+  "password": "secure_password"
+}
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expiresIn": 3600,
+    "user": {
+      "id": "user_123",
+      "email": "user@example.com",
+      "name": "用户名"
+    }
+  }
+}
+```
+
+### 刷新令牌
+
+```http
+POST /api/v1/auth/refresh
+```
+
+**请求体**
+```json
+{
+  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+}
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+    "expiresIn": 3600
+  }
+}
+```
+
+### 用户登出
+
+```http
+POST /api/v1/auth/logout
+```
+
+**Headers**
+```http
+Authorization: Bearer YOUR_ACCESS_TOKEN
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "message": "登出成功"
+}
+```
+
+## 👤 用户 API
+
+### 获取当前用户信息
+
+```http
+GET /api/v1/users/me
+```
+
+**Headers**
+```http
+Authorization: Bearer YOUR_ACCESS_TOKEN
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "user_123",
+    "email": "user@example.com",
+    "name": "用户名",
+    "storageQuota": 10737418240,
+    "storageUsed": 1073741824,
+    "createdAt": "2025-09-30T12:00:00Z",
+    "updatedAt": "2025-09-30T12:00:00Z"
+  }
+}
+```
+
+### 更新用户信息
+
+```http
+PATCH /api/v1/users/me
+```
+
+**请求体**
+```json
+{
+  "name": "新用户名"
+}
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "user_123",
+    "name": "新用户名",
+    "updatedAt": "2025-09-30T13:00:00Z"
+  }
+}
+```
+
+### 修改密码
+
+```http
+PATCH /api/v1/users/me/password
+```
+
+**请求体**
+```json
+{
+  "currentPassword": "old_password",
+  "newPassword": "new_password"
+}
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "message": "密码修改成功"
+}
+```
+
+## 📁 文件夹 API
+
+### 创建文件夹
+
+```http
+POST /api/v1/folders
+```
+
+**请求体**
+```json
+{
+  "name": "新文件夹",
+  "parentId": "folder_parent_id"
+}
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "folder_123",
+    "name": "新文件夹",
+    "parentId": "folder_parent_id",
+    "createdAt": "2025-09-30T12:00:00Z"
+  }
+}
+```
+
+### 获取文件夹内容
+
+```http
+GET /api/v1/folders/:folderId/children
+```
+
+**查询参数**
+- `page`: 页码（默认 1）
+- `limit`: 每页数量（默认 50）
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "id": "folder_456",
+        "type": "folder",
+        "name": "子文件夹",
+        "createdAt": "2025-09-30T12:00:00Z"
+      },
+      {
+        "id": "file_789",
+        "type": "file",
+        "name": "文件.txt",
+        "size": 1024,
+        "mimeType": "text/plain",
+        "createdAt": "2025-09-30T12:00:00Z"
+      }
+    ],
+    "total": 2,
+    "page": 1,
+    "limit": 50
+  }
+}
+```
+
+### 重命名文件夹
+
+```http
+PATCH /api/v1/folders/:folderId
+```
+
+**请求体**
+```json
+{
+  "name": "新文件夹名"
+}
+```
+
+### 移动文件夹
+
+```http
+POST /api/v1/folders/:folderId/move
+```
+
+**请求体**
+```json
+{
+  "targetParentId": "folder_new_parent_id"
+}
+```
+
+### 删除文件夹
+
+```http
+DELETE /api/v1/folders/:folderId
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "message": "文件夹已删除"
+}
+```
+
+## 📄 文件 API
+
+### 上传文件
+
+```http
+POST /api/v1/files
+```
+
+**请求体 (multipart/form-data)**
+```
+file: [文件数据]
+folderId: folder_123
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "file_123",
+    "name": "example.txt",
+    "size": 1024,
+    "mimeType": "text/plain",
+    "folderId": "folder_123",
+    "createdAt": "2025-09-30T12:00:00Z"
+  }
+}
+```
+
+### 获取文件信息
+
+```http
+GET /api/v1/files/:fileId
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "file_123",
+    "name": "example.txt",
+    "size": 1024,
+    "mimeType": "text/plain",
+    "folderId": "folder_123",
+    "downloadUrl": "/api/v1/files/file_123/download",
+    "createdAt": "2025-09-30T12:00:00Z",
+    "updatedAt": "2025-09-30T12:00:00Z"
+  }
+}
+```
+
+### 下载文件
+
+```http
+GET /api/v1/files/:fileId/download
+```
+
+**响应**: 文件二进制数据
+
+### 重命名文件
+
+```http
+PATCH /api/v1/files/:fileId
+```
+
+**请求体**
+```json
+{
+  "name": "新文件名.txt"
+}
+```
+
+### 移动文件
+
+```http
+POST /api/v1/files/:fileId/move
+```
+
+**请求体**
+```json
+{
+  "targetFolderId": "folder_new_id"
+}
+```
+
+### 删除文件
+
+```http
+DELETE /api/v1/files/:fileId
+```
+
+## 🔗 分享 API
+
+### 创建分享
+
+```http
+POST /api/v1/shares
+```
+
+**请求体**
+```json
+{
+  "fileId": "file_123",
+  "expiresIn": 86400,
+  "password": "optional_password"
+}
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "id": "share_123",
+    "code": "abc123",
+    "fileId": "file_123",
+    "url": "https://example.com/s/abc123",
+    "expiresAt": "2025-10-01T12:00:00Z",
+    "hasPassword": true
+  }
+}
+```
+
+### 获取分享信息
+
+```http
+GET /api/v1/shares/:shareId
+```
+
+### 访问公开分享
+
+```http
+GET /api/v1/public/shares/:code
+```
+
+**查询参数**
+- `password`: 分享密码（如果需要）
+
+### 删除分享
+
+```http
+DELETE /api/v1/shares/:shareId
+```
+
+## 📦 目录 API
+
+### 获取资源列表
+
+```http
+GET /api/v1/catalog
+```
+
+**查询参数**
+- `type`: 资源类型
+- `tag`: 标签筛选
+- `page`: 页码
+- `limit`: 每页数量
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "items": [
+      {
+        "slug": "webgal",
+        "title": "WebGAL MyGO 专版",
+        "description": "MyGO 主题优化版本",
+        "version": "3.0.0",
+        "size": "60MB",
+        "downloadUrl": "/assets/WebGAL_Terre_MyGO3.0.0.zip",
+        "tags": ["engine", "mygo"]
+      }
+    ],
+    "total": 10,
+    "page": 1,
+    "limit": 20
+  }
+}
+```
+
+### 获取资源详情
+
+```http
+GET /api/v1/catalog/:slug
+```
+
+**响应**
+```json
+{
+  "success": true,
+  "data": {
+    "slug": "webgal",
+    "title": "WebGAL MyGO 专版",
+    "description": "详细描述...",
+    "version": "3.0.0",
+    "size": "60MB",
+    "downloadUrl": "/assets/WebGAL_Terre_MyGO3.0.0.zip",
+    "tags": ["engine", "mygo"],
+    "createdAt": "2025-09-30T12:00:00Z",
+    "updatedAt": "2025-09-30T12:00:00Z"
+  }
+}
+```
+
+## 🔗 相关资源
+
+- [API 概述](/docs/api) - API 介绍
+- [认证授权](/docs/api/authentication) - 认证详解
+- [示例代码](/docs/api/examples) - 代码示例
+- [OpenAPI 规范](https://github.com/Golenspade/MyWebDrive/blob/main/docs/openapi.yaml) - 完整规范
+
+---
+
+查看完整的 [OpenAPI 规范文档](https://github.com/Golenspade/MyWebDrive/blob/main/docs/openapi.yaml) 了解更多详情。
+

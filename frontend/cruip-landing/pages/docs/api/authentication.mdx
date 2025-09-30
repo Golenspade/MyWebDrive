@@ -1,0 +1,43 @@
+---
+title: 认证与授权
+---
+
+# 认证与授权
+
+本页介绍 MyGO 平台的身份认证（Auth）与授权流程，包括登录、刷新令牌与鉴权要点。
+
+## 登录流程
+
+```http
+POST /api/v1/auth/login
+Content-Type: application/json
+
+{ "email": "user@example.com", "password": "secure_password" }
+```
+
+返回示例：
+
+```json
+{
+  "accessToken": "...",
+  "refreshToken": "...",
+  "expiresIn": 3600
+}
+```
+
+## 使用访问令牌
+
+请求时携带：
+
+```http
+Authorization: Bearer YOUR_ACCESS_TOKEN
+```
+
+## 刷新令牌
+
+```http
+POST /api/v1/auth/refresh
+{ "refreshToken": "..." }
+```
+
+更多端点与字段详见 API 参考页。
