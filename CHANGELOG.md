@@ -4,6 +4,17 @@ All notable changes to this repository will be documented in this file.
 
 
 
+## 2025-09-30-2145 - 2025-09-30
+
+### Fixed
+- ci: 更新 pnpm-lock.yaml，修复 ERR_PNPM_OUTDATED_LOCKFILE（CI 安装依赖步骤恢复通过）。
+- landing: 首页 Logo 组件默认使用 SVG，失败回退 PNG，消除 logo-07/08 的 404。
+
+### Notes
+- Tag: 2025-09-30-2145。
+- Workflow: node-build-test Success。
+
+
 ## 2025-09-30
 
 ### Docs/Infra

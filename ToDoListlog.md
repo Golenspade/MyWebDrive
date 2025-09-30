@@ -1,3 +1,9 @@
+## 更新日志（2025-09-30-2145）
+- CI：更新 pnpm-lock.yaml，修复 ERR_PNPM_OUTDATED_LOCKFILE，Actions 通过（node-build-test）。
+- Landing：Logo 组件默认使用 SVG，失败回退 PNG，消除 logo-07/08 404。
+- Tag：2025-09-30-2145。
+
+
 ## 更新日志（2025-09-30）
 - 文档系统：回退到 Nextra v3（Pages Router），目录迁移至 `frontend/cruip-landing/pages/docs/`。
 - 配置调整：更新 `next.config.js`（withNextra v3）、`theme.config.jsx`，新增 `pages/_app.tsx`。
