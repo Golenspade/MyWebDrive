@@ -3,10 +3,10 @@
 import Image from "next/image";
 import React from "react";
 
-// Prefer PNG logos (e.g., 128x128) and gracefully fall back to SVG if PNG is missing
+// Prefer SVG logos (present for all logos) and gracefully fall back to PNG only if SVG fails
 function Logo({ name, width, height, alt }: { name: string; width: number; height: number; alt: string }) {
-  const [usePng, setUsePng] = React.useState(true);
-  const src = `/images/${name}.${usePng ? "png" : "svg"}`;
+  const [useSvg, setUseSvg] = React.useState(true);
+  const src = `/images/${name}.${useSvg ? "svg" : "png"}`;
   return (
     <Image
       className="relative"
@@ -14,7 +14,7 @@ function Logo({ name, width, height, alt }: { name: string; width: number; heigh
       width={width}
       height={height}
       alt={alt}
-      onError={() => setUsePng(false)}
+      onError={() => setUseSvg(false)}
     />
   );
 }
