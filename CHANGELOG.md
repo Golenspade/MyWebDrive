@@ -4,6 +4,21 @@ All notable changes to this repository will be documented in this file.
 
 
 
+## 2025-10-01-1636 - 2025-10-01
+
+### Added
+- docs: 新增前端路由与跳转清单（docs/site-map.md），覆盖 frontend/cruip-landing 的 App Router、/docs 站点与跳转元素。
+- docs: 新增文档页（/docs/guide/low-cost-cinematic-pipeline.mdx），整理“低成本高画面制作（摇轮椅）”工作流。
+
+### Changed
+- docs: 更新指南分区导航（pages/docs/guide/_meta.js），加入“低成本高画面制作（摇轮椅）”入口。
+
+### Verify
+- 文档结构本地检查：/docs/guide/low-cost-cinematic-pipeline 路由存在；docs/site-map.md 内容与代码库一致。
+
+### Notes
+- Tag: 2025-10-01-1636。
+
 ## 2025-09-30-2220 - 2025-09-30
 
 ### Added

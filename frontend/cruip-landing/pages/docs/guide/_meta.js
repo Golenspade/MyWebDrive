@@ -20,5 +20,9 @@ export default {
     title: '东山工具集',
     icon: '⚡'
   },
+  'low-cost-cinematic-pipeline': {
+    title: '低成本高画面制作（摇轮椅）',
+    icon: '🎬'
+  },
 };
 
