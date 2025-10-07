@@ -74,7 +74,7 @@ git clone https://github.com/Golenspade/MyWebDrive.git
 ```
 
 6. **访问应用**
-   - 前端: http://localhost:3000
+   - 前端: http://127.0.0.1:3100
    - API 网关 (Node): http://localhost:9080
    - MinIO控制台: http://localhost:9001 (minioadmin/minioadmin)
 
