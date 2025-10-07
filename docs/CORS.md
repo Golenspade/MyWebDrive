@@ -1,6 +1,6 @@
 # CORS / 跨域配置统一说明
 
-本项目在开发阶段同时存在 Next 开发服务器（apps/web，端口 4000）与 API 网关（Node，端口 9080）。为保证前端与后端在本地联调时顺畅，CORS 策略按以下方式统一：
+本项目在开发阶段使用 `frontend/cruip-landing`（Next.js，端口 3100）与 API 网关（Node，端口 9080）。为保证前端与后端在本地联调时顺畅，CORS 策略按以下方式统一：
 
 ## 开发环境（推荐设置）
 
@@ -8,12 +8,11 @@
   - `Access-Control-Allow-Origin: *`
   - `Access-Control-Allow-Methods: GET,POST,PATCH,DELETE,OPTIONS,HEAD`
   - `Access-Control-Allow-Headers: Content-Type, Authorization, X-Requested-With, X-Request-ID`
-  - 这样在本地联调时，Vite（3000）或 Next（4000）都可直接访问网关，无需额外配置。
+  - 这样在本地联调时，Next（3100）可直接访问网关，无需额外配置。
 
-- Next（apps/web）作为 BFF/开发服：
-  - 通过 `rewrites` 将 `/api/v1/*` 代理到网关。
-  - 网关地址默认从 `API_BASE_URL` 读取，若未设置，默认 `http://localhost:9080`。
-  - 覆盖方式：编辑 `apps/web/.env.local` 中的 `API_BASE_URL`。
+- 前端（frontend/cruip-landing）：
+  - 通过 `API_BASE_URL` 访问网关（默认 `http://localhost:9080`）。
+  - 可在 `frontend/cruip-landing/.env.local` 或启动命令中覆盖。
 
 ## 明确指定允许来源
 
@@ -21,7 +20,7 @@
 
 ```
 # 以逗号分隔多个来源
-CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:4000
+CORS_ALLOWED_ORIGINS=http://127.0.0.1:3100
 ```
 
 当使用 Go 网关或服务（808x 端口）时，该变量会被读取并用于设置允许的来源；Node 版本后续也将读取相同变量以保持一致性（当前开发态默认 `*` 以降低摩擦）。
@@ -36,8 +35,7 @@ CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:4000
 ## 端口与环境变量速查
 
 - 网关（Node 开发默认）：`http://localhost:9080`
-- Next（apps/web 开发）：`http://localhost:4000`
+- Next（frontend/cruip-landing 开发）：`http://127.0.0.1:3100`
 - 配置变量：
   - `API_BASE_URL`（Next 使用）
   - `CORS_ALLOWED_ORIGINS`（后端服务使用）
-

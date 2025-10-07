@@ -2,6 +2,19 @@
 
 All notable changes to this repository will be documented in this file.
 
+## Unreleased
+
+### Added
+- scripts: `manage-services.sh start-frontend-prod`（构建并以 `next start` 方式启动 frontend/cruip-landing，输出日志到 `logs/frontend.log` 与 `logs/frontend.build.log`）。
+
+### Changed
+- docs: README、MIGRATION_TO_NODE、CORS 等文档统一说明前端改为 `frontend/cruip-landing`（Next.js），默认端口调整为 3100。
+- env: `.env` 与 `docs/env.example` 增加 `FRONTEND_HOST/FRONTEND_PORT/API_BASE_URL` 示例，CORS 说明改为指向新的前端。
+- scripts: `manage-services.sh` 的 `start-frontend` 改为 Next dev，停止逻辑清理 PID 文件。
+
+### Verify
+- `./manage-services.sh status`
+
 
 
 ## 2025-10-01-1636 - 2025-10-01
@@ -136,4 +149,3 @@ All notable changes to this repository will be documented in this file.
   - Implement Aliyun OSS STS issuance endpoint and frontend ali-oss multipart upload (keep TUS as fallback).
   - Refactor storage service into smaller modules to meet ≤200 lines/file guideline.
   - Fix/standardize .gitignore to avoid tracking build artifacts and IDE files.
-

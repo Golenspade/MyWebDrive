@@ -1,11 +1,11 @@
 # MyWebDrive - 云存储服务
 
-基于微服务架构的云存储（网盘）服务。后端已全面迁移到 Node.js（Monorepo + pnpm），前端使用 Vite，并提供 Next.js 开发体验。
+基于微服务架构的云存储（网盘）服务。后端已全面迁移到 Node.js（Monorepo + pnpm），前端使用 Next.js（`frontend/cruip-landing`）。
 
 ## 🚀 特性
 
 - **微服务架构**: 模块化设计，易于扩展和维护
-- **现代化技术栈**: Node.js + React + TypeScript + Vite
+- **现代化技术栈**: Node.js + React + TypeScript + Next.js
 - **安全认证**: JWT令牌认证，支持访问令牌和刷新令牌
 - **文件管理**: 完整的文件和文件夹操作功能
 - **断点续传**: 基于TUS协议的可续传文件上传
@@ -23,7 +23,7 @@
 
 - **React 18** - 用户界面框架
 - **TypeScript** - 类型安全
-- **Vite** - 快速开发和构建
+- **Next.js 15** - 前端应用框架
 - **Zustand** - 轻量级状态管理
 - **TailwindCSS** - 现代化样式框架
 - **React Query** - 数据获取和缓存
@@ -69,26 +69,27 @@
    ```bash
 # 一键启动后端（gateway + auth + user + metadata + storage + sharing）
 ./manage-services.sh start-backend
-# 或前后端一起启动
+# 或前后端一起启动（后端 + frontend/cruip-landing）
 ./manage-services.sh start
 ```
 
 6. **访问应用**
-   - 前端: http://localhost:3000
+   - 前端: http://127.0.0.1:3100
    - API 网关 (Node): http://localhost:9080
    - MinIO控制台: http://localhost:9001 (minioadmin/minioadmin)
 
-7. 端到端回归（Next 4000 + Gateway 9080）
+7. 端到端回归（Gateway 9080）
    ```bash
-   # 启动后端（包含网关）与 Next 开发服
+   # 启动后端（包含网关）
    ./manage-services.sh start-backend
-   ./manage-services.sh start-next
 
    # 运行回归脚本（切到 9080 网关）
    GATEWAY_PORT=9080 bash ./test_guest_download.sh
    GATEWAY_PORT=9080 bash ./test_invitation_flow.sh
    GATEWAY_PORT=9080 bash ./test_invitation_system.sh
-   ```
+ ```
+
+> 生产预览：`./manage-services.sh start-frontend-prod` 会先构建 `frontend/cruip-landing` 再以 `next start` 启动，默认监听 `FRONTEND_PORT`。
 
 ## 下载目录（方案 A）开发期用法
 
@@ -104,9 +105,9 @@
 
 ## CORS/跨域
 
-- 默认（开发态）: Node 网关开启宽松 CORS（`*`），Next 开发服（`apps/web`，端口 4000）通过 `rewrites` 代理到网关，无需额外配置。
-- 指定来源: 使用环境变量 `CORS_ALLOWED_ORIGINS` 以逗号分隔（示例：`http://localhost:3000,http://localhost:4000`）。
-- Next 网关地址: `apps/web/next.config.js` 中 `API_BASE_URL` 默认指向 `http://localhost:9080`，可通过 `apps/web/.env.local` 覆盖。
+- 默认（开发态）: Node 网关开启宽松 CORS（`*`），前端（`frontend/cruip-landing`，端口 3100）直连 `/api/v1`，无需额外代理配置。
+- 指定来源: 使用环境变量 `CORS_ALLOWED_ORIGINS` 以逗号分隔（示例：`http://127.0.0.1:3100`）。
+- 前端在 `frontend/cruip-landing/next.config.js` 中读取 `API_BASE_URL`，可在 `.env.local` 或启动脚本中覆盖。
 - 生产建议: 显式设置允许来源域名，避免使用 `*`。
 
 详见 `docs/CORS.md`。
@@ -190,8 +191,7 @@ Authorization: Bearer <access_token>
 mywebdrive/
 ├── services/                # Node 微服务（auth/user/metadata/storage/sharing/gateway）
 ├── packages/                # Node 共享包（common、observability 等）
-├── frontend/                # 前端应用（Vite）
-├── apps/                    # Next.js（可选，开发态）
+├── frontend/                # 前端应用（cruip-landing / Next.js）
 ├── docs/                    # 文档（OpenAPI、FAQ 等）
 └── scripts|infrastructure   # 脚本与部署
 ```
@@ -250,4 +250,3 @@ make quality-check  # 构建+测试+lint
 本项目基于 MIT 许可证 - 查看 [LICENSE](LICENSE) 文件了解详情。
 
 ## 🙏 致谢
-

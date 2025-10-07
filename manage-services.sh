@@ -20,15 +20,39 @@ if [ -f ".env" ]; then set -a; source .env; set +a; log_info ".env loaded"; fi
 check_on_port(){ local port=$1; local pid=$(lsof -ti :$port 2>/dev/null | head -1 || true); [ -n "$pid" ] && echo "RUNNING (PID: $pid)" || echo "STOPPED"; }
 kill_on_port(){ local port=$1; local pids=$(lsof -ti :$port 2>/dev/null || true); [ -n "$pids" ] && kill $pids 2>/dev/null || true; }
 
-# --- 前端（Vite 3000）---
+# --- 前端（cruip-landing Next）---
+FRONTEND_PORT=${FRONTEND_PORT:-3100}
+FRONTEND_HOST=${FRONTEND_HOST:-127.0.0.1}
 start_frontend(){
-  log_service "Starting frontend (Vite) on :3000..."
-  if [ "$(check_on_port 3000)" != "STOPPED" ]; then log_warn "Frontend already running"; return; fi
+  log_service "Starting frontend (cruip-landing) on :${FRONTEND_PORT}..."
+  if [ "$(check_on_port $FRONTEND_PORT)" != "STOPPED" ]; then log_warn "Frontend already running"; return; fi
   mkdir -p logs
-  (cd frontend && nohup pnpm dev > ../logs/frontend.log 2>&1 & echo $! > ../logs/frontend.pid)
+  (cd frontend/cruip-landing && \
+    API_BASE_URL=${API_BASE_URL:-http://localhost:${GW_PORT:-9080}} \
+    nohup pnpm exec next dev -H "${FRONTEND_HOST}" -p "${FRONTEND_PORT}" > ../../logs/frontend.log 2>&1 & echo $! > ../../logs/frontend.pid)
   sleep 2; kill -0 $(cat logs/frontend.pid) 2>/dev/null && log_info "Frontend started (PID: $(cat logs/frontend.pid))" || log_error "Frontend failed"
 }
-stop_frontend(){ log_service "Stopping frontend"; kill_on_port 3000; log_info "Frontend stopped"; }
+start_frontend_prod(){
+  log_service "Starting frontend (cruip-landing) in production mode on :${FRONTEND_PORT}..."
+  if [ "$(check_on_port $FRONTEND_PORT)" != "STOPPED" ]; then log_warn "Frontend already running"; return; fi
+  mkdir -p logs
+  log_info "Building frontend bundle"
+  if ! (cd frontend/cruip-landing && API_BASE_URL=${API_BASE_URL:-http://localhost:${GW_PORT:-9080}} pnpm exec next build > ../../logs/frontend.build.log 2>&1); then
+    log_error "Frontend build failed (see logs/frontend.build.log)"
+    return 1
+  fi
+  log_info "Starting Next in standalone mode"
+  (cd frontend/cruip-landing && \
+    API_BASE_URL=${API_BASE_URL:-http://localhost:${GW_PORT:-9080}} \
+    nohup pnpm exec next start -H "${FRONTEND_HOST}" -p "${FRONTEND_PORT}" > ../../logs/frontend.log 2>&1 & echo $! > ../../logs/frontend.pid)
+  sleep 2; kill -0 $(cat logs/frontend.pid) 2>/dev/null && log_info "Frontend (prod) started (PID: $(cat logs/frontend.pid))" || log_error "Frontend (prod) failed"
+}
+stop_frontend(){
+  log_service "Stopping frontend"
+  kill_on_port "$FRONTEND_PORT"
+  [ -f logs/frontend.pid ] && rm -f logs/frontend.pid
+  log_info "Frontend stopped"
+}
 
 # --- Node 微服务端口 ---
 GW_PORT=${GATEWAY_PORT:-9080}
@@ -120,7 +144,7 @@ show_status(){
   echo "================================ STATUS ================================"
   printf "%-24s %-8s %-22s\n" "Service" "Port" "Status"
   echo "------------------------------------------------------------------------"
-  printf "%-24s %-8s %-22s\n" "Frontend (Vite)" "3000" "$(check_on_port 3000)"
+  printf "%-24s %-8s %-22s\n" "Frontend (cruip)" "$FRONTEND_PORT" "$(check_on_port $FRONTEND_PORT)"
   printf "%-24s %-8s %-22s\n" "API Gateway" "$GW_PORT" "$(check_on_port $GW_PORT)"
   printf "%-24s %-8s %-22s\n" "Auth Service" "$AUTH_PORT" "$(check_on_port $AUTH_PORT)"
   printf "%-24s %-8s %-22s\n" "User Service" "$USER_PORT" "$(check_on_port $USER_PORT)"
@@ -201,7 +225,7 @@ cmd_build(){ ensure_pnpm; pnpm build:all; }
 # --- 主入口 ---
 case ${1:-status} in
   help|-h|--help)
-    echo "Usage: $0 {setup|install|build|start|stop|restart|start-backend|stop-backend|start-frontend|stop-frontend|start-next|status|env:print|env:write}" ;;
+    echo "Usage: $0 {setup|install|build|start|stop|restart|start-backend|stop-backend|start-frontend|start-frontend-prod|stop-frontend|start-next|status|env:print|env:write}" ;;
   setup)          cmd_setup ;;
   install)        cmd_install ;;
   build)          cmd_build ;;
@@ -209,6 +233,7 @@ case ${1:-status} in
   stop)           stop_frontend; stop_backend ;;
   restart)        stop_frontend; stop_backend; start_backend; start_frontend ;;
   start-frontend) start_frontend ;;
+  start-frontend-prod) start_frontend_prod ;;
   stop-frontend)  stop_frontend ;;
   start-backend)  start_backend ;;
   stop-backend)   stop_backend ;;
@@ -216,5 +241,5 @@ case ${1:-status} in
   env:print)      shift; cmd_env_print "$@" ;;
   env:write)      shift; cmd_env_write "$@" ;;
   status)         show_status ;;
-  *) echo "Usage: $0 {setup|install|build|start|stop|restart|start-backend|stop-backend|start-frontend|stop-frontend|start-next|status|env:print|env:write}"; exit 1;;
+  *) echo "Usage: $0 {setup|install|build|start|stop|restart|start-backend|stop-backend|start-frontend|start-frontend-prod|stop-frontend|start-next|status|env:print|env:write}"; exit 1;;
 esac

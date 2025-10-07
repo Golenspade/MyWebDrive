@@ -12,12 +12,12 @@ Quick start
 
 Run single services
 - API Gateway: ./manage-services.sh start-backend (starts all backend services)
-- Or individually: ./manage-services.sh start-frontend, start-next (apps/web), etc.
+- Or individually: ./manage-services.sh start-frontend (dev) / start-frontend-prod (build + start)
 - Single service dev:
   - Auth: pnpm -C services/auth dev
   - Storage: pnpm -C services/storage dev
   - Gateway: pnpm -C services/api-gateway-node dev
-  - Frontend: pnpm -C frontend dev
+  - Frontend: pnpm --dir frontend/cruip-landing dev
 
 Environment templates
 - Print recommended env: ./manage-services.sh env:print [all|auth|storage]
@@ -51,4 +51,3 @@ Notes
 - For production, set COOKIE_SECURE=true and use a strong OWNER_COOKIE_SECRET.
 - The storage service reads REDIS_URL and download limit envs for concurrency gating and bandwidth throttling.
 - STS endpoint is stubbed and will be implemented once RAM role details are confirmed.
-

@@ -78,11 +78,10 @@ git clone https://github.com/Golenspade/MyWebDrive.git
    - API 网关 (Node): http://localhost:9080
    - MinIO控制台: http://localhost:9001 (minioadmin/minioadmin)
 
-7. 端到端回归（Next 4000 + Gateway 9080）
+7. 端到端回归（Gateway 9080）
    ```bash
-# 启动后端（包含网关）与 Next 开发服
+# 启动后端（包含网关）
    ./manage-services.sh start-backend
-   ./manage-services.sh start-next
 
    # 运行回归脚本（切到 9080 网关）
    GATEWAY_PORT=9080 bash ./test_guest_download.sh
@@ -92,9 +91,9 @@ git clone https://github.com/Golenspade/MyWebDrive.git
 
 ## CORS/跨域
 
-- 默认（开发态）: Node 网关开启宽松 CORS（`*`），Next 开发服（`apps/web`，端口 4000）通过 `rewrites` 代理到网关，无需额外配置。
-- 指定来源: 使用环境变量 `CORS_ALLOWED_ORIGINS` 以逗号分隔（示例：`http://localhost:3000,http://localhost:4000`）。
-- Next 网关地址: `apps/web/next.config.js` 中 `API_BASE_URL` 默认指向 `http://localhost:9080`，可通过 `apps/web/.env.local` 覆盖。
+- 默认（开发态）: Node 网关开启宽松 CORS（`*`），前端（`frontend/cruip-landing`，端口 3100）直接请求 `/api/v1`，无需单独代理。
+- 指定来源: 使用环境变量 `CORS_ALLOWED_ORIGINS` 以逗号分隔（示例：`http://127.0.0.1:3100`）。
+- 前端网关地址: `frontend/cruip-landing/next.config.js` 中 `API_BASE_URL` 默认指向 `http://localhost:9080`，可通过 `.env.local` 覆盖。
 - 生产建议: 显式设置允许来源域名，避免使用 `*`。
 
 详见 `docs/CORS.md`。
