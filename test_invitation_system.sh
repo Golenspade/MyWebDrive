@@ -73,30 +73,45 @@ echo "✅ 邀请码创建成功: $INVITATION_CODE"
 # 3. 测试无邀请码注册（应该失败）
 echo
 echo "3. 测试无邀请码注册（应该失败）..."
-NO_INVITE_RESPONSE=$(curl -s -X POST "$API_BASE/auth/register" \
+NO_INVITE_RAW=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/auth/register" \
     -H "Content-Type: application/json" \
     -d "{\"name\":\"Test User\",\"email\":\"$TEST_USER_EMAIL\",\"password\":\"$TEST_USER_PASSWORD\"}")
+NO_INVITE_STATUS=$(echo "$NO_INVITE_RAW" | tail -n1)
+NO_INVITE_BODY=$(printf "%s" "$NO_INVITE_RAW" | sed '$d')
 
-if echo "$NO_INVITE_RESPONSE" | jq -e '.error' > /dev/null; then
+if [ "$NO_INVITE_STATUS" != "403" ] && [ "$NO_INVITE_STATUS" != "400" ]; then
+    echo "❌ 无邀请码注册应该失败但返回状态码 $NO_INVITE_STATUS: $NO_INVITE_BODY"
+    exit 1
+fi
+
+if echo "$NO_INVITE_BODY" | jq -e '.error' > /dev/null; then
     echo "✅ 无邀请码注册正确被拒绝"
 else
-    echo "❌ 无邀请码注册应该失败但成功了: $NO_INVITE_RESPONSE"
+    echo "❌ 无邀请码注册应该失败但成功了: $NO_INVITE_BODY"
     exit 1
 fi
 
 # 4. 使用邀请码注册
 echo
 echo "4. 使用邀请码注册新用户..."
-REGISTER_RESPONSE=$(curl -s -X POST "$API_BASE/auth/register" \
+REGISTER_RAW=$(curl -s -w "\n%{http_code}" -X POST "$API_BASE/auth/register" \
     -H "Content-Type: application/json" \
     -d "{\"name\":\"Test User\",\"email\":\"$TEST_USER_EMAIL\",\"password\":\"$TEST_USER_PASSWORD\",\"invitationCode\":\"$INVITATION_CODE\"}")
+REGISTER_STATUS=$(echo "$REGISTER_RAW" | tail -n1)
+REGISTER_BODY=$(printf "%s" "$REGISTER_RAW" | sed '$d')
 
-if echo "$REGISTER_RESPONSE" | jq -e '.message' > /dev/null; then
-    echo "✅ 用户注册成功"
-else
-    echo "❌ 用户注册失败: $REGISTER_RESPONSE"
+if [ "$REGISTER_STATUS" != "201" ]; then
+    echo "❌ 用户注册失败 (HTTP $REGISTER_STATUS): $REGISTER_BODY"
     exit 1
 fi
+
+REGISTER_TOKEN=$(echo "$REGISTER_BODY" | jq -r '.accessToken // empty')
+if [ -z "$REGISTER_TOKEN" ]; then
+    echo "❌ 注册响应缺少 accessToken: $REGISTER_BODY"
+    exit 1
+fi
+
+echo "✅ 用户注册成功"
 
 # 5. 新用户登录
 echo

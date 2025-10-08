@@ -89,6 +89,8 @@
    GATEWAY_PORT=9080 bash ./test_invitation_system.sh
  ```
 
+> 需要在生产环境强制邀请码注册时，将 `REGISTRATION_REQUIRE_INVITE=true` 写入运行时环境变量，并用管理员账号调用 `/api/v1/auth/invitations` 创建首批邀请码。可运行 `pnpm --filter services/auth prisma:seed` 快速生成默认管理员和初始邀请码。
+
 > 生产预览：`./manage-services.sh start-frontend-prod` 会先构建 `frontend/cruip-landing` 再以 `next start` 启动，默认监听 `FRONTEND_PORT`。
 
 ## 下载目录（方案 A）开发期用法

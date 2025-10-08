@@ -1,3 +1,8 @@
+## 更新日志（2025-10-08-2255）
+- 邀请码：前端注册接口支持 `invitationCode`，修正 `test_invitation_system.sh` 校验逻辑，确保端到端验证可复用。
+- 配置：`docs/env.example` 与 `services/auth/.env.example` 补充邀码相关环境变量注释，README 指引生产启用步骤。
+- UI：下载页 Logo 组件优先加载 PNG，失败回退 SVG。
+
 ## 更新日志（2025-09-30-2145）
 - CI：更新 pnpm-lock.yaml，修复 ERR_PNPM_OUTDATED_LOCKFILE，Actions 通过（node-build-test）。
 - Landing：Logo 组件默认使用 SVG，失败回退 PNG，消除 logo-07/08 404。
@@ -128,4 +133,3 @@
 "携手顶尖引擎与社区平台
  为创作者提供最完善的生态支持"
 ```
-

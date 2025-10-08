@@ -58,7 +58,7 @@ interface AuthState {
   isAuthenticated: boolean
   
   login: (email: string, password: string) => Promise<void>
-  register: (name: string, email: string, password: string) => Promise<void>
+  register: (name: string, email: string, password: string, invitationCode?: string) => Promise<void>
   logout: () => void
   clearAuth: () => void // 清除所有认证状态
   refreshAccessToken: () => Promise<void>
@@ -116,9 +116,19 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      register: async (name: string, email: string, password: string) => {
+      register: async (name: string, email: string, password: string, invitationCode?: string) => {
         try {
-          await api.post('/auth/register', { name, email, password })
+          const payload: { name: string; email: string; password: string; invitationCode?: string } = {
+            name,
+            email,
+            password,
+          }
+
+          if (invitationCode) {
+            payload.invitationCode = invitationCode.trim()
+          }
+
+          await api.post('/auth/register', payload)
           toast.success('注册成功！请登录')
         } catch (error: unknown) {
           const errorMessage = error && typeof error === 'object' && 'response' in error
