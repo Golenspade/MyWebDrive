@@ -27,8 +27,8 @@ run_builder() {
       npm i -g typescript rimraf && \
       export PNPM_NODE_LINKER=isolated PNPM_STORE_DIR=/workspace/.pnpm-store; \
       echo '[1/4] Install + build shared packages'; \
-      (cd packages/common && pnpm install && pnpm run build); \
-      (cd packages/observability && pnpm install && pnpm run build); \
+      (cd packages/common && pnpm install && tsc -b --force); \
+      (cd packages/observability && pnpm install && tsc -b --force); \
       echo '[2/4] Install services'; \
       (cd services/auth && pnpm install); \
       (cd services/user && pnpm install); \
@@ -42,11 +42,11 @@ run_builder() {
       (cd services/storage && STORAGE_DATABASE_URL='file:./services/storage/prisma/storage.db' pnpm run prisma:generate); \
       (cd services/sharing && SHARING_DATABASE_URL='file:./services/sharing/prisma/sharing.db' pnpm run prisma:generate); \
       echo '[4/4] Build services'; \
-      (cd services/auth && pnpm run build); \
-      (cd services/user && pnpm run build); \
-      (cd services/metadata && pnpm run build); \
-      (cd services/storage && pnpm run build); \
-      (cd services/sharing && pnpm run build); \
+      (cd services/auth && tsc -b --force && pnpm run build); \
+      (cd services/user && tsc -b --force && pnpm run build); \
+      (cd services/metadata && tsc -b --force && pnpm run build); \
+      (cd services/storage && tsc -b --force && pnpm run build); \
+      (cd services/sharing && tsc -b --force && pnpm run build); \
       echo '[Post] Best-effort SQLite schema apply'; \
       (cd services/auth && DATABASE_URL='file:./services/auth/prisma/auth.db' pnpm run migrate:deploy || pnpm run db:push || true); \
       (cd services/user && DATABASE_URL='file:./services/user/prisma/user.db' pnpm run migrate:deploy || pnpm run db:push || true); \
