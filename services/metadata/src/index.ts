@@ -1,7 +1,7 @@
 import express from 'express'
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability'
 import jwt from 'jsonwebtoken'
-import { PrismaClient } from '../prisma/client'
+import { PrismaClient } from '../prisma/client/index.js'
 import { randomUUID } from 'crypto'
 import { getEnv } from '@mywebdrive/common'
 

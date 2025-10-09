@@ -35,7 +35,7 @@ const redis = new Redis(REDIS_URL)
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024 // 2GB
 
 // DB (Prisma)
-import { PrismaClient } from '../prisma/client'
+import { PrismaClient } from '../prisma/client/index.js'
 process.env.STORAGE_DATABASE_URL = STORAGE_DB_URL
 const prisma = new PrismaClient()
 
