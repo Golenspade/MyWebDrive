@@ -33,12 +33,14 @@ services:
     volumes:
       - ../../:/workspace:cached
     environment:
+      PNPM_STORE_DIR: /workspace/.pnpm-store
+
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       AUTH_PORT: 7081
       DATABASE_URL: file:./services/auth/prisma/auth.db
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter ./packages/** build && \
+      pnpm -r install && pnpm -r --filter ./packages/** run build && \
       pnpm --filter ./services/auth prisma:generate && \
       pnpm --filter ./services/auth build && \
       (pnpm --filter ./services/auth run migrate:deploy || pnpm --filter ./services/auth run db:push || true) && \
@@ -54,12 +56,13 @@ services:
     volumes:
       - ../../:/workspace:cached
     environment:
+      PNPM_STORE_DIR: /workspace/.pnpm-store
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       USER_PORT: 7082
       DATABASE_URL: file:./services/user/prisma/user.db
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter ./packages/** build && \
+      pnpm -r install && pnpm -r --filter ./packages/** run build && \
       pnpm --filter ./services/user prisma:generate && \
       pnpm --filter ./services/user build && \
       (pnpm --filter ./services/user run migrate:deploy || pnpm --filter ./services/user run db:push || true) && \
@@ -75,12 +78,13 @@ services:
     volumes:
       - ../../:/workspace:cached
     environment:
+      PNPM_STORE_DIR: /workspace/.pnpm-store
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       METADATA_PORT: 7083
       METADATA_DATABASE_URL: file:./services/metadata/prisma/metadata.db
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter ./packages/** build && \
+      pnpm -r install && pnpm -r --filter ./packages/** run build && \
       pnpm --filter ./services/metadata prisma:generate && \
       pnpm --filter ./services/metadata build && \
       (pnpm --filter ./services/metadata run migrate:deploy || pnpm --filter ./services/metadata run db:push || true) && \
@@ -96,6 +100,8 @@ services:
     volumes:
       - ../../:/workspace:cached
     environment:
+      PNPM_STORE_DIR: /workspace/.pnpm-store
+
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       STORAGE_PORT: 7084
       STORAGE_PATH: ./storage
@@ -106,7 +112,7 @@ services:
       - metadata
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter ./packages/** build && \
+      pnpm -r install && pnpm -r --filter ./packages/** run build && \
       pnpm --filter ./services/storage prisma:generate && \
       pnpm --filter ./services/storage build && \
       (pnpm --filter ./services/storage run migrate:deploy || pnpm --filter ./services/storage run db:push || true) && \
@@ -122,6 +128,7 @@ services:
     volumes:
       - ../../:/workspace:cached
     environment:
+      PNPM_STORE_DIR: /workspace/.pnpm-store
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       SHARING_PORT: 7085
       STORAGE_SERVICE_URL: http://storage:7084
@@ -132,7 +139,7 @@ services:
       - metadata
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter ./packages/** build && \
+      pnpm -r install && pnpm -r --filter ./packages/** run build && \
       pnpm --filter ./services/sharing prisma:generate && \
       pnpm --filter ./services/sharing build && \
       (pnpm --filter ./services/sharing run migrate:deploy || pnpm --filter ./services/sharing run db:push || true) && \
@@ -148,6 +155,7 @@ services:
     volumes:
       - ../../:/workspace:cached
     environment:
+      PNPM_STORE_DIR: /workspace/.pnpm-store
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       GATEWAY_PORT: 9080
       AUTH_SERVICE_URL: http://auth:7081
@@ -163,7 +171,7 @@ services:
       - sharing
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter ./packages/** build && \
+      pnpm -r install && pnpm -r --filter ./packages/** run build && \
       pnpm --filter ./services/api-gateway-node build && \
       pnpm --filter ./services/api-gateway-node start"
     ports:
