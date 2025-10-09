@@ -34,6 +34,7 @@ services:
       - ../../:/workspace:cached
     environment:
       PNPM_STORE_DIR: /workspace/.pnpm-store
+      PNPM_NODE_LINKER: isolated
 
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       AUTH_PORT: 7081
@@ -57,6 +58,7 @@ services:
       - ../../:/workspace:cached
     environment:
       PNPM_STORE_DIR: /workspace/.pnpm-store
+      PNPM_NODE_LINKER: isolated
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       USER_PORT: 7082
       DATABASE_URL: file:./services/user/prisma/user.db
@@ -79,6 +81,7 @@ services:
       - ../../:/workspace:cached
     environment:
       PNPM_STORE_DIR: /workspace/.pnpm-store
+      PNPM_NODE_LINKER: isolated
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       METADATA_PORT: 7083
       METADATA_DATABASE_URL: file:./services/metadata/prisma/metadata.db
@@ -101,7 +104,7 @@ services:
       - ../../:/workspace:cached
     environment:
       PNPM_STORE_DIR: /workspace/.pnpm-store
-
+      PNPM_NODE_LINKER: isolated
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       STORAGE_PORT: 7084
       STORAGE_PATH: ./storage
@@ -129,6 +132,7 @@ services:
       - ../../:/workspace:cached
     environment:
       PNPM_STORE_DIR: /workspace/.pnpm-store
+      PNPM_NODE_LINKER: isolated
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       SHARING_PORT: 7085
       STORAGE_SERVICE_URL: http://storage:7084
@@ -156,6 +160,7 @@ services:
       - ../../:/workspace:cached
     environment:
       PNPM_STORE_DIR: /workspace/.pnpm-store
+      PNPM_NODE_LINKER: isolated
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       GATEWAY_PORT: 9080
       AUTH_SERVICE_URL: http://auth:7081
