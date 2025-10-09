@@ -138,6 +138,33 @@ kubectl get pods -n mywebdrive
 
 #### 阿里云部署
 
+**方式一：一键部署（推荐）**
+
+从本地直接部署到阿里云服务器：
+
+```bash
+# 1. 配置SSH免密登录
+chmod +x scripts/ssh-setup.sh
+./scripts/ssh-setup.sh
+
+# 2. 一键部署到服务器
+chmod +x scripts/quick-deploy.sh
+./scripts/quick-deploy.sh <你的服务器IP>
+```
+
+详细说明请查看 [一键部署指南](DEPLOY_GUIDE.md)
+
+**方式二：完整部署脚本**
+
+```bash
+# 交互式配置和部署
+chmod +x scripts/deploy-to-server.sh
+./scripts/deploy-to-server.sh setup
+./scripts/deploy-to-server.sh
+```
+
+**方式三：手动部署**
+
 ```bash
 # 设置环境变量
 export REGISTRY_URL=registry.cn-hangzhou.aliyuncs.com/your-namespace
