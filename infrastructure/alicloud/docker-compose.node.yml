@@ -40,7 +40,7 @@ services:
       DATABASE_URL: file:./services/auth/prisma/auth.db
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter=./packages/* run build && \
+      pnpm -r --filter=./packages/* --filter=./services/* install && pnpm -r --filter=./packages/* run build && \
       pnpm --filter=./services/auth run prisma:generate && \
       pnpm --filter=./services/auth run build && \
       (pnpm --filter=./services/auth run migrate:deploy || pnpm --filter=./services/auth exec prisma db push || true) && \
@@ -62,7 +62,7 @@ services:
       DATABASE_URL: file:./services/user/prisma/user.db
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter=./packages/* run build && \
+      pnpm -r --filter=./packages/* --filter=./services/* install && pnpm -r --filter=./packages/* run build && \
       pnpm --filter=./services/user run prisma:generate && \
       pnpm --filter=./services/user run build && \
       (pnpm --filter=./services/user run migrate:deploy || pnpm --filter=./services/user exec prisma db push || true) && \
@@ -84,7 +84,7 @@ services:
       METADATA_DATABASE_URL: file:./services/metadata/prisma/metadata.db
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter=./packages/* run build && \
+      pnpm -r --filter=./packages/* --filter=./services/* install && pnpm -r --filter=./packages/* run build && \
       pnpm --filter=./services/metadata run prisma:generate && \
       pnpm --filter=./services/metadata run build && \
       (pnpm --filter=./services/metadata run migrate:deploy || pnpm --filter=./services/metadata exec prisma db push || true) && \
@@ -112,7 +112,7 @@ services:
       - metadata
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter=./packages/* run build && \
+      pnpm -r --filter=./packages/* --filter=./services/* install && pnpm -r --filter=./packages/* run build && \
       pnpm --filter=./services/storage run prisma:generate && \
       pnpm --filter=./services/storage run build && \
       (pnpm --filter=./services/storage run migrate:deploy || pnpm --filter=./services/storage exec prisma db push || true) && \
@@ -139,7 +139,7 @@ services:
       - metadata
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter=./packages/* run build && \
+      pnpm -r --filter=./packages/* --filter=./services/* install && pnpm -r --filter=./packages/* run build && \
       pnpm --filter=./services/sharing run prisma:generate && \
       pnpm --filter=./services/sharing run build && \
       (pnpm --filter=./services/sharing run migrate:deploy || pnpm --filter=./services/sharing exec prisma db push || true) && \
@@ -171,7 +171,7 @@ services:
       - sharing
     command: >
       sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
-      pnpm -r install && pnpm -r --filter=./packages/* run build && \
+      pnpm -r --filter=./packages/* --filter=./services/* install && pnpm -r --filter=./packages/* run build && \
       pnpm --filter=./services/api-gateway-node run build && \
       pnpm --filter=./services/api-gateway-node run start"
     ports:
