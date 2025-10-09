@@ -2,6 +2,35 @@
 
 All notable changes to this repository will be documented in this file.
 
+## readyfordeploy - 2025-10-09
+
+### Changed
+- infra(alicloud): 将 Node 服务在 docker-compose 中的 command 改为“仅启动 dist”，移除运行期安装/构建逻辑，提升稳定性与启动速度。
+- infra(node): 为所有 Node 服务容器设置 `PNPM_NODE_LINKER=isolated`，避免 workspace 根级 hoist/link 带来的不稳定。
+
+### Added
+- scripts: 新增一次性构建脚本 `scripts/build-all-node.sh`（Node 20 容器内执行），完成：
+  - packages/* 与 services/* 的 `pnpm install`
+  - Prisma Client 生成
+  - TypeScript 强制全量构建（`tsc -b --force`）
+  - 包含 `services/api-gateway-node` 的安装与构建
+
+### Fixed
+- esm/prisma: 修复 NodeNext ESM 下的 Prisma Client 导入路径，`auth/metadata/storage` 改为 `../prisma/client/index.js`。
+- ts(metadata): 移除两处无用的 `@ts-expect-error` 注释，消除 TS2578 报错。
+
+### Chore
+- common: 增加 devDependencies（`typescript`、`@types/node`、`rimraf`），保证包内可独立构建与清理。
+
+### Verify
+- 服务器容器健康检查均返回 200：
+  - 9080 网关、7081 Auth、7082 User、7083 Metadata、7084 Storage、7085 Sharing
+- 验证命令（服务器）：`curl http://localhost:{9080|7081|7082|7083|7084|7085}/health`
+
+### Notes
+- 本次变更使得部署流程为：先执行 `./scripts/build-all-node.sh` 进行一次性构建，再 `docker compose up -d` 启动服务。
+- 适用于切换到新服务器的场景：先拉取仓库 → 运行构建脚本 → 启动 compose。
+
 ## Unreleased
 
 ### Added
