@@ -35,6 +35,7 @@ run_builder() {
       (cd services/metadata && pnpm install); \
       (cd services/storage && pnpm install); \
       (cd services/sharing && pnpm install); \
+      (cd services/api-gateway-node && pnpm install); \
       echo '[3/4] Prisma generate for all services'; \
       (cd services/auth && DATABASE_URL='file:./services/auth/prisma/auth.db' pnpm run prisma:generate); \
       (cd services/user && DATABASE_URL='file:./services/user/prisma/user.db' pnpm run prisma:generate); \
@@ -47,6 +48,7 @@ run_builder() {
       (cd services/metadata && tsc -b --force && pnpm run build); \
       (cd services/storage && tsc -b --force && pnpm run build); \
       (cd services/sharing && tsc -b --force && pnpm run build); \
+      (cd services/api-gateway-node && tsc -b --force && pnpm run build); \
       echo '[Post] Best-effort SQLite schema apply'; \
       (cd services/auth && DATABASE_URL='file:./services/auth/prisma/auth.db' pnpm run migrate:deploy || pnpm run db:push || true); \
       (cd services/user && DATABASE_URL='file:./services/user/prisma/user.db' pnpm run migrate:deploy || pnpm run db:push || true); \
