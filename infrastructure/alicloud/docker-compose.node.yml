@@ -37,7 +37,7 @@ services:
       AUTH_PORT: 7081
       DATABASE_URL: file:./services/auth/prisma/auth.db
     command: >
-      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
       pnpm -w install && pnpm -r --filter ./packages/** build && \
       pnpm --filter ./services/auth prisma:generate && \
       pnpm --filter ./services/auth build && \
@@ -58,7 +58,7 @@ services:
       USER_PORT: 7082
       DATABASE_URL: file:./services/user/prisma/user.db
     command: >
-      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
       pnpm -w install && pnpm -r --filter ./packages/** build && \
       pnpm --filter ./services/user prisma:generate && \
       pnpm --filter ./services/user build && \
@@ -79,7 +79,7 @@ services:
       METADATA_PORT: 7083
       METADATA_DATABASE_URL: file:./services/metadata/prisma/metadata.db
     command: >
-      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
       pnpm -w install && pnpm -r --filter ./packages/** build && \
       pnpm --filter ./services/metadata prisma:generate && \
       pnpm --filter ./services/metadata build && \
@@ -105,7 +105,7 @@ services:
       - minio
       - metadata
     command: >
-      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
       pnpm -w install && pnpm -r --filter ./packages/** build && \
       pnpm --filter ./services/storage prisma:generate && \
       pnpm --filter ./services/storage build && \
@@ -131,7 +131,7 @@ services:
       - storage
       - metadata
     command: >
-      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
       pnpm -w install && pnpm -r --filter ./packages/** build && \
       pnpm --filter ./services/sharing prisma:generate && \
       pnpm --filter ./services/sharing build && \
@@ -162,7 +162,7 @@ services:
       - storage
       - sharing
     command: >
-      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      sh -lc "npm config set registry https://registry.npmmirror.com && npm i -g pnpm@9.7.0 && \
       pnpm -w install && pnpm -r --filter ./packages/** build && \
       pnpm --filter ./services/api-gateway-node build && \
       pnpm --filter ./services/api-gateway-node start"
