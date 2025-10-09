@@ -152,7 +152,6 @@ app.get('/api/v1/catalog', async (req, res, next) => {
         r.assets.push(a)
       }
       proj.releases = Array.from(groups.values()).sort((x, y) => x.version.localeCompare(y.version))
-      // @ts-expect-error remove temp
       delete (proj as any)._assets
       projects.push(proj)
     }
@@ -205,7 +204,6 @@ app.get('/api/v1/catalog/:slug', async (req, res, next) => {
       r.assets.push(a)
     }
     proj.releases = Array.from(groups.values())
-    // @ts-expect-error remove temp
     delete (proj as any)._assets
     res.json(proj)
   } catch (err) {
