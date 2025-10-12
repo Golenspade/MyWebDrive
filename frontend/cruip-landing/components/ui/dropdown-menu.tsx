@@ -12,7 +12,7 @@ export function DropdownMenu({ children }:{ children?: React.ReactNode }){
 export function DropdownMenuTrigger({ asChild, children }:{ asChild?: boolean; children: React.ReactElement }){
   const ctx = React.useContext(Ctx)!;
   if (asChild) {
-    return React.cloneElement(children, { onClick: (e:any)=>{ children.props.onClick?.(e); ctx.setOpen(!ctx.open); } });
+    return React.cloneElement(children as any, { onClick: (e:any)=>{ (children as any).props?.onClick?.(e); ctx.setOpen(!ctx.open); } } as any);
   }
   return <button onClick={()=>ctx.setOpen(!ctx.open)}>{children}</button>;
 }

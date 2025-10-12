@@ -51,7 +51,7 @@ export default function AppCatalogPage() {
 
   const filtered = useMemo(() => {
     return data.filter(p => {
-      const matchQ = q ? (p.name.toLowerCase().includes(q.toLowerCase()) || p.description.toLowerCase().includes(q.toLowerCase())) : true;
+      const matchQ = q ? (p.name.toLowerCase().includes(q.toLowerCase()) || (p.description?.toLowerCase() ?? "").includes(q.toLowerCase())) : true;
       const matchCat = category === "all" ? true : p.category === category;
       // Accept assets that are generic (os/arch omitted or marked as "any"), consistent with filterAssets()
       const matchAsset = p.releases.some(r =>
@@ -261,7 +261,7 @@ function ProjectCard({ project, channel, os, arch, onOpen, onCopy }: {
             </DropdownMenuContent>
           </DropdownMenu>
           <Tooltip>
-            <TooltipTrigger asChild>
+            <TooltipTrigger>
               <Button size="icon" variant="outline" onClick={() => onCopy(genInstallCmd(project, os))}><Copy className="size-4"/></Button>
             </TooltipTrigger>
             <TooltipContent>复制安装命令</TooltipContent>

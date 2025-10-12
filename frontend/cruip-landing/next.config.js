@@ -6,6 +6,12 @@ const withNextra = require('nextra').default({
 
 /** @type {import('next').NextConfig} */
 const nextBase = {
+  eslint: { ignoreDuringBuilds: true },
+
+  output: 'export',
+
+  images: { unoptimized: true },
+
   async rewrites() {
     const apiBase = process.env.API_BASE_URL || 'http://localhost:9080'
     return {

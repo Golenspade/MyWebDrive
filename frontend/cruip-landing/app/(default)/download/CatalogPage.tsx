@@ -131,6 +131,17 @@ function HeroBar() {
   );
 }
 
+function FooterBar() {
+  return (
+    <footer className="border-t border-border/60">
+      <div className="mx-auto max-w-7xl px-4 h-16 flex items-center text-sm text-muted-foreground">
+        © {new Date().getFullYear()} ToolHub
+      </div>
+    </footer>
+  );
+}
+
+
 function SpecItem({ icon, title, desc }: { icon: React.ReactNode, title: string, desc: string }) {
   return (
     <div className="rounded-xl border bg-background/70 p-3">
@@ -230,7 +241,7 @@ function ProjectCard({ project, channel, os, arch, onOpen, onCopy }: {
           </DropdownMenu>
 
           <Tooltip>
-            <TooltipTrigger asChild>
+            <TooltipTrigger>
               <Button size="icon" variant="outline" onClick={() => onCopy(genInstallCmd(project, os))}><Copy className="size-4"/></Button>
             </TooltipTrigger>
             <TooltipContent>复制安装命令</TooltipContent>
