@@ -34,6 +34,8 @@ rsync -avz --delete \
     --exclude 'build' \
     --exclude 'logs' \
     --exclude 'data' \
+    --exclude '.env' \
+    --exclude 'infrastructure/alicloud/.env' \
     -e "ssh -p $SERVER_PORT" \
     ./ "$SERVER_USER@$SERVER_IP:$REMOTE_DIR/"
 
@@ -51,7 +53,12 @@ fi
 # 给脚本执行权限
 chmod +x deploy.sh rollback.sh backup-restore.sh
 
+# 首次/每次部署前构建后端 dist 产物（在宿主机用 Docker 进行一次性构建）
+cd /opt/MyWebDrive
+./scripts/build-all-node.sh
+
 # 执行部署
+cd /opt/MyWebDrive/infrastructure/alicloud
 ./deploy.sh production latest
 ENDSSH
 
@@ -63,4 +70,3 @@ echo "  前端应用: http://$SERVER_IP"
 echo ""
 echo "查看日志:"
 echo "  ssh $SERVER_USER@$SERVER_IP 'cd $REMOTE_DIR/infrastructure/alicloud && docker-compose -f docker-compose.node.yml logs -f'"
-

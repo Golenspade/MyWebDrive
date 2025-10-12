@@ -2,6 +2,14 @@
 
 All notable changes to this repository will be documented in this file.
 
+## 2025-10-12
+
+### Fixed
+- ops: quick-deploy.sh 保护服务器 `.env`（避免 rsync `--delete` 覆盖），并在部署前执行 `scripts/build-all-node.sh` 以确保 `services/*/dist` 存在。
+
+### Changed
+- infra(alicloud): 为 `storage` 服务注入 `REDIS_URL=redis://redis:6379/0`，避免容器内默认连 `localhost:6379` 导致下载限流失败时被拒绝。
+
 ## readyfordeploy - 2025-10-09
 
 ### Changed

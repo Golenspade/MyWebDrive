@@ -95,6 +95,7 @@ services:
       STORAGE_PATH: ./storage
       METADATA_SERVICE_URL: http://metadata:7083
       STORAGE_DATABASE_URL: file:./services/storage/prisma/storage.db
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       - minio
       - metadata
@@ -163,4 +164,3 @@ volumes:
 networks:
   mywebdrive:
     driver: bridge
-
