@@ -341,7 +341,7 @@ cd infrastructure/alicloud
 - Deployment logs: `/var/log/mywebdrive/deploy.log` (server)
 - Service logs (dev): `logs/*.log`
 - OpenAPI spec: `docs/openapi.yaml` (being rewritten for Node SoR)
-- Migration docs: `MIGRATION_TO_NODE.md`
+- Migration docs: `docs/_archive/MIGRATION_TO_NODE.md`
 - Changelog: `CHANGELOG.md`
 
 ## Makefile Targets

@@ -57,6 +57,6 @@
   - 在入口（前端/网关）设置 `x-request-id` 并贯穿；以该值在所有服务日志中检索
 
 ## 关联文档
-- `MIGRATION_TO_NODE.md`：迁移计划与端口对照
+- `docs/_archive/MIGRATION_TO_NODE.md`：迁移计划与端口对照（已归档）
 - `README.md`：启动与结构说明
 - `docs/openapi.yaml`：API 合约

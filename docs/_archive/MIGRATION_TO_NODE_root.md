@@ -1,4 +1,4 @@
-# MyWebDrive - 云存储服务
+# [ARCHIVED] MyWebDrive - 云存储服务（根目录版本，已归档）
 
 基于微服务架构的云存储（网盘）服务。后端已全面迁移到 Node.js（Monorepo + pnpm），前端使用 Vite，并提供 Next.js 开发体验。
 
