@@ -46,3 +46,10 @@ coverage/
 
 # Large local assets (not tracked)
 assetsReal/
+
+# Internal augmentation artifacts (ignore if re-created)
+.augment_*.txt
+*.augment.log
+
+# Local ops secrets (do not commit)
+.ops/
