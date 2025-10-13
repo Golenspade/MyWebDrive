@@ -2,6 +2,26 @@
 
 All notable changes to this repository will be documented in this file.
 
+## deploy-un-2025-10-13-1022 - 2025-10-13
+
+Snapshot for post-deploy (not published to server). Tagged as `deploy-un-2025-10-13-1022`.
+
+### Added
+- docs: Add `AGENTS.md` contributor guide (repository guidelines, structure, commands, style, PR rules).
+
+### Changed
+- docs: Update references to archived migration doc in `CLAUDE.md` and `docs/OPS_FAQ.md`.
+- gitignore: Ignore `.ops/` (local ops keys/scripts) and internal augment artifacts (`.augment_*.txt`, `*.augment.log`).
+
+### Archived/Move
+- MIGRATION_TO_NODE.md → `docs/_archive/MIGRATION_TO_NODE_root.md` (history only)
+- README_FRONTEND_BEFORE.md → `docs/_archive/README_FRONTEND_BEFORE.md`
+- frontend/FRONTEND_COMPLETED.md → `docs/_archive/FRONTEND_COMPLETED_VITE.md`
+- furtherPlan.md → `docs/_archive/furtherPlan.md`
+- Template docs (`frontend/_templates/tailwind-landing-page-template/*`) → `docs/_archive/templates/`
+- Fonts README (apps/web, landing) → `docs/_archive/fonts/`
+- Internal augment artifacts → `docs/_archive/internal/`
+
 ## 2025-10-12
 
 ### Fixed
