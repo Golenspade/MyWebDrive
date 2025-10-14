@@ -46,6 +46,28 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
   }
 }
 
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const role = (req as any).auth?.role
+  if (role !== 'admin') return res.status(403).json({ error: 'Admin access required' })
+  next()
+}
+
+// --- Admin: Files statistics (top-level; before any /files/:fileId routes) ---
+app.get('/api/v1/files/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    const where: any = { type: 'file', deletedAt: null }
+    const [totalFiles, agg] = await Promise.all([
+      prisma.file.count({ where }),
+      prisma.file.aggregate({ where, _sum: { size: true } }),
+    ])
+    const totalSizeBytes = (agg._sum as any)?.size || 0
+    res.json({ totalFiles, totalSizeBytes })
+  } catch (err) {
+    next(err)
+  }
+})
+
+
 // Health & metrics
 app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'metadata-service-node' }))
 app.get('/metrics', metricsHandler)
@@ -62,6 +84,22 @@ function parseCatalogTags(tags: Array<{ tagName: string }>): Record<string, stri
     const eq = rest.indexOf('=')
     if (eq === -1) continue
     const key = rest.slice(0, eq).trim()
+
+// --- Admin: Files statistics (top-level to precede fileId routes) ---
+app.get('/api/v1/files/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    const where: any = { type: 'file', deletedAt: null }
+    const [totalFiles, agg] = await Promise.all([
+      prisma.file.count({ where }),
+      prisma.file.aggregate({ where, _sum: { size: true } }),
+    ])
+    const totalSizeBytes = (agg._sum as any)?.size || 0
+    res.json({ totalFiles, totalSizeBytes })
+  } catch (err) {
+    next(err)
+  }
+})
+
     const value = rest.slice(eq + 1).trim()
     if (key) kv[key] = value
   }
@@ -428,6 +466,22 @@ app.post('/api/v1/folders/:folderId/move', requireAuth, async (req, res, next) =
       }
     })
 
+// --- Admin: Files statistics ---
+app.get('/api/v1/files/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    const where: any = { type: 'file', deletedAt: null }
+    const [totalFiles, agg] = await Promise.all([
+      prisma.file.count({ where }),
+      prisma.file.aggregate({ where, _sum: { size: true } }),
+    ])
+    const totalSizeBytes = (agg._sum as any)?.size || 0
+    res.json({ totalFiles, totalSizeBytes })
+  } catch (err) {
+    next(err)
+  }
+})
+
+
     return res.status(204).send()
   } catch (err) {
     next(err)
@@ -762,6 +816,7 @@ app.get('/api/v1/search', requireAuth, async (req, res, next) => {
 })
 
 // Error handler
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status = typeof err?.status === 'number' ? err.status : 500

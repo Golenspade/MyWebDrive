@@ -277,6 +277,69 @@ app.post('/api/v1/auth/invitations/:code/revoke', requireAuth, requireAdmin, asy
   }
 })
 
+
+// --- Admin: Users management ---
+app.get('/api/v1/auth/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const q = String(req.query.query || '').trim()
+    const pageParam = Number.parseInt(String(req.query.page || '1'), 10)
+    const pageSizeParam = Number.parseInt(String(req.query.pageSize || '20'), 10)
+    const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1
+    const pageSize = Number.isFinite(pageSizeParam) ? Math.max(1, Math.min(100, pageSizeParam)) : 20
+
+    const where: any = {}
+    if (q) where.OR = [{ email: { contains: q } }, { name: { contains: q } }]
+
+    const [total, items] = await Promise.all([
+      prisma.user.count({ where }),
+      prisma.user.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize, select: { id: true, name: true, email: true, role: true, createdAt: true } }),
+    ])
+
+    return res.json({ items, page, pageSize, total })
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.get('/api/v1/auth/admin/users/statistics', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const range = String(req.query.range || '7d')
+    const days = range === '30d' ? 30 : 7
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000)
+    const [totalUsers, newUsers] = await Promise.all([
+      prisma.user.count(),
+      prisma.user.count({ where: { createdAt: { gte: since } } }),
+    ])
+    return res.json({ totalUsers, newUsers, range: `${days}d` })
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.get('/api/v1/auth/admin/users/:id', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const id = req.params.id
+    const user = await prisma.user.findUnique({ where: { id }, select: { id: true, name: true, email: true, role: true, createdAt: true, updatedAt: true } })
+    if (!user) return res.status(404).json({ error: 'User not found' })
+    return res.json(user)
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.patch('/api/v1/auth/admin/users/:id/role', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const id = req.params.id
+    const { role } = (req.body || {}) as { role?: string }
+    if (role !== 'user' && role !== 'admin') return res.status(400).json({ error: 'Invalid role' })
+    const updated = await prisma.user.update({ where: { id }, data: { role } })
+    return res.json({ id: updated.id, role: updated.role })
+  } catch (err: any) {
+    if (err?.code === 'P2025') return res.status(404).json({ error: 'User not found' })
+    next(err)
+  }
+})
+
 // Unified error handler
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

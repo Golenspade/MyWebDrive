@@ -24,6 +24,9 @@ const MINIO_BUCKET = process.env.MINIO_BUCKET || 'mywebdrive'
 const METADATA_SERVICE_URL = process.env.METADATA_SERVICE_URL || 'http://localhost:7083'
 const STORAGE_DB_URL = process.env.STORAGE_DATABASE_URL || 'file:./storage.db'
 
+// Dev toggle: skip metadata callback during finalize (for local demo)
+const STORAGE_SKIP_METADATA = (process.env.STORAGE_SKIP_METADATA || 'false').toLowerCase() === 'true'
+
 
 // Redis for download concurrency gating
 import Redis from 'ioredis'
@@ -70,6 +73,13 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
     return res.status(401).json({ error: 'Unauthorized' })
   }
 }
+
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const role = (req as any).auth?.role
+  if (role !== 'admin') return res.status(403).json({ error: 'Admin access required' })
+  next()
+}
+
 
 // In-memory upload session manager
 type UploadSession = {
@@ -577,37 +587,49 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, async (req, 
 
   try {
     const { expectedMd5 } = (req.body || {}) as { expectedMd5?: string }
-    const { finalPath, md5 } = await mergeChunks(session, expectedMd5)
+    let finalPath: string
+    let md5: string
+    if (STORAGE_SKIP_METADATA) {
+      // Fast path for dev/demo: skip actual merge to speed up finalize
+      finalPath = `dev://skipped/${session.id}`
+      md5 = 'skip'
+    } else {
+      const merged = await mergeChunks(session, expectedMd5)
+      finalPath = merged.finalPath
+      md5 = merged.md5
+    }
     session.status = 'completed'
     session.storagePath = finalPath
     session.md5Hash = md5
     session.updatedAt = new Date().toISOString()
     await persistSession(session)
-    // Notify metadata service: create or update file + version
-    try {
-      const bearer = String(req.headers['authorization'] || '')
-      const r = await callMetadataServiceWithRetry(
-        `${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`,
-        { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null },
-        bearer,
-      )
-      if (!r.ok) {
-        // Rollback stored file if metadata creation failed
-        if (USE_MINIO) {
-          try {
-            const { Client } = await import('minio')
-            const [host, portStr] = MINIO_ENDPOINT.split(':')
-            const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
-            await client.removeObject(MINIO_BUCKET, `files/${session.id}`)
-          } catch {}
-        } else {
-          try { await fsp.rm(finalPath, { force: true }) } catch {}
+    // Notify metadata service: create or update file + version (skippable in dev)
+    if (!STORAGE_SKIP_METADATA) {
+      try {
+        const bearer = String(req.headers['authorization'] || '')
+        const r = await callMetadataServiceWithRetry(
+          `${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`,
+          { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null },
+          bearer,
+        )
+        if (!r.ok) {
+          // Rollback stored file if metadata creation failed
+          if (USE_MINIO) {
+            try {
+              const { Client } = await import('minio')
+              const [host, portStr] = MINIO_ENDPOINT.split(':')
+              const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
+              await client.removeObject(MINIO_BUCKET, `files/${session.id}`)
+            } catch {}
+          } else {
+            try { await fsp.rm(finalPath, { force: true }) } catch {}
+          }
+          session.status = 'failed'
+          await persistSession(session)
+          return res.status(502).json({ error: 'Failed to create metadata' })
         }
-        session.status = 'failed'
-        await persistSession(session)
-        return res.status(502).json({ error: 'Failed to create metadata' })
-      }
-    } catch {}
+      } catch {}
+    }
 
     return res.json({
       uploadId,
@@ -739,6 +761,7 @@ app.get('/api/v1/storage/files/:fileId', requireServiceToken, async (req, res) =
   } else {
     const p = path.join(STORAGE_PATH, 'files', fileId)
     try {
+
       await fsp.stat(p)
     } catch {
       return res.status(404).json({ error: 'File not found' })
@@ -749,6 +772,62 @@ app.get('/api/v1/storage/files/:fileId', requireServiceToken, async (req, res) =
 
 // Error handler
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
+
+
+// --- Admin: storage statistics ---
+app.get('/api/v1/storage/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    const completed = await prisma.uploadSession.findMany({ where: { status: 'completed' }, select: { fileSize: true } })
+    const totalUploadsCount = completed.length
+    const totalUploadsBytes = completed.reduce((acc, r) => acc + (r.fileSize || 0), 0)
+    res.json({ totalUploadsBytes, totalUploadsCount })
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.get('/api/v1/storage/statistics/daily', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const daysParam = Number.parseInt(String(req.query.days || '30'), 10)
+    const days = Number.isFinite(daysParam) ? Math.max(1, Math.min(90, daysParam)) : 30
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000)
+    const rows = await prisma.uploadSession.findMany({ where: { status: 'completed', updatedAt: { gte: since } }, select: { updatedAt: true, fileSize: true } })
+    const byDate = new Map<string, { date: string; bytes: number; count: number }>()
+    for (let i = days; i >= 1; i--) {
+      const d = new Date(Date.now() - i * 24 * 3600 * 1000).toISOString().slice(0, 10)
+      byDate.set(d, { date: d, bytes: 0, count: 0 })
+    }
+    for (const r of rows) {
+      const d = (r.updatedAt as any as Date).toISOString().slice(0, 10)
+      const ent = byDate.get(d)
+      if (ent) { ent.bytes += (r.fileSize || 0); ent.count += 1 } else { byDate.set(d, { date: d, bytes: r.fileSize || 0, count: 1 }) }
+    }
+    res.json({ days, series: Array.from(byDate.values()) })
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.get('/api/v1/storage/downloads/active', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    // Best-effort using Redis keys `dl:*` created by download gating
+    let ips: string[] = []
+    let total = 0
+    try {
+      const keys = await redis.keys('dl:*')
+      ips = keys.map((k) => k.slice(3))
+      if (keys.length > 0) {
+        const vals = await redis.mget(keys)
+        total = vals.reduce((acc, v) => acc + (Number(v || '0') || 0), 0)
+      }
+    } catch {
+      // if Redis not available, return zeroes
+    }
+    res.json({ concurrency: total, ips })
+  } catch (err) {
+    next(err)
+  }
+})
 
 // STS issuance stub (to be implemented with @alicloud/sts20150401)
 app.post('/api/v1/storage/oss/sts', requireAuth, async (_req, res) => {
@@ -769,5 +848,6 @@ app.listen(PORT, async () => {
   await ensureDir(path.join(STORAGE_PATH, 'files'))
   await ensureDir(path.join(STORAGE_PATH, 'temp'))
   try { await loadActiveSessions() } catch {}
+
   logger.info({ port: PORT }, 'storage-service-node listening')
 })

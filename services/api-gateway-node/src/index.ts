@@ -78,39 +78,53 @@ app.get('/api/v1/admin/health', requireAuth, requireAdmin, async (_req, res, nex
   }
 })
 
-// Admin overview (degraded aggregate aligned to Go shape)
+// Admin overview (aggregates across auth/metadata/storage)
 // Returns { totals: Record<string, number>, today: Record<string, number>, last7d: Record<string, Array<{date,value}>> }
-app.get('/api/v1/admin/overview', requireAuth, requireAdmin, async (_req, res, next) => {
+app.get('/api/v1/admin/overview', requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    // Minimal degraded data with zeros; can be enhanced to fetch downstream /metrics later
-    const now = new Date()
-    const day = (d: Date) => d.toISOString().slice(0, 10)
-    const days: string[] = []
-    for (let i = 7; i >= 1; i--) {
-      const dt = new Date(now.getTime() - i * 24 * 3600 * 1000)
-      days.push(day(dt))
-    }
-    const zeros = days.map((date) => ({ date, value: 0 }))
+    const authHeader = String(req.headers['authorization'] || '')
+
+    const [authStats, fileStats, storageTotals, storageDaily] = await Promise.all([
+      fetch(`${AUTH}/api/v1/auth/admin/users/statistics?range=7d`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { totalUsers: 0, newUsers: 0 }).catch(() => ({ totalUsers: 0, newUsers: 0 })),
+      fetch(`${METADATA}/api/v1/files/statistics`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { totalFiles: 0, totalSizeBytes: 0 }).catch(() => ({ totalFiles: 0, totalSizeBytes: 0 })),
+      fetch(`${STORAGE}/api/v1/storage/statistics`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { totalUploadsBytes: 0, totalUploadsCount: 0 }).catch(() => ({ totalUploadsBytes: 0, totalUploadsCount: 0 })),
+      fetch(`${STORAGE}/api/v1/storage/statistics/daily?days=7`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { days: 7, series: [] }).catch(() => ({ days: 7, series: [] })),
+    ])
+
+    const a = authStats as any
+    const f = fileStats as any
+    const st = storageTotals as any
+    const sd = storageDaily as any
+
+    const uploadsSeries = Array.isArray(sd.series)
+      ? sd.series.map((it: any) => ({ date: String(it.date), value: Number(it.bytes || 0) }))
+      : []
+
+    const todayISO = new Date().toISOString().slice(0, 10)
+    const todayUploadsBytes = Array.isArray(sd.series)
+      ? Number((sd.series.find((it: any) => String(it.date) === todayISO)?.bytes) || 0)
+      : 0
+
     res.json({
       totals: {
-        total_users: 0,
-        total_files: 0,
-        total_storage_bytes: 0,
+        total_users: Number(a.totalUsers || 0),
+        total_files: Number(f.totalFiles || 0),
+        total_storage_bytes: Number(f.totalSizeBytes || 0),
       },
       today: {
-        uploads_bytes: 0,
+        uploads_bytes: todayUploadsBytes,
         downloads_bytes: 0,
-        uploads_count: 0,
+        uploads_count: Number(st.totalUploadsCount || 0),
         downloads_count: 0,
-        active_users: 0,
+        active_users: Number(a.newUsers || 0),
         visits_uv: 0,
         requests_count: 0,
         errors_count: 0,
       },
       last7d: {
-        uploads_bytes: zeros,
-        downloads_bytes: zeros,
-        visits_uv: zeros,
+        uploads_bytes: uploadsSeries,
+        downloads_bytes: uploadsSeries.map((d: any) => ({ date: d.date, value: 0 })),
+        visits_uv: uploadsSeries.map((d: any) => ({ date: d.date, value: 0 })),
       },
     })
   } catch (err) {
