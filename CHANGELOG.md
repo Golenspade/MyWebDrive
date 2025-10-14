@@ -2,6 +2,30 @@
 
 All notable changes to this repository will be documented in this file.
 
+## admin-users-frontend - 2025-10-14
+
+### Added
+- feat(frontend): Admin 用户管理页 `/admin/users`（采用 shadcn/ui 组件，直连后端）
+  - 列表/搜索/分页：GET `/api/v1/auth/admin/users?query=&page=&pageSize=`
+  - 角色变更：PATCH `/api/v1/auth/admin/users/:id/role`
+  - 查看/设置配额：GET `/api/v1/users/:id/storage`、PATCH `/api/v1/users/:id/quota`
+  - Token 对话框：页面内置“设置令牌”，从 localStorage 读取/存储 Bearer Token 用于带鉴权请求
+
+### Changed
+- frontend(admin): 主导航新增 Users 入口；修复 usePathname 可能为 null 的类型问题
+- frontend(admin): `/admin` 默认重定向到 `/admin/users`
+- gateway: 对齐与确认转发 `/api/v1/auth/*`、`/api/v1/users/*` 到对应服务（保持直连后端，无占位符）
+
+### Docs
+- docs(env.example): 增加 `STORAGE_SKIP_METADATA=false`（生产闭环；本地演示可临时设为 true）
+
+### Verify
+- 后端已启动（gateway 9080）且管理员 Token 可用时：
+  1. 前端 dev：`pnpm -C frontend/cruip-landing dev -p 4323`（或 `./manage-services.sh start-frontend` 使用 3100）
+  2. 访问 `/admin/users`，通过“设置令牌”粘贴 Bearer Token
+  3. 执行搜索/分页/改角色/查看与设置配额，接口均返回 200
+
+
 ## admin-apis-stage1-backend - 2025-10-14
 
 ### Added
