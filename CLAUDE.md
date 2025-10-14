@@ -119,6 +119,22 @@ pnpm --filter ./services/auth db:push
 pnpm --filter ./services/auth db:seed
 ```
 
+### Frontend Development
+
+```bash
+# Frontend-only development
+cd frontend/cruip-landing && pnpm dev
+
+# Frontend build (for production preview)
+cd frontend/cruip-landing && pnpm build
+
+# Frontend type checking
+cd frontend/cruip-landing && pnpm typecheck
+
+# Frontend linting
+cd frontend/cruip-landing && pnpm lint
+```
+
 ### Testing
 
 ```bash
@@ -213,6 +229,17 @@ All services use unified logging and metrics from `@mywebdrive/observability`:
 - **Request ID**: `x-request-id` header auto-injected and propagated
 
 Verify metrics: `curl http://localhost:7081/metrics | head`
+
+### Frontend Architecture
+
+The frontend uses a modern React + Next.js 15 stack with Zustand for state management. Key patterns:
+
+- **API Client**: `lib/api/client.ts` handles automatic token refresh (single-flight), 204 responses, and unified error handling
+- **Auth Store**: `lib/stores/auth-store.ts` manages authentication state with localStorage persistence
+- **Dependency Injection**: API client receives auth callbacks to avoid circular dependencies
+- **Protected Routes**: `components/auth/protected-route.tsx` with hydration-aware checks
+
+See `docs/FRONTEND_BACKEND_CONNECTION_DESIGN.md` for comprehensive frontend implementation guide.
 
 ### Error Handling
 
@@ -316,6 +343,15 @@ cd infrastructure/alicloud
 ./deploy.sh production latest
 ```
 
+## Shared Packages
+
+The monorepo includes shared packages in `packages/`:
+
+- **@mywebdrive/common**: Shared utilities and types used across services
+- **@mywebdrive/observability**: Unified logging (Pino) and metrics (Prometheus) for all services
+
+Import these in services via workspace protocol: `"@mywebdrive/common": "workspace:*"`
+
 ## Common Pitfalls
 
 1. **Prisma Client Types Conflict**: Always use per-service output (`./client`) and import from local path with `.js` extension.
@@ -368,6 +404,28 @@ make alicloud-deploy # Deploy to Aliyun
 5. **Update CHANGELOG.md** for notable changes.
 6. **Logs directory** is gitignored - check `logs/*.log` for debugging during development.
 7. **Do not track large files** - `assetsReal/` is gitignored for download assets.
+
+## Quick Troubleshooting
+
+**Services won't start:**
+- Check if ports are already in use: `lsof -i :9080` (or other service port)
+- Verify JWT_SECRET is set: `echo $JWT_SECRET`
+- Check service logs: `tail -f logs/<service>.log`
+
+**Prisma errors:**
+- Regenerate client: `pnpm --filter ./services/<name> prisma:generate`
+- Push schema: `pnpm --filter ./services/<name> db:push`
+- Check database file exists (for SQLite services)
+
+**Frontend can't reach backend:**
+- Verify gateway is running on 9080: `curl http://localhost:9080/health`
+- Check API_BASE_URL in frontend: should be `http://localhost:9080`
+- Review CORS settings in gateway (default allows `*` in dev)
+
+**Build failures:**
+- Clean and rebuild: `pnpm clean && pnpm -w build`
+- Ensure Node.js 20+ is installed: `node --version`
+- Check for missing dependencies: `pnpm -w install`
 
 ## Additional Resources
 
