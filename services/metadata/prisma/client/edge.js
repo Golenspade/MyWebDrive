@@ -158,7 +158,7 @@ const config = {
       "value": "prisma-client-js"
     },
     "output": {
-      "value": "D:\\各种练手的神奇小项目\\mygoStudio\\MyWebDrive\\services\\metadata\\prisma\\client",
+      "value": "/Users/fankex/joint Project/myWebDrive/services/metadata/prisma/client",
       "fromEnvVar": null
     },
     "config": {
@@ -167,7 +167,7 @@ const config = {
     "binaryTargets": [
       {
         "fromEnvVar": null,
-        "value": "windows",
+        "value": "darwin-arm64",
         "native": true
       },
       {
@@ -176,7 +176,7 @@ const config = {
       }
     ],
     "previewFeatures": [],
-    "sourceFilePath": "D:\\各种练手的神奇小项目\\mygoStudio\\MyWebDrive\\services\\metadata\\prisma\\schema.prisma",
+    "sourceFilePath": "/Users/fankex/joint Project/myWebDrive/services/metadata/prisma/schema.prisma",
     "isCustomOutput": true
   },
   "relativeEnvPaths": {

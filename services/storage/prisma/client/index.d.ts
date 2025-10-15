@@ -18,6 +18,11 @@ export type PrismaPromise<T> = $Public.PrismaPromise<T>
  * 
  */
 export type UploadSession = $Result.DefaultSelection<Prisma.$UploadSessionPayload>
+/**
+ * Model DownloadEvent
+ * 
+ */
+export type DownloadEvent = $Result.DefaultSelection<Prisma.$DownloadEventPayload>
 
 /**
  * ##  Prisma Client ʲˢ
@@ -151,6 +156,16 @@ export class PrismaClient<
     * ```
     */
   get uploadSession(): Prisma.UploadSessionDelegate<ExtArgs>;
+
+  /**
+   * `prisma.downloadEvent`: Exposes CRUD operations for the **DownloadEvent** model.
+    * Example usage:
+    * ```ts
+    * // Fetch zero or more DownloadEvents
+    * const downloadEvents = await prisma.downloadEvent.findMany()
+    * ```
+    */
+  get downloadEvent(): Prisma.DownloadEventDelegate<ExtArgs>;
 }
 
 export namespace Prisma {
@@ -592,7 +607,8 @@ export namespace Prisma {
 
 
   export const ModelName: {
-    UploadSession: 'UploadSession'
+    UploadSession: 'UploadSession',
+    DownloadEvent: 'DownloadEvent'
   };
 
   export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -608,7 +624,7 @@ export namespace Prisma {
 
   export type TypeMap<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs, ClientOptions = {}> = {
     meta: {
-      modelProps: "uploadSession"
+      modelProps: "uploadSession" | "downloadEvent"
       txIsolationLevel: Prisma.TransactionIsolationLevel
     }
     model: {
@@ -679,6 +695,76 @@ export namespace Prisma {
           count: {
             args: Prisma.UploadSessionCountArgs<ExtArgs>
             result: $Utils.Optional<UploadSessionCountAggregateOutputType> | number
+          }
+        }
+      }
+      DownloadEvent: {
+        payload: Prisma.$DownloadEventPayload<ExtArgs>
+        fields: Prisma.DownloadEventFieldRefs
+        operations: {
+          findUnique: {
+            args: Prisma.DownloadEventFindUniqueArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload> | null
+          }
+          findUniqueOrThrow: {
+            args: Prisma.DownloadEventFindUniqueOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload>
+          }
+          findFirst: {
+            args: Prisma.DownloadEventFindFirstArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload> | null
+          }
+          findFirstOrThrow: {
+            args: Prisma.DownloadEventFindFirstOrThrowArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload>
+          }
+          findMany: {
+            args: Prisma.DownloadEventFindManyArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload>[]
+          }
+          create: {
+            args: Prisma.DownloadEventCreateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload>
+          }
+          createMany: {
+            args: Prisma.DownloadEventCreateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          createManyAndReturn: {
+            args: Prisma.DownloadEventCreateManyAndReturnArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload>[]
+          }
+          delete: {
+            args: Prisma.DownloadEventDeleteArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload>
+          }
+          update: {
+            args: Prisma.DownloadEventUpdateArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload>
+          }
+          deleteMany: {
+            args: Prisma.DownloadEventDeleteManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          updateMany: {
+            args: Prisma.DownloadEventUpdateManyArgs<ExtArgs>
+            result: BatchPayload
+          }
+          upsert: {
+            args: Prisma.DownloadEventUpsertArgs<ExtArgs>
+            result: $Utils.PayloadToResult<Prisma.$DownloadEventPayload>
+          }
+          aggregate: {
+            args: Prisma.DownloadEventAggregateArgs<ExtArgs>
+            result: $Utils.Optional<AggregateDownloadEvent>
+          }
+          groupBy: {
+            args: Prisma.DownloadEventGroupByArgs<ExtArgs>
+            result: $Utils.Optional<DownloadEventGroupByOutputType>[]
+          }
+          count: {
+            args: Prisma.DownloadEventCountArgs<ExtArgs>
+            result: $Utils.Optional<DownloadEventCountAggregateOutputType> | number
           }
         }
       }
@@ -1882,6 +1968,916 @@ export namespace Prisma {
 
 
   /**
+   * Model DownloadEvent
+   */
+
+  export type AggregateDownloadEvent = {
+    _count: DownloadEventCountAggregateOutputType | null
+    _avg: DownloadEventAvgAggregateOutputType | null
+    _sum: DownloadEventSumAggregateOutputType | null
+    _min: DownloadEventMinAggregateOutputType | null
+    _max: DownloadEventMaxAggregateOutputType | null
+  }
+
+  export type DownloadEventAvgAggregateOutputType = {
+    bytes: number | null
+  }
+
+  export type DownloadEventSumAggregateOutputType = {
+    bytes: number | null
+  }
+
+  export type DownloadEventMinAggregateOutputType = {
+    id: string | null
+    fileId: string | null
+    bytes: number | null
+    ip: string | null
+    createdAt: Date | null
+  }
+
+  export type DownloadEventMaxAggregateOutputType = {
+    id: string | null
+    fileId: string | null
+    bytes: number | null
+    ip: string | null
+    createdAt: Date | null
+  }
+
+  export type DownloadEventCountAggregateOutputType = {
+    id: number
+    fileId: number
+    bytes: number
+    ip: number
+    createdAt: number
+    _all: number
+  }
+
+
+  export type DownloadEventAvgAggregateInputType = {
+    bytes?: true
+  }
+
+  export type DownloadEventSumAggregateInputType = {
+    bytes?: true
+  }
+
+  export type DownloadEventMinAggregateInputType = {
+    id?: true
+    fileId?: true
+    bytes?: true
+    ip?: true
+    createdAt?: true
+  }
+
+  export type DownloadEventMaxAggregateInputType = {
+    id?: true
+    fileId?: true
+    bytes?: true
+    ip?: true
+    createdAt?: true
+  }
+
+  export type DownloadEventCountAggregateInputType = {
+    id?: true
+    fileId?: true
+    bytes?: true
+    ip?: true
+    createdAt?: true
+    _all?: true
+  }
+
+  export type DownloadEventAggregateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which DownloadEvent to aggregate.
+     */
+    where?: DownloadEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of DownloadEvents to fetch.
+     */
+    orderBy?: DownloadEventOrderByWithRelationInput | DownloadEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the start position
+     */
+    cursor?: DownloadEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` DownloadEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` DownloadEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Count returned DownloadEvents
+    **/
+    _count?: true | DownloadEventCountAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to average
+    **/
+    _avg?: DownloadEventAvgAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to sum
+    **/
+    _sum?: DownloadEventSumAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the minimum value
+    **/
+    _min?: DownloadEventMinAggregateInputType
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/aggregations Aggregation Docs}
+     * 
+     * Select which fields to find the maximum value
+    **/
+    _max?: DownloadEventMaxAggregateInputType
+  }
+
+  export type GetDownloadEventAggregateType<T extends DownloadEventAggregateArgs> = {
+        [P in keyof T & keyof AggregateDownloadEvent]: P extends '_count' | 'count'
+      ? T[P] extends true
+        ? number
+        : GetScalarType<T[P], AggregateDownloadEvent[P]>
+      : GetScalarType<T[P], AggregateDownloadEvent[P]>
+  }
+
+
+
+
+  export type DownloadEventGroupByArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    where?: DownloadEventWhereInput
+    orderBy?: DownloadEventOrderByWithAggregationInput | DownloadEventOrderByWithAggregationInput[]
+    by: DownloadEventScalarFieldEnum[] | DownloadEventScalarFieldEnum
+    having?: DownloadEventScalarWhereWithAggregatesInput
+    take?: number
+    skip?: number
+    _count?: DownloadEventCountAggregateInputType | true
+    _avg?: DownloadEventAvgAggregateInputType
+    _sum?: DownloadEventSumAggregateInputType
+    _min?: DownloadEventMinAggregateInputType
+    _max?: DownloadEventMaxAggregateInputType
+  }
+
+  export type DownloadEventGroupByOutputType = {
+    id: string
+    fileId: string
+    bytes: number
+    ip: string | null
+    createdAt: Date
+    _count: DownloadEventCountAggregateOutputType | null
+    _avg: DownloadEventAvgAggregateOutputType | null
+    _sum: DownloadEventSumAggregateOutputType | null
+    _min: DownloadEventMinAggregateOutputType | null
+    _max: DownloadEventMaxAggregateOutputType | null
+  }
+
+  type GetDownloadEventGroupByPayload<T extends DownloadEventGroupByArgs> = Prisma.PrismaPromise<
+    Array<
+      PickEnumerable<DownloadEventGroupByOutputType, T['by']> &
+        {
+          [P in ((keyof T) & (keyof DownloadEventGroupByOutputType))]: P extends '_count'
+            ? T[P] extends boolean
+              ? number
+              : GetScalarType<T[P], DownloadEventGroupByOutputType[P]>
+            : GetScalarType<T[P], DownloadEventGroupByOutputType[P]>
+        }
+      >
+    >
+
+
+  export type DownloadEventSelect<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    fileId?: boolean
+    bytes?: boolean
+    ip?: boolean
+    createdAt?: boolean
+  }, ExtArgs["result"]["downloadEvent"]>
+
+  export type DownloadEventSelectCreateManyAndReturn<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = $Extensions.GetSelect<{
+    id?: boolean
+    fileId?: boolean
+    bytes?: boolean
+    ip?: boolean
+    createdAt?: boolean
+  }, ExtArgs["result"]["downloadEvent"]>
+
+  export type DownloadEventSelectScalar = {
+    id?: boolean
+    fileId?: boolean
+    bytes?: boolean
+    ip?: boolean
+    createdAt?: boolean
+  }
+
+
+  export type $DownloadEventPayload<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    name: "DownloadEvent"
+    objects: {}
+    scalars: $Extensions.GetPayloadResult<{
+      id: string
+      fileId: string
+      bytes: number
+      ip: string | null
+      createdAt: Date
+    }, ExtArgs["result"]["downloadEvent"]>
+    composites: {}
+  }
+
+  type DownloadEventGetPayload<S extends boolean | null | undefined | DownloadEventDefaultArgs> = $Result.GetResult<Prisma.$DownloadEventPayload, S>
+
+  type DownloadEventCountArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = 
+    Omit<DownloadEventFindManyArgs, 'select' | 'include' | 'distinct'> & {
+      select?: DownloadEventCountAggregateInputType | true
+    }
+
+  export interface DownloadEventDelegate<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> {
+    [K: symbol]: { types: Prisma.TypeMap<ExtArgs>['model']['DownloadEvent'], meta: { name: 'DownloadEvent' } }
+    /**
+     * Find zero or one DownloadEvent that matches the filter.
+     * @param {DownloadEventFindUniqueArgs} args - Arguments to find a DownloadEvent
+     * @example
+     * // Get one DownloadEvent
+     * const downloadEvent = await prisma.downloadEvent.findUnique({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUnique<T extends DownloadEventFindUniqueArgs>(args: SelectSubset<T, DownloadEventFindUniqueArgs<ExtArgs>>): Prisma__DownloadEventClient<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "findUnique"> | null, null, ExtArgs>
+
+    /**
+     * Find one DownloadEvent that matches the filter or throw an error with `error.code='P2025'` 
+     * if no matches were found.
+     * @param {DownloadEventFindUniqueOrThrowArgs} args - Arguments to find a DownloadEvent
+     * @example
+     * // Get one DownloadEvent
+     * const downloadEvent = await prisma.downloadEvent.findUniqueOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findUniqueOrThrow<T extends DownloadEventFindUniqueOrThrowArgs>(args: SelectSubset<T, DownloadEventFindUniqueOrThrowArgs<ExtArgs>>): Prisma__DownloadEventClient<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "findUniqueOrThrow">, never, ExtArgs>
+
+    /**
+     * Find the first DownloadEvent that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {DownloadEventFindFirstArgs} args - Arguments to find a DownloadEvent
+     * @example
+     * // Get one DownloadEvent
+     * const downloadEvent = await prisma.downloadEvent.findFirst({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirst<T extends DownloadEventFindFirstArgs>(args?: SelectSubset<T, DownloadEventFindFirstArgs<ExtArgs>>): Prisma__DownloadEventClient<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "findFirst"> | null, null, ExtArgs>
+
+    /**
+     * Find the first DownloadEvent that matches the filter or
+     * throw `PrismaKnownClientError` with `P2025` code if no matches were found.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {DownloadEventFindFirstOrThrowArgs} args - Arguments to find a DownloadEvent
+     * @example
+     * // Get one DownloadEvent
+     * const downloadEvent = await prisma.downloadEvent.findFirstOrThrow({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     */
+    findFirstOrThrow<T extends DownloadEventFindFirstOrThrowArgs>(args?: SelectSubset<T, DownloadEventFindFirstOrThrowArgs<ExtArgs>>): Prisma__DownloadEventClient<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "findFirstOrThrow">, never, ExtArgs>
+
+    /**
+     * Find zero or more DownloadEvents that matches the filter.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {DownloadEventFindManyArgs} args - Arguments to filter and select certain fields only.
+     * @example
+     * // Get all DownloadEvents
+     * const downloadEvents = await prisma.downloadEvent.findMany()
+     * 
+     * // Get first 10 DownloadEvents
+     * const downloadEvents = await prisma.downloadEvent.findMany({ take: 10 })
+     * 
+     * // Only select the `id`
+     * const downloadEventWithIdOnly = await prisma.downloadEvent.findMany({ select: { id: true } })
+     * 
+     */
+    findMany<T extends DownloadEventFindManyArgs>(args?: SelectSubset<T, DownloadEventFindManyArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "findMany">>
+
+    /**
+     * Create a DownloadEvent.
+     * @param {DownloadEventCreateArgs} args - Arguments to create a DownloadEvent.
+     * @example
+     * // Create one DownloadEvent
+     * const DownloadEvent = await prisma.downloadEvent.create({
+     *   data: {
+     *     // ... data to create a DownloadEvent
+     *   }
+     * })
+     * 
+     */
+    create<T extends DownloadEventCreateArgs>(args: SelectSubset<T, DownloadEventCreateArgs<ExtArgs>>): Prisma__DownloadEventClient<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "create">, never, ExtArgs>
+
+    /**
+     * Create many DownloadEvents.
+     * @param {DownloadEventCreateManyArgs} args - Arguments to create many DownloadEvents.
+     * @example
+     * // Create many DownloadEvents
+     * const downloadEvent = await prisma.downloadEvent.createMany({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     *     
+     */
+    createMany<T extends DownloadEventCreateManyArgs>(args?: SelectSubset<T, DownloadEventCreateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create many DownloadEvents and returns the data saved in the database.
+     * @param {DownloadEventCreateManyAndReturnArgs} args - Arguments to create many DownloadEvents.
+     * @example
+     * // Create many DownloadEvents
+     * const downloadEvent = await prisma.downloadEvent.createManyAndReturn({
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * 
+     * // Create many DownloadEvents and only return the `id`
+     * const downloadEventWithIdOnly = await prisma.downloadEvent.createManyAndReturn({ 
+     *   select: { id: true },
+     *   data: [
+     *     // ... provide data here
+     *   ]
+     * })
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * 
+     */
+    createManyAndReturn<T extends DownloadEventCreateManyAndReturnArgs>(args?: SelectSubset<T, DownloadEventCreateManyAndReturnArgs<ExtArgs>>): Prisma.PrismaPromise<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "createManyAndReturn">>
+
+    /**
+     * Delete a DownloadEvent.
+     * @param {DownloadEventDeleteArgs} args - Arguments to delete one DownloadEvent.
+     * @example
+     * // Delete one DownloadEvent
+     * const DownloadEvent = await prisma.downloadEvent.delete({
+     *   where: {
+     *     // ... filter to delete one DownloadEvent
+     *   }
+     * })
+     * 
+     */
+    delete<T extends DownloadEventDeleteArgs>(args: SelectSubset<T, DownloadEventDeleteArgs<ExtArgs>>): Prisma__DownloadEventClient<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "delete">, never, ExtArgs>
+
+    /**
+     * Update one DownloadEvent.
+     * @param {DownloadEventUpdateArgs} args - Arguments to update one DownloadEvent.
+     * @example
+     * // Update one DownloadEvent
+     * const downloadEvent = await prisma.downloadEvent.update({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    update<T extends DownloadEventUpdateArgs>(args: SelectSubset<T, DownloadEventUpdateArgs<ExtArgs>>): Prisma__DownloadEventClient<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "update">, never, ExtArgs>
+
+    /**
+     * Delete zero or more DownloadEvents.
+     * @param {DownloadEventDeleteManyArgs} args - Arguments to filter DownloadEvents to delete.
+     * @example
+     * // Delete a few DownloadEvents
+     * const { count } = await prisma.downloadEvent.deleteMany({
+     *   where: {
+     *     // ... provide filter here
+     *   }
+     * })
+     * 
+     */
+    deleteMany<T extends DownloadEventDeleteManyArgs>(args?: SelectSubset<T, DownloadEventDeleteManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Update zero or more DownloadEvents.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {DownloadEventUpdateManyArgs} args - Arguments to update one or more rows.
+     * @example
+     * // Update many DownloadEvents
+     * const downloadEvent = await prisma.downloadEvent.updateMany({
+     *   where: {
+     *     // ... provide filter here
+     *   },
+     *   data: {
+     *     // ... provide data here
+     *   }
+     * })
+     * 
+     */
+    updateMany<T extends DownloadEventUpdateManyArgs>(args: SelectSubset<T, DownloadEventUpdateManyArgs<ExtArgs>>): Prisma.PrismaPromise<BatchPayload>
+
+    /**
+     * Create or update one DownloadEvent.
+     * @param {DownloadEventUpsertArgs} args - Arguments to update or create a DownloadEvent.
+     * @example
+     * // Update or create a DownloadEvent
+     * const downloadEvent = await prisma.downloadEvent.upsert({
+     *   create: {
+     *     // ... data to create a DownloadEvent
+     *   },
+     *   update: {
+     *     // ... in case it already exists, update
+     *   },
+     *   where: {
+     *     // ... the filter for the DownloadEvent we want to update
+     *   }
+     * })
+     */
+    upsert<T extends DownloadEventUpsertArgs>(args: SelectSubset<T, DownloadEventUpsertArgs<ExtArgs>>): Prisma__DownloadEventClient<$Result.GetResult<Prisma.$DownloadEventPayload<ExtArgs>, T, "upsert">, never, ExtArgs>
+
+
+    /**
+     * Count the number of DownloadEvents.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {DownloadEventCountArgs} args - Arguments to filter DownloadEvents to count.
+     * @example
+     * // Count the number of DownloadEvents
+     * const count = await prisma.downloadEvent.count({
+     *   where: {
+     *     // ... the filter for the DownloadEvents we want to count
+     *   }
+     * })
+    **/
+    count<T extends DownloadEventCountArgs>(
+      args?: Subset<T, DownloadEventCountArgs>,
+    ): Prisma.PrismaPromise<
+      T extends $Utils.Record<'select', any>
+        ? T['select'] extends true
+          ? number
+          : GetScalarType<T['select'], DownloadEventCountAggregateOutputType>
+        : number
+    >
+
+    /**
+     * Allows you to perform aggregations operations on a DownloadEvent.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {DownloadEventAggregateArgs} args - Select which aggregations you would like to apply and on what fields.
+     * @example
+     * // Ordered by age ascending
+     * // Where email contains prisma.io
+     * // Limited to the 10 users
+     * const aggregations = await prisma.user.aggregate({
+     *   _avg: {
+     *     age: true,
+     *   },
+     *   where: {
+     *     email: {
+     *       contains: "prisma.io",
+     *     },
+     *   },
+     *   orderBy: {
+     *     age: "asc",
+     *   },
+     *   take: 10,
+     * })
+    **/
+    aggregate<T extends DownloadEventAggregateArgs>(args: Subset<T, DownloadEventAggregateArgs>): Prisma.PrismaPromise<GetDownloadEventAggregateType<T>>
+
+    /**
+     * Group by DownloadEvent.
+     * Note, that providing `undefined` is treated as the value not being there.
+     * Read more here: https://pris.ly/d/null-undefined
+     * @param {DownloadEventGroupByArgs} args - Group by arguments.
+     * @example
+     * // Group by city, order by createdAt, get count
+     * const result = await prisma.user.groupBy({
+     *   by: ['city', 'createdAt'],
+     *   orderBy: {
+     *     createdAt: true
+     *   },
+     *   _count: {
+     *     _all: true
+     *   },
+     * })
+     * 
+    **/
+    groupBy<
+      T extends DownloadEventGroupByArgs,
+      HasSelectOrTake extends Or<
+        Extends<'skip', Keys<T>>,
+        Extends<'take', Keys<T>>
+      >,
+      OrderByArg extends True extends HasSelectOrTake
+        ? { orderBy: DownloadEventGroupByArgs['orderBy'] }
+        : { orderBy?: DownloadEventGroupByArgs['orderBy'] },
+      OrderFields extends ExcludeUnderscoreKeys<Keys<MaybeTupleToUnion<T['orderBy']>>>,
+      ByFields extends MaybeTupleToUnion<T['by']>,
+      ByValid extends Has<ByFields, OrderFields>,
+      HavingFields extends GetHavingFields<T['having']>,
+      HavingValid extends Has<ByFields, HavingFields>,
+      ByEmpty extends T['by'] extends never[] ? True : False,
+      InputErrors extends ByEmpty extends True
+      ? `Error: "by" must not be empty.`
+      : HavingValid extends False
+      ? {
+          [P in HavingFields]: P extends ByFields
+            ? never
+            : P extends string
+            ? `Error: Field "${P}" used in "having" needs to be provided in "by".`
+            : [
+                Error,
+                'Field ',
+                P,
+                ` in "having" needs to be provided in "by"`,
+              ]
+        }[HavingFields]
+      : 'take' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "take", you also need to provide "orderBy"'
+      : 'skip' extends Keys<T>
+      ? 'orderBy' extends Keys<T>
+        ? ByValid extends True
+          ? {}
+          : {
+              [P in OrderFields]: P extends ByFields
+                ? never
+                : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+            }[OrderFields]
+        : 'Error: If you provide "skip", you also need to provide "orderBy"'
+      : ByValid extends True
+      ? {}
+      : {
+          [P in OrderFields]: P extends ByFields
+            ? never
+            : `Error: Field "${P}" in "orderBy" needs to be provided in "by"`
+        }[OrderFields]
+    >(args: SubsetIntersection<T, DownloadEventGroupByArgs, OrderByArg> & InputErrors): {} extends InputErrors ? GetDownloadEventGroupByPayload<T> : Prisma.PrismaPromise<InputErrors>
+  /**
+   * Fields of the DownloadEvent model
+   */
+  readonly fields: DownloadEventFieldRefs;
+  }
+
+  /**
+   * The delegate class that acts as a "Promise-like" for DownloadEvent.
+   * Why is this prefixed with `Prisma__`?
+   * Because we want to prevent naming conflicts as mentioned in
+   * https://github.com/prisma/prisma-client-js/issues/707
+   */
+  export interface Prisma__DownloadEventClient<T, Null = never, ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> extends Prisma.PrismaPromise<T> {
+    readonly [Symbol.toStringTag]: "PrismaPromise"
+    /**
+     * Attaches callbacks for the resolution and/or rejection of the Promise.
+     * @param onfulfilled The callback to execute when the Promise is resolved.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of which ever callback is executed.
+     */
+    then<TResult1 = T, TResult2 = never>(onfulfilled?: ((value: T) => TResult1 | PromiseLike<TResult1>) | undefined | null, onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | undefined | null): $Utils.JsPromise<TResult1 | TResult2>
+    /**
+     * Attaches a callback for only the rejection of the Promise.
+     * @param onrejected The callback to execute when the Promise is rejected.
+     * @returns A Promise for the completion of the callback.
+     */
+    catch<TResult = never>(onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | undefined | null): $Utils.JsPromise<T | TResult>
+    /**
+     * Attaches a callback that is invoked when the Promise is settled (fulfilled or rejected). The
+     * resolved value cannot be modified from the callback.
+     * @param onfinally The callback to execute when the Promise is settled (fulfilled or rejected).
+     * @returns A Promise for the completion of the callback.
+     */
+    finally(onfinally?: (() => void) | undefined | null): $Utils.JsPromise<T>
+  }
+
+
+
+
+  /**
+   * Fields of the DownloadEvent model
+   */ 
+  interface DownloadEventFieldRefs {
+    readonly id: FieldRef<"DownloadEvent", 'String'>
+    readonly fileId: FieldRef<"DownloadEvent", 'String'>
+    readonly bytes: FieldRef<"DownloadEvent", 'Int'>
+    readonly ip: FieldRef<"DownloadEvent", 'String'>
+    readonly createdAt: FieldRef<"DownloadEvent", 'DateTime'>
+  }
+    
+
+  // Custom InputTypes
+  /**
+   * DownloadEvent findUnique
+   */
+  export type DownloadEventFindUniqueArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * Filter, which DownloadEvent to fetch.
+     */
+    where: DownloadEventWhereUniqueInput
+  }
+
+  /**
+   * DownloadEvent findUniqueOrThrow
+   */
+  export type DownloadEventFindUniqueOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * Filter, which DownloadEvent to fetch.
+     */
+    where: DownloadEventWhereUniqueInput
+  }
+
+  /**
+   * DownloadEvent findFirst
+   */
+  export type DownloadEventFindFirstArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * Filter, which DownloadEvent to fetch.
+     */
+    where?: DownloadEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of DownloadEvents to fetch.
+     */
+    orderBy?: DownloadEventOrderByWithRelationInput | DownloadEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for DownloadEvents.
+     */
+    cursor?: DownloadEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` DownloadEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` DownloadEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of DownloadEvents.
+     */
+    distinct?: DownloadEventScalarFieldEnum | DownloadEventScalarFieldEnum[]
+  }
+
+  /**
+   * DownloadEvent findFirstOrThrow
+   */
+  export type DownloadEventFindFirstOrThrowArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * Filter, which DownloadEvent to fetch.
+     */
+    where?: DownloadEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of DownloadEvents to fetch.
+     */
+    orderBy?: DownloadEventOrderByWithRelationInput | DownloadEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for searching for DownloadEvents.
+     */
+    cursor?: DownloadEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` DownloadEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` DownloadEvents.
+     */
+    skip?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/distinct Distinct Docs}
+     * 
+     * Filter by unique combinations of DownloadEvents.
+     */
+    distinct?: DownloadEventScalarFieldEnum | DownloadEventScalarFieldEnum[]
+  }
+
+  /**
+   * DownloadEvent findMany
+   */
+  export type DownloadEventFindManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * Filter, which DownloadEvents to fetch.
+     */
+    where?: DownloadEventWhereInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/sorting Sorting Docs}
+     * 
+     * Determine the order of DownloadEvents to fetch.
+     */
+    orderBy?: DownloadEventOrderByWithRelationInput | DownloadEventOrderByWithRelationInput[]
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination#cursor-based-pagination Cursor Docs}
+     * 
+     * Sets the position for listing DownloadEvents.
+     */
+    cursor?: DownloadEventWhereUniqueInput
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Take `±n` DownloadEvents from the position of the cursor.
+     */
+    take?: number
+    /**
+     * {@link https://www.prisma.io/docs/concepts/components/prisma-client/pagination Pagination Docs}
+     * 
+     * Skip the first `n` DownloadEvents.
+     */
+    skip?: number
+    distinct?: DownloadEventScalarFieldEnum | DownloadEventScalarFieldEnum[]
+  }
+
+  /**
+   * DownloadEvent create
+   */
+  export type DownloadEventCreateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * The data needed to create a DownloadEvent.
+     */
+    data: XOR<DownloadEventCreateInput, DownloadEventUncheckedCreateInput>
+  }
+
+  /**
+   * DownloadEvent createMany
+   */
+  export type DownloadEventCreateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to create many DownloadEvents.
+     */
+    data: DownloadEventCreateManyInput | DownloadEventCreateManyInput[]
+  }
+
+  /**
+   * DownloadEvent createManyAndReturn
+   */
+  export type DownloadEventCreateManyAndReturnArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelectCreateManyAndReturn<ExtArgs> | null
+    /**
+     * The data used to create many DownloadEvents.
+     */
+    data: DownloadEventCreateManyInput | DownloadEventCreateManyInput[]
+  }
+
+  /**
+   * DownloadEvent update
+   */
+  export type DownloadEventUpdateArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * The data needed to update a DownloadEvent.
+     */
+    data: XOR<DownloadEventUpdateInput, DownloadEventUncheckedUpdateInput>
+    /**
+     * Choose, which DownloadEvent to update.
+     */
+    where: DownloadEventWhereUniqueInput
+  }
+
+  /**
+   * DownloadEvent updateMany
+   */
+  export type DownloadEventUpdateManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * The data used to update DownloadEvents.
+     */
+    data: XOR<DownloadEventUpdateManyMutationInput, DownloadEventUncheckedUpdateManyInput>
+    /**
+     * Filter which DownloadEvents to update
+     */
+    where?: DownloadEventWhereInput
+  }
+
+  /**
+   * DownloadEvent upsert
+   */
+  export type DownloadEventUpsertArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * The filter to search for the DownloadEvent to update in case it exists.
+     */
+    where: DownloadEventWhereUniqueInput
+    /**
+     * In case the DownloadEvent found by the `where` argument doesn't exist, create a new DownloadEvent with this data.
+     */
+    create: XOR<DownloadEventCreateInput, DownloadEventUncheckedCreateInput>
+    /**
+     * In case the DownloadEvent was found with the provided `where` argument, update it with this data.
+     */
+    update: XOR<DownloadEventUpdateInput, DownloadEventUncheckedUpdateInput>
+  }
+
+  /**
+   * DownloadEvent delete
+   */
+  export type DownloadEventDeleteArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+    /**
+     * Filter which DownloadEvent to delete.
+     */
+    where: DownloadEventWhereUniqueInput
+  }
+
+  /**
+   * DownloadEvent deleteMany
+   */
+  export type DownloadEventDeleteManyArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Filter which DownloadEvents to delete
+     */
+    where?: DownloadEventWhereInput
+  }
+
+  /**
+   * DownloadEvent without action
+   */
+  export type DownloadEventDefaultArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = {
+    /**
+     * Select specific fields to fetch from the DownloadEvent
+     */
+    select?: DownloadEventSelect<ExtArgs> | null
+  }
+
+
+  /**
    * Enums
    */
 
@@ -1911,6 +2907,17 @@ export namespace Prisma {
   };
 
   export type UploadSessionScalarFieldEnum = (typeof UploadSessionScalarFieldEnum)[keyof typeof UploadSessionScalarFieldEnum]
+
+
+  export const DownloadEventScalarFieldEnum: {
+    id: 'id',
+    fileId: 'fileId',
+    bytes: 'bytes',
+    ip: 'ip',
+    createdAt: 'createdAt'
+  };
+
+  export type DownloadEventScalarFieldEnum = (typeof DownloadEventScalarFieldEnum)[keyof typeof DownloadEventScalarFieldEnum]
 
 
   export const SortOrder: {
@@ -2069,6 +3076,60 @@ export namespace Prisma {
     expiresAt?: DateTimeWithAggregatesFilter<"UploadSession"> | Date | string
   }
 
+  export type DownloadEventWhereInput = {
+    AND?: DownloadEventWhereInput | DownloadEventWhereInput[]
+    OR?: DownloadEventWhereInput[]
+    NOT?: DownloadEventWhereInput | DownloadEventWhereInput[]
+    id?: StringFilter<"DownloadEvent"> | string
+    fileId?: StringFilter<"DownloadEvent"> | string
+    bytes?: IntFilter<"DownloadEvent"> | number
+    ip?: StringNullableFilter<"DownloadEvent"> | string | null
+    createdAt?: DateTimeFilter<"DownloadEvent"> | Date | string
+  }
+
+  export type DownloadEventOrderByWithRelationInput = {
+    id?: SortOrder
+    fileId?: SortOrder
+    bytes?: SortOrder
+    ip?: SortOrderInput | SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type DownloadEventWhereUniqueInput = Prisma.AtLeast<{
+    id?: string
+    AND?: DownloadEventWhereInput | DownloadEventWhereInput[]
+    OR?: DownloadEventWhereInput[]
+    NOT?: DownloadEventWhereInput | DownloadEventWhereInput[]
+    fileId?: StringFilter<"DownloadEvent"> | string
+    bytes?: IntFilter<"DownloadEvent"> | number
+    ip?: StringNullableFilter<"DownloadEvent"> | string | null
+    createdAt?: DateTimeFilter<"DownloadEvent"> | Date | string
+  }, "id">
+
+  export type DownloadEventOrderByWithAggregationInput = {
+    id?: SortOrder
+    fileId?: SortOrder
+    bytes?: SortOrder
+    ip?: SortOrderInput | SortOrder
+    createdAt?: SortOrder
+    _count?: DownloadEventCountOrderByAggregateInput
+    _avg?: DownloadEventAvgOrderByAggregateInput
+    _max?: DownloadEventMaxOrderByAggregateInput
+    _min?: DownloadEventMinOrderByAggregateInput
+    _sum?: DownloadEventSumOrderByAggregateInput
+  }
+
+  export type DownloadEventScalarWhereWithAggregatesInput = {
+    AND?: DownloadEventScalarWhereWithAggregatesInput | DownloadEventScalarWhereWithAggregatesInput[]
+    OR?: DownloadEventScalarWhereWithAggregatesInput[]
+    NOT?: DownloadEventScalarWhereWithAggregatesInput | DownloadEventScalarWhereWithAggregatesInput[]
+    id?: StringWithAggregatesFilter<"DownloadEvent"> | string
+    fileId?: StringWithAggregatesFilter<"DownloadEvent"> | string
+    bytes?: IntWithAggregatesFilter<"DownloadEvent"> | number
+    ip?: StringNullableWithAggregatesFilter<"DownloadEvent"> | string | null
+    createdAt?: DateTimeWithAggregatesFilter<"DownloadEvent"> | Date | string
+  }
+
   export type UploadSessionCreateInput = {
     id: string
     fileName: string
@@ -2193,6 +3254,62 @@ export namespace Prisma {
     createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
     updatedAt?: DateTimeFieldUpdateOperationsInput | Date | string
     expiresAt?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type DownloadEventCreateInput = {
+    id?: string
+    fileId: string
+    bytes: number
+    ip?: string | null
+    createdAt?: Date | string
+  }
+
+  export type DownloadEventUncheckedCreateInput = {
+    id?: string
+    fileId: string
+    bytes: number
+    ip?: string | null
+    createdAt?: Date | string
+  }
+
+  export type DownloadEventUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    fileId?: StringFieldUpdateOperationsInput | string
+    bytes?: IntFieldUpdateOperationsInput | number
+    ip?: NullableStringFieldUpdateOperationsInput | string | null
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type DownloadEventUncheckedUpdateInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    fileId?: StringFieldUpdateOperationsInput | string
+    bytes?: IntFieldUpdateOperationsInput | number
+    ip?: NullableStringFieldUpdateOperationsInput | string | null
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type DownloadEventCreateManyInput = {
+    id?: string
+    fileId: string
+    bytes: number
+    ip?: string | null
+    createdAt?: Date | string
+  }
+
+  export type DownloadEventUpdateManyMutationInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    fileId?: StringFieldUpdateOperationsInput | string
+    bytes?: IntFieldUpdateOperationsInput | number
+    ip?: NullableStringFieldUpdateOperationsInput | string | null
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
+  }
+
+  export type DownloadEventUncheckedUpdateManyInput = {
+    id?: StringFieldUpdateOperationsInput | string
+    fileId?: StringFieldUpdateOperationsInput | string
+    bytes?: IntFieldUpdateOperationsInput | number
+    ip?: NullableStringFieldUpdateOperationsInput | string | null
+    createdAt?: DateTimeFieldUpdateOperationsInput | Date | string
   }
 
   export type StringFilter<$PrismaModel = never> = {
@@ -2380,6 +3497,38 @@ export namespace Prisma {
     _max?: NestedDateTimeFilter<$PrismaModel>
   }
 
+  export type DownloadEventCountOrderByAggregateInput = {
+    id?: SortOrder
+    fileId?: SortOrder
+    bytes?: SortOrder
+    ip?: SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type DownloadEventAvgOrderByAggregateInput = {
+    bytes?: SortOrder
+  }
+
+  export type DownloadEventMaxOrderByAggregateInput = {
+    id?: SortOrder
+    fileId?: SortOrder
+    bytes?: SortOrder
+    ip?: SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type DownloadEventMinOrderByAggregateInput = {
+    id?: SortOrder
+    fileId?: SortOrder
+    bytes?: SortOrder
+    ip?: SortOrder
+    createdAt?: SortOrder
+  }
+
+  export type DownloadEventSumOrderByAggregateInput = {
+    bytes?: SortOrder
+  }
+
   export type StringFieldUpdateOperationsInput = {
     set?: string
   }
@@ -2545,6 +3694,10 @@ export namespace Prisma {
      * @deprecated Use UploadSessionDefaultArgs instead
      */
     export type UploadSessionArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = UploadSessionDefaultArgs<ExtArgs>
+    /**
+     * @deprecated Use DownloadEventDefaultArgs instead
+     */
+    export type DownloadEventArgs<ExtArgs extends $Extensions.InternalArgs = $Extensions.DefaultArgs> = DownloadEventDefaultArgs<ExtArgs>
 
   /**
    * Batch Payload for updateMany & deleteMany & createMany

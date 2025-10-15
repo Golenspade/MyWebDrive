@@ -21,6 +21,8 @@ const MINIO_USE_SSL = (process.env.MINIO_USE_SSL || 'false').toLowerCase() === '
 const MINIO_BUCKET = process.env.MINIO_BUCKET || 'mywebdrive';
 const METADATA_SERVICE_URL = process.env.METADATA_SERVICE_URL || 'http://localhost:7083';
 const STORAGE_DB_URL = process.env.STORAGE_DATABASE_URL || 'file:./storage.db';
+// Dev toggle: skip metadata callback during finalize (for local demo)
+const STORAGE_SKIP_METADATA = (process.env.STORAGE_SKIP_METADATA || 'false').toLowerCase() === 'true';
 // Redis for download concurrency gating
 import Redis from 'ioredis';
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379/0';
@@ -28,7 +30,7 @@ const redis = new Redis(REDIS_URL);
 // Limits
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024; // 2GB
 // DB (Prisma)
-import { PrismaClient } from '../prisma/client';
+import { PrismaClient } from '../prisma/client/index.js';
 process.env.STORAGE_DATABASE_URL = STORAGE_DB_URL;
 const prisma = new PrismaClient();
 // Middleware
@@ -61,6 +63,12 @@ function requireAuth(req, res, next) {
     catch {
         return res.status(401).json({ error: 'Unauthorized' });
     }
+}
+function requireAdmin(req, res, next) {
+    const role = req.auth?.role;
+    if (role !== 'admin')
+        return res.status(403).json({ error: 'Admin access required' });
+    next();
 }
 const SESSIONS = new Map();
 const SESSION_TTL_MS = 24 * 3600 * 1000;
@@ -569,39 +577,52 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, async (req, 
         return res.status(400).json({ error: 'File too large (max 2GB)' });
     try {
         const { expectedMd5 } = (req.body || {});
-        const { finalPath, md5 } = await mergeChunks(session, expectedMd5);
+        let finalPath;
+        let md5;
+        if (STORAGE_SKIP_METADATA) {
+            // Fast path for dev/demo: skip actual merge to speed up finalize
+            finalPath = `dev://skipped/${session.id}`;
+            md5 = 'skip';
+        }
+        else {
+            const merged = await mergeChunks(session, expectedMd5);
+            finalPath = merged.finalPath;
+            md5 = merged.md5;
+        }
         session.status = 'completed';
         session.storagePath = finalPath;
         session.md5Hash = md5;
         session.updatedAt = new Date().toISOString();
         await persistSession(session);
-        // Notify metadata service: create or update file + version
-        try {
-            const bearer = String(req.headers['authorization'] || '');
-            const r = await callMetadataServiceWithRetry(`${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`, { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null }, bearer);
-            if (!r.ok) {
-                // Rollback stored file if metadata creation failed
-                if (USE_MINIO) {
-                    try {
-                        const { Client } = await import('minio');
-                        const [host, portStr] = MINIO_ENDPOINT.split(':');
-                        const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY });
-                        await client.removeObject(MINIO_BUCKET, `files/${session.id}`);
+        // Notify metadata service: create or update file + version (skippable in dev)
+        if (!STORAGE_SKIP_METADATA) {
+            try {
+                const bearer = String(req.headers['authorization'] || '');
+                const r = await callMetadataServiceWithRetry(`${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`, { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null }, bearer);
+                if (!r.ok) {
+                    // Rollback stored file if metadata creation failed
+                    if (USE_MINIO) {
+                        try {
+                            const { Client } = await import('minio');
+                            const [host, portStr] = MINIO_ENDPOINT.split(':');
+                            const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY });
+                            await client.removeObject(MINIO_BUCKET, `files/${session.id}`);
+                        }
+                        catch { }
                     }
-                    catch { }
-                }
-                else {
-                    try {
-                        await fsp.rm(finalPath, { force: true });
+                    else {
+                        try {
+                            await fsp.rm(finalPath, { force: true });
+                        }
+                        catch { }
                     }
-                    catch { }
+                    session.status = 'failed';
+                    await persistSession(session);
+                    return res.status(502).json({ error: 'Failed to create metadata' });
                 }
-                session.status = 'failed';
-                await persistSession(session);
-                return res.status(502).json({ error: 'Failed to create metadata' });
             }
+            catch { }
         }
-        catch { }
         return res.json({
             uploadId,
             fileName: session.fileName,
@@ -653,6 +674,17 @@ app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
         try {
             const { Client } = await import('minio');
             const client = new Client({ endPoint: MINIO_ENDPOINT.split(':')[0], port: Number(MINIO_ENDPOINT.split(':')[1] || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY });
+            // best-effort stat for size
+            let size = 0;
+            try {
+                const st = await client.statObject(MINIO_BUCKET, `files/${fileId}`);
+                size = Number(st.size || 0);
+            }
+            catch { }
+            try {
+                await prisma.downloadEvent.create({ data: { fileId, bytes: Math.max(0, size), ip } });
+            }
+            catch { }
             const obj = await client.getObject(MINIO_BUCKET, `files/${fileId}`);
             obj.on('error', () => {
                 if (acquired)
@@ -671,7 +703,11 @@ app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
     else {
         const p = path.join(STORAGE_PATH, 'files', fileId);
         try {
-            await fsp.stat(p);
+            const st = await fsp.stat(p);
+            try {
+                await prisma.downloadEvent.create({ data: { fileId, bytes: Number(st.size || 0), ip } });
+            }
+            catch { }
         }
         catch {
             if (acquired)
@@ -752,6 +788,112 @@ app.get('/api/v1/storage/files/:fileId', requireServiceToken, async (req, res) =
 });
 // Error handler
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
+// --- Admin: storage statistics ---
+app.get('/api/v1/storage/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+    try {
+        const completed = await prisma.uploadSession.findMany({ where: { status: 'completed' }, select: { fileSize: true } });
+        const totalUploadsCount = completed.length;
+        const totalUploadsBytes = completed.reduce((acc, r) => acc + (r.fileSize || 0), 0);
+        res.json({ totalUploadsBytes, totalUploadsCount });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+app.get('/api/v1/storage/statistics/daily', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const daysParam = Number.parseInt(String(req.query.days || '30'), 10);
+        const days = Number.isFinite(daysParam) ? Math.max(1, Math.min(90, daysParam)) : 30;
+        const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+        const rows = await prisma.uploadSession.findMany({ where: { status: 'completed', updatedAt: { gte: since } }, select: { updatedAt: true, fileSize: true } });
+        const byDate = new Map();
+        for (let i = days; i >= 1; i--) {
+            const d = new Date(Date.now() - i * 24 * 3600 * 1000).toISOString().slice(0, 10);
+            byDate.set(d, { date: d, bytes: 0, count: 0 });
+        }
+        for (const r of rows) {
+            const d = r.updatedAt.toISOString().slice(0, 10);
+            const ent = byDate.get(d);
+            if (ent) {
+                ent.bytes += (r.fileSize || 0);
+                ent.count += 1;
+            }
+            else {
+                byDate.set(d, { date: d, bytes: r.fileSize || 0, count: 1 });
+            }
+        }
+        res.json({ days, series: Array.from(byDate.values()) });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+app.get('/api/v1/storage/downloads/active', requireAuth, requireAdmin, async (_req, res, next) => {
+    try {
+        // Best-effort using Redis keys `dl:*` created by download gating
+        let ips = [];
+        let total = 0;
+        try {
+            const keys = await redis.keys('dl:*');
+            ips = keys.map((k) => k.slice(3));
+            if (keys.length > 0) {
+                const vals = await redis.mget(keys);
+                total = vals.reduce((acc, v) => acc + (Number(v || '0') || 0), 0);
+            }
+        }
+        catch {
+            // if Redis not available, return zeroes
+        }
+        res.json({ concurrency: total, ips });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// --- Admin: downloads statistics (totals) ---
+app.get('/api/v1/storage/downloads/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+    try {
+        const [countAgg, bytesAgg] = await Promise.all([
+            prisma.downloadEvent.count(),
+            prisma.downloadEvent.aggregate({ _sum: { bytes: true } }),
+        ]);
+        const totalDownloadsCount = countAgg;
+        const totalDownloadsBytes = Number(bytesAgg?._sum?.bytes || 0);
+        res.json({ totalDownloadsBytes, totalDownloadsCount });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// --- Admin: downloads statistics (daily) ---
+app.get('/api/v1/storage/downloads/statistics/daily', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const daysParam = Number.parseInt(String(req.query.days || '30'), 10);
+        const days = Number.isFinite(daysParam) ? Math.max(1, Math.min(90, daysParam)) : 30;
+        const since = new Date(Date.now() - days * 24 * 3600 * 1000);
+        const rows = await prisma.downloadEvent.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true, bytes: true } });
+        const byDate = new Map();
+        for (let i = days; i >= 1; i--) {
+            const d = new Date(Date.now() - i * 24 * 3600 * 1000).toISOString().slice(0, 10);
+            byDate.set(d, { date: d, bytes: 0, count: 0 });
+        }
+        for (const r of rows) {
+            const d = r.createdAt.toISOString().slice(0, 10);
+            const ent = byDate.get(d);
+            if (ent) {
+                ent.bytes += (r.bytes || 0);
+                ent.count += 1;
+            }
+            else {
+                byDate.set(d, { date: d, bytes: r.bytes || 0, count: 1 });
+            }
+        }
+        res.json({ days, series: Array.from(byDate.values()) });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // STS issuance stub (to be implemented with @alicloud/sts20150401)
 app.post('/api/v1/storage/oss/sts', requireAuth, async (_req, res) => {
     const roleArn = process.env.ALIYUN_ROLE_ARN || '';

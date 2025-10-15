@@ -11,9 +11,9 @@ export function MainNav({
 }: React.HTMLAttributes<HTMLElement>) {
   const pathname = usePathname() || ""
   const items = [
-    { label: "Overview", href: "/admin" },
-    { label: "Users", href: "/admin/users" },
-    { label: "Notifications", href: "/admin/notifications" },
+    { label: 'Overview', href: '/admin/overview' },
+    { label: 'Users', href: '/admin/users' },
+    { label: 'Notifications', href: '/admin/notifications' },
   ]
   return (
     <nav
@@ -21,9 +21,7 @@ export function MainNav({
       {...props}
     >
       {items.map((item) => {
-        const active =
-          pathname === item.href ||
-          (item.href === "/admin" && pathname?.startsWith("/admin") && !pathname?.startsWith("/admin/notifications"))
+        const active = pathname === item.href
         return (
           <Link
             key={item.href}

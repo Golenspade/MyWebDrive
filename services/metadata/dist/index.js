@@ -1,7 +1,7 @@
 import express from 'express';
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability';
 import jwt from 'jsonwebtoken';
-import { PrismaClient } from '../prisma/client';
+import { PrismaClient } from '../prisma/client/index.js';
 import { randomUUID } from 'crypto';
 import { getEnv } from '@mywebdrive/common';
 const app = express();
@@ -42,9 +42,165 @@ function requireAuth(req, res, next) {
         return res.status(401).json({ error: 'Unauthorized' });
     }
 }
+function requireAdmin(req, res, next) {
+    const role = req.auth?.role;
+    if (role !== 'admin')
+        return res.status(403).json({ error: 'Admin access required' });
+    next();
+}
 // Health & metrics
 app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'metadata-service-node' }));
 app.get('/metrics', metricsHandler);
+// -------- Catalog (Public read) --------
+// Build a public software catalog from File + FileTag with "catalog:*" tags
+// tag format: catalog:key=value; required: catalog:kind=project|asset, catalog:slug=..., catalog:public=true
+function parseCatalogTags(tags) {
+    const kv = {};
+    for (const t of tags) {
+        if (!t.tagName?.startsWith('catalog:'))
+            continue;
+        const rest = t.tagName.slice('catalog:'.length);
+        const eq = rest.indexOf('=');
+        if (eq === -1)
+            continue;
+        const key = rest.slice(0, eq).trim();
+        const value = rest.slice(eq + 1).trim();
+        if (key)
+            kv[key] = value;
+    }
+    return kv;
+}
+function baseUrl(req) {
+    const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+    const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
+    return `${proto}://${host}`;
+}
+app.get('/api/v1/catalog', async (req, res, next) => {
+    try {
+        // Read all files and their tags; filter in memory for dev-scale data
+        const files = await prisma.file.findMany({
+            where: { deletedAt: null },
+            include: { tags: true, versions: { orderBy: { version: 'desc' }, take: 1 } },
+        });
+        const bySlug = new Map();
+        const pubOnly = true; // gray switch via tag catalog:public=true
+        for (const f of files) {
+            const kv = parseCatalogTags(f.tags);
+            if (kv.public !== 'true' && pubOnly)
+                continue;
+            const kind = kv.kind; // 'project' | 'asset' (optional 'release' not required for MVP)
+            const slug = kv.slug;
+            if (!slug)
+                continue;
+            if (kind === 'project') {
+                const proj = bySlug.get(slug) || { slug, name: kv.name || slug, description: kv.description, category: kv.category, license: kv.license, repo: kv.repo, releases: [], _assets: [] };
+                // fill missing fields but don't override existing
+                proj.name || (proj.name = kv.name || slug);
+                proj.description || (proj.description = kv.description);
+                proj.category || (proj.category = kv.category);
+                proj.license || (proj.license = kv.license);
+                proj.repo || (proj.repo = kv.repo);
+                bySlug.set(slug, proj);
+                continue;
+            }
+            if (kind === 'asset') {
+                const version = kv.version || '1.0.0';
+                const channel = kv.channel || 'stable';
+                const os = kv.os || 'any';
+                const arch = kv.arch || 'any';
+                const url = kv.url; // optional direct URL (e.g., OSS)
+                const size = f.size ?? (f.versions?.[0]?.size || 0);
+                const proj = bySlug.get(slug) || { slug, name: kv.name || slug, description: kv.description, category: kv.category, license: kv.license, repo: kv.repo, releases: [], _assets: [] };
+                bySlug.set(slug, proj);
+                const asset = {
+                    id: f.id,
+                    filename: f.name,
+                    sizeBytes: size,
+                    sha256: undefined,
+                    os, arch, channel: channel, version,
+                    url: url || `${baseUrl(req)}/api/v1/storage/files/${encodeURIComponent(f.id)}/download`,
+                };
+                proj._assets.push(asset);
+            }
+        }
+        // Group assets into releases by version+channel
+        const projects = [];
+        for (const proj of bySlug.values()) {
+            const groups = new Map();
+            for (const a of proj._assets) {
+                const key = `${a.version}|${a.channel}`;
+                let r = groups.get(key);
+                if (!r) {
+                    r = { version: a.version, channel: a.channel, assets: [] };
+                    groups.set(key, r);
+                }
+                r.assets.push(a);
+            }
+            proj.releases = Array.from(groups.values()).sort((x, y) => x.version.localeCompare(y.version));
+            delete proj._assets;
+            projects.push(proj);
+        }
+        res.json({ projects });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+app.get('/api/v1/catalog/:slug', async (req, res, next) => {
+    try {
+        const slugQ = req.params.slug;
+        const files = await prisma.file.findMany({ where: { deletedAt: null }, include: { tags: true, versions: { orderBy: { version: 'desc' }, take: 1 } } });
+        const filtered = files.filter(f => {
+            const kv = parseCatalogTags(f.tags);
+            return kv.public === 'true' && kv.slug === slugQ && (kv.kind === 'project' || kv.kind === 'asset');
+        });
+        if (filtered.length === 0)
+            return res.status(404).json({ error: 'Not Found' });
+        req.url; // no-op to satisfy linter
+        // Reuse the builder via a fake request to include correct baseUrl
+        const fakeReq = req;
+        const bySlug = new Map();
+        for (const f of filtered) {
+            const kv = parseCatalogTags(f.tags);
+            if (kv.kind === 'project') {
+                const proj = bySlug.get(slugQ) || { slug: slugQ, name: kv.name || slugQ, description: kv.description, category: kv.category, license: kv.license, repo: kv.repo, releases: [], _assets: [] };
+                bySlug.set(slugQ, proj);
+            }
+            else if (kv.kind === 'asset') {
+                const proj = bySlug.get(slugQ) || { slug: slugQ, name: kv.name || slugQ, description: kv.description, category: kv.category, license: kv.license, repo: kv.repo, releases: [], _assets: [] };
+                bySlug.set(slugQ, proj);
+                const asset = {
+                    id: f.id,
+                    filename: f.name,
+                    sizeBytes: f.size ?? (f.versions?.[0]?.size || 0),
+                    os: kv.os || 'any', arch: kv.arch || 'any',
+                    channel: kv.channel || 'stable', version: kv.version || '1.0.0',
+                    url: kv.url || `${baseUrl(fakeReq)}/api/v1/storage/files/${encodeURIComponent(f.id)}/download`,
+                };
+                proj._assets.push(asset);
+            }
+        }
+        const proj = Array.from(bySlug.values())[0];
+        if (!proj)
+            return res.status(404).json({ error: 'Not Found' });
+        const groups = new Map();
+        for (const a of proj._assets) {
+            const key = `${a.version}|${a.channel}`;
+            let r = groups.get(key);
+            if (!r) {
+                r = { version: a.version, channel: a.channel, assets: [] };
+                groups.set(key, r);
+            }
+            r.assets.push(a);
+        }
+        proj.releases = Array.from(groups.values());
+        delete proj._assets;
+        res.json(proj);
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // --- Folder routes ---
 app.post('/api/v1/folders', requireAuth, async (req, res, next) => {
     try {
@@ -249,6 +405,21 @@ app.post('/api/v1/folders/:folderId/move', requireAuth, async (req, res, next) =
             for (const d of descendants) {
                 const suffix = d.path.slice(oldPath.length);
                 await tx.file.update({ where: { id: d.id }, data: { path: newPath + suffix, updatedAt: new Date() } });
+            }
+        });
+        // --- Admin: Files statistics ---
+        app.get('/api/v1/files/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+            try {
+                const where = { type: 'file', deletedAt: null };
+                const [totalFiles, agg] = await Promise.all([
+                    prisma.file.count({ where }),
+                    prisma.file.aggregate({ where, _sum: { size: true } }),
+                ]);
+                const totalSizeBytes = agg._sum?.size || 0;
+                res.json({ totalFiles, totalSizeBytes });
+            }
+            catch (err) {
+                next(err);
             }
         });
         return res.status(204).send();

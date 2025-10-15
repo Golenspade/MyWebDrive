@@ -1,0 +1,34 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "./client"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("GATEWAY_DATABASE_URL")
+}
+
+model AdminNotification {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  severity    String
+  service     String?
+  unread      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  meta        Json?
+
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  actorId   String?
+  target    String?
+  createdAt DateTime @default(now())
+  meta      Json?
+
+  @@index([createdAt])
+}
+

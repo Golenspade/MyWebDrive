@@ -1,38 +1,42 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `services/` — Node microservices (`auth`, `user`, `metadata`, `storage`, `sharing`, `api-gateway-node`), each with `src/index.ts` and optional `prisma/`.
+- `services/` — Node microservices (`auth`, `user`, `metadata`, `storage`, `sharing`, `api-gateway-node`). Each uses `src/index.ts` and may include `prisma/`.
 - `packages/` — shared libraries (`common`, `observability`).
-- `apps/web/` — optional Next.js app for experiments.
+- `apps/web/` — optional Next.js experiments.
 - `frontend/cruip-landing/` — primary Next.js site.
-- `docs/`, `scripts/`, `infrastructure/` — documentation, helper scripts, deploy.
+- `docs/`, `scripts/`, `infrastructure/` — documentation, helper scripts, deployment.
+- Tests live beside code: `src/__tests__/*.test.ts`.
 
 ## Build, Test, and Development Commands
-- Install deps (Node 20+): `pnpm -w install`
-- Build all TS packages: `pnpm run build:all` or `make build`
-- Start backend (gateway + services): `./manage-services.sh start-backend`
-- Start frontend (cruip-landing): `./manage-services.sh start-frontend` (http://127.0.0.1:3100)
-- Start Next demo: `./manage-services.sh start-next` (http://127.0.0.1:4000)
-- Per‑service dev: `pnpm -C services/auth dev` (similar for others)
-- Smoke tests: `GATEWAY_PORT=9080 bash ./test_guest_download.sh` (see also `test_invitation_flow.sh`, `test_invitation_system.sh`)
+- Prereqs: Node 20+, `pnpm`.
+- Install deps: `pnpm -w install`.
+- Build all TS packages: `pnpm run build:all` or `make build`.
+- Dev per service: `pnpm -C services/auth dev` (apply to other services).
+- Start backend: `./manage-services.sh start-backend`.
+- Start frontend (landing): `./manage-services.sh start-frontend` (http://127.0.0.1:3100).
+- Start Next demo: `./manage-services.sh start-next` (http://127.0.0.1:4000).
+- Smoke tests: `GATEWAY_PORT=9080 bash ./test_guest_download.sh` (see also `test_invitation_flow.sh`, `test_invitation_system.sh`).
 
 ## Coding Style & Naming Conventions
-- Language: TypeScript (strict). Module resolution: NodeNext/Bundler (per service tsconfig).
-- Indentation: 2 spaces; quotes: single; semicolons: omit (match existing code).
-- File names: kebab‑case for modules; service entry `src/index.ts`.
-- Exports: prefer named exports for libraries; keep functions small and typed.
-- Env vars: UPPER_SNAKE_CASE (e.g., `JWT_SECRET`); HTTP paths under `/api/v1/*`.
+- Language: TypeScript (strict). Module resolution: NodeNext/Bundler per service.
+- Formatting: 2‑space indent, single quotes, omit semicolons; match existing code.
+- Filenames: kebab‑case modules; service entry at `src/index.ts`.
+- Exports: prefer named exports; keep functions small and well‑typed.
+- Env vars: UPPER_SNAKE_CASE (e.g., `JWT_SECRET`). HTTP paths under `/api/v1/*`.
 
 ## Testing Guidelines
-- No unit test framework enforced yet; coverage not required.
-- Prefer adding unit tests alongside code under `src/__tests__/*.test.ts` when introducing new modules.
-- Use provided smoke scripts against the Node gateway (9080). Ensure scripts are idempotent and document any prerequisites.
+- No fixed unit test framework; coverage not enforced.
+- Place tests under `src/__tests__/*.test.ts` next to relevant code.
+- Use smoke scripts against the Node gateway; ensure idempotency and document prerequisites.
 
 ## Commit & Pull Request Guidelines
-- Use Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `perf:`, `test:`.
-- Commits: small, focused; include scope when helpful (e.g., `feat(auth): refresh tokens`).
-- PRs: clear description, linked issues, steps to verify, screenshots for UI, note env changes. Run `make quality-check` (build+test+lint) before requesting review.
+- Commits follow Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `perf:`, `test:`; use scopes (e.g., `feat(auth): refresh tokens`). Keep small and focused.
+- PRs include description, linked issues, verification steps, and UI screenshots when relevant; call out env changes.
+- Quality gate: `make quality-check` (build + test + lint) before review.
 
 ## Security & Configuration Tips
 - Create env file: `cp docs/env.example .env` or `./manage-services.sh env:write .env`.
-- Never commit secrets. Rotate `JWT_SECRET`. Dev SQLite DBs live under `services/*/prisma/*.db` — keep out of production.
+- Never commit secrets; rotate `JWT_SECRET`.
+- Dev SQLite DBs: `services/*/prisma/*.db` — do not use in production.
+

@@ -137,6 +137,14 @@ exports.Prisma.UploadSessionScalarFieldEnum = {
   expiresAt: 'expiresAt'
 };
 
+exports.Prisma.DownloadEventScalarFieldEnum = {
+  id: 'id',
+  fileId: 'fileId',
+  bytes: 'bytes',
+  ip: 'ip',
+  createdAt: 'createdAt'
+};
+
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
@@ -149,7 +157,8 @@ exports.Prisma.NullsOrder = {
 
 
 exports.Prisma.ModelName = {
-  UploadSession: 'UploadSession'
+  UploadSession: 'UploadSession',
+  DownloadEvent: 'DownloadEvent'
 };
 
 /**

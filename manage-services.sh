@@ -117,6 +117,8 @@ start_gateway(){
   log_service "Starting API Gateway (:${GW_PORT})..."
   if [ "$(check_on_port $GW_PORT)" != "STOPPED" ]; then log_warn "gateway already running"; return; fi
   mkdir -p logs
+  (pnpm --filter ./services/api-gateway-node prisma:generate > logs/gateway.prisma.log 2>&1 || true)
+  (pnpm --filter ./services/api-gateway-node db:push > logs/gateway.dbpush.log 2>&1 || true)
   (cd services/api-gateway-node && GATEWAY_PORT=$GW_PORT JWT_SECRET=${JWT_SECRET:-your-secret-key} \
     AUTH_SERVICE_URL=${AUTH_SERVICE_URL:-http://localhost:${AUTH_PORT}} \
     USER_SERVICE_URL=${USER_SERVICE_URL:-http://localhost:${USER_PORT}} \
@@ -178,6 +180,7 @@ OWNER_CODE_HASH=
 
 # Aliyun RAM Role for STS
 ALIYUN_ROLE_ARN=
+GATEWAY_DATABASE_URL=file:./gateway.db
 EOF
 }
 print_auth_env(){ cat <<EOF
@@ -186,7 +189,7 @@ AUTH_PORT=7081
 JWT_SECRET=please-change-me
 ACCESS_TOKEN_TTL=900
 REFRESH_TOKEN_TTL=604800
-REGISTRATION_REQUIRE_INVITE=false
+REGISTRATION_REQUIRE_INVITE=true
 EOF
 }
 print_storage_env(){ cat <<EOF

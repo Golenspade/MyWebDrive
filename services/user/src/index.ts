@@ -44,6 +44,13 @@ function requireAuth(req: express.Request, res: express.Response, next: express.
   }
 }
 
+function requireAdmin(req: express.Request, res: express.Response, next: express.NextFunction) {
+  const role = (req as any).auth?.role
+  if (role !== 'admin') return res.status(403).json({ error: 'Admin access required' })
+  next()
+}
+
+
 // Routes
 app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'user-service-node' }))
 app.get('/metrics', metricsHandler)
@@ -105,9 +112,41 @@ app.patch('/api/v1/users/me', requireAuth, async (req, res, next) => {
 app.get('/api/v1/users/me/storage', requireAuth, async (req, res, next) => {
   try {
     const userId = (req as any).auth.userId as string
+
     const user = await prisma.user.findUnique({ where: { id: userId } })
     if (!user) return res.status(401).json({ error: 'Unauthorized' })
     return res.json({ storageQuota: Number(user.storageQuota), storageUsed: Number(user.storageUsed) })
+  } catch (err) {
+    next(err)
+  }
+})
+
+
+// --- Admin: quota & storage ---
+app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const id = req.params.id
+    const { storageQuota } = (req.body || {}) as { storageQuota?: number }
+    if (typeof storageQuota !== 'number' || !Number.isFinite(storageQuota) || storageQuota < 0) {
+      return res.status(400).json({ error: 'Invalid storageQuota' })
+    }
+    const updated = await prisma.user.upsert({
+      where: { id },
+      update: { storageQuota: BigInt(Math.floor(storageQuota)) },
+      create: { id, name: 'User', storageQuota: BigInt(Math.floor(storageQuota)), storageUsed: BigInt(0) },
+    })
+    return res.json({ id: updated.id, storageQuota: Number(updated.storageQuota) })
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.get('/api/v1/users/:id/storage', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const id = req.params.id
+    const user = await prisma.user.findUnique({ where: { id } })
+    if (!user) return res.status(404).json({ error: 'User not found' })
+    return res.json({ id: user.id, storageQuota: Number(user.storageQuota), storageUsed: Number(user.storageUsed) })
   } catch (err) {
     next(err)
   }

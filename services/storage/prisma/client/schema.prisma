@@ -29,3 +29,13 @@ model UploadSession {
   @@index([status])
   @@index([expiresAt])
 }
+
+model DownloadEvent {
+  id        String   @id @default(cuid())
+  fileId    String
+  bytes     Int
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}

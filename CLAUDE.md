@@ -22,7 +22,7 @@ MyWebDrive is a microservices-based cloud storage platform built with Node.js + 
 - **Metadata Service**: 7083 (files/folders metadata)
 - **Storage Service**: 7084 (file uploads/downloads)
 - **Sharing Service**: 7085 (file sharing links)
-- **Frontend**: 3100 (Next.js dev server at `frontend/cruip-landing`)
+- **Frontend**: 4323 (Next.js dev server at `frontend/cruip-landing`, configurable via `FRONTEND_PORT`)
 
 ### System of Record (SoR) Boundaries
 
@@ -135,6 +135,27 @@ cd frontend/cruip-landing && pnpm typecheck
 cd frontend/cruip-landing && pnpm lint
 ```
 
+### Development Helper Scripts
+
+For improved developer experience, use these helper scripts:
+
+```bash
+# Backend with health checks and Redis detection
+bash scripts/start-backend-dev.sh
+
+# Frontend with auto-configured API_BASE_URL and EMFILE mitigation
+bash scripts/start-frontend-dev.sh
+
+# Frontend with custom port
+PORT=3200 bash scripts/start-frontend-dev.sh
+```
+
+These scripts handle:
+- Automatic environment variable setup
+- Service health verification
+- File descriptor limit warnings (EMFILE on macOS)
+- Log path reporting
+
 ### Testing
 
 ```bash
@@ -192,6 +213,9 @@ MINIO_ACCESS_KEY=...
 MINIO_SECRET_KEY=...
 MINIO_BUCKET=mywebdrive
 
+# Dev-only: Skip metadata callbacks (for quick demos without metadata service)
+STORAGE_SKIP_METADATA=false  # Set to true for local testing
+
 # Frontend
 FRONTEND_PORT=3100
 FRONTEND_HOST=127.0.0.1
@@ -241,6 +265,23 @@ The frontend uses a modern React + Next.js 15 stack with Zustand for state manag
 
 See `docs/FRONTEND_BACKEND_CONNECTION_DESIGN.md` for comprehensive frontend implementation guide.
 
+### Admin Dashboard
+
+The frontend includes a comprehensive admin dashboard at `/admin`:
+
+- **/admin/users**: User management (list, search, pagination, role changes, quota management)
+- **/admin/notifications**: System notifications with filtering and export
+- **/admin/invitations**: Invite code management (when `REGISTRATION_REQUIRE_INVITE=true`)
+
+**Authentication**: Admin pages require Bearer token stored in localStorage (use "Set Token" dialog in UI)
+
+**Key APIs**:
+- `GET /api/v1/auth/admin/users` - Paginated user list with search
+- `PATCH /api/v1/auth/admin/users/:id/role` - Change user role
+- `GET /api/v1/users/:id/storage` - View user quota/usage
+- `PATCH /api/v1/users/:id/quota` - Set storage quota
+- `GET /api/v1/admin/overview` - Dashboard aggregated stats
+
 ### Error Handling
 
 Services should return consistent error formats:
@@ -266,6 +307,36 @@ Services use `NodeNext` module resolution with ESM:
 ```
 
 **Important**: When using `tsBuildInfoFile`, must set `"composite": true`.
+
+## Admin API Routes
+
+All admin routes require authentication + admin role (`requireAuth` + `requireAdmin` middleware).
+
+### User Management (Auth Service)
+- `GET /api/v1/auth/admin/users?query=&page=1&pageSize=10` - List users with search/pagination
+- `GET /api/v1/auth/admin/users/:id` - User details (id, name, email, role, createdAt)
+- `PATCH /api/v1/auth/admin/users/:id/role` - Change role (user/admin)
+- `GET /api/v1/auth/admin/users/statistics?range=7d|30d` - User statistics (totalUsers, newUsers)
+
+### Quota Management (User Service)
+- `GET /api/v1/users/:id/storage` - View quota and usage for specific user
+- `PATCH /api/v1/users/:id/quota` - Set storage quota (admin only)
+
+### Storage Statistics (Storage Service)
+- `GET /api/v1/storage/statistics` - Total upload bytes and count
+- `GET /api/v1/storage/statistics/daily?days=30` - Daily uploads (completed, grouped by updatedAt)
+- `GET /api/v1/storage/downloads/active` - Active downloads (concurrency and IP list from Redis)
+
+### File Statistics (Metadata Service)
+- `GET /api/v1/files/statistics` - Total files count and size (latest version aggregated)
+
+### Aggregated Overview (Gateway)
+- `GET /api/v1/admin/overview` - Dashboard stats aggregating:
+  - `totals`: total_users, total_files, total_storage_bytes
+  - `today`: uploads_count (other fields placeholders)
+  - `last7d`: uploads_bytes array (from storage/statistics/daily)
+
+**Note**: Gateway forwards `Authorization` header to downstream services and provides fallback to 0 on failure.
 
 ## Special Features
 
@@ -370,6 +441,8 @@ Import these in services via workspace protocol: `"@mywebdrive/common": "workspa
 
 8. **Redis for Storage**: Storage service requires Redis for download rate limiting. Set `REDIS_URL` or it defaults to `redis://localhost:6379/0`.
 
+9. **Next.js Static Export vs Rewrites**: In development, `output: 'export'` is commented out in `frontend/cruip-landing/next.config.js` because static export mode conflicts with `rewrites` and `middleware`. Keep commented for dev (uses CORS); enable only for static production builds.
+
 ## File Locations
 
 - Service management: `./manage-services.sh`
@@ -426,6 +499,15 @@ make alicloud-deploy # Deploy to Aliyun
 - Clean and rebuild: `pnpm clean && pnpm -w build`
 - Ensure Node.js 20+ is installed: `node --version`
 - Check for missing dependencies: `pnpm -w install`
+
+**Frontend EMFILE errors (macOS):**
+- **Symptom**: `Watchpack Error (watcher): Error: EMFILE: too many open files, watch`
+- **Cause**: System file descriptor limit too low for Next.js/webpack file watching
+- **Quick fix**: `ulimit -n 10000` then restart frontend in same terminal
+- **Or use polling**: `WATCHPACK_POLLING=true WATCHPACK_POLL_INTERVAL=1000 pnpm dev`
+- **Permanent fix (macOS)**: `sudo launchctl limit maxfiles 65536 200000`, then restart terminal
+- **Helper script**: `bash scripts/start-frontend-dev.sh` applies limits automatically
+- **Verify limit**: `ulimit -n` should show ≥ 10000
 
 ## Additional Resources
 

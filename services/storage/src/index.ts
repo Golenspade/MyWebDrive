@@ -682,6 +682,15 @@ app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
     try {
       const { Client } = await import('minio')
       const client = new Client({ endPoint: MINIO_ENDPOINT.split(':')[0], port: Number(MINIO_ENDPOINT.split(':')[1] || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
+      // best-effort stat for size
+      let size = 0
+      try {
+        const st = await client.statObject(MINIO_BUCKET, `files/${fileId}`)
+        size = Number((st as any).size || 0)
+      } catch {}
+      try {
+        await prisma.downloadEvent.create({ data: { fileId, bytes: Math.max(0, size), ip } as any })
+      } catch {}
       const obj = await client.getObject(MINIO_BUCKET, `files/${fileId}`)
       obj.on('error', () => {
         if (acquired) void release(ip)
@@ -696,7 +705,8 @@ app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
   } else {
     const p = path.join(STORAGE_PATH, 'files', fileId)
     try {
-      await fsp.stat(p)
+      const st = await fsp.stat(p)
+      try { await prisma.downloadEvent.create({ data: { fileId, bytes: Number(st.size || 0), ip } as any }) } catch {}
     } catch {
       if (acquired) void release(ip)
       return res.status(404).json({ error: 'File not found' })
@@ -824,6 +834,44 @@ app.get('/api/v1/storage/downloads/active', requireAuth, requireAdmin, async (_r
       // if Redis not available, return zeroes
     }
     res.json({ concurrency: total, ips })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// --- Admin: downloads statistics (totals) ---
+app.get('/api/v1/storage/downloads/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+  try {
+    const [countAgg, bytesAgg] = await Promise.all([
+      prisma.downloadEvent.count(),
+      prisma.downloadEvent.aggregate({ _sum: { bytes: true } }),
+    ])
+    const totalDownloadsCount = countAgg
+    const totalDownloadsBytes = Number((bytesAgg as any)?._sum?.bytes || 0)
+    res.json({ totalDownloadsBytes, totalDownloadsCount })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// --- Admin: downloads statistics (daily) ---
+app.get('/api/v1/storage/downloads/statistics/daily', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const daysParam = Number.parseInt(String(req.query.days || '30'), 10)
+    const days = Number.isFinite(daysParam) ? Math.max(1, Math.min(90, daysParam)) : 30
+    const since = new Date(Date.now() - days * 24 * 3600 * 1000)
+    const rows = await prisma.downloadEvent.findMany({ where: { createdAt: { gte: since } }, select: { createdAt: true, bytes: true } })
+    const byDate = new Map<string, { date: string; bytes: number; count: number }>()
+    for (let i = days; i >= 1; i--) {
+      const d = new Date(Date.now() - i * 24 * 3600 * 1000).toISOString().slice(0, 10)
+      byDate.set(d, { date: d, bytes: 0, count: 0 })
+    }
+    for (const r of rows) {
+      const d = (r.createdAt as any as Date).toISOString().slice(0, 10)
+      const ent = byDate.get(d)
+      if (ent) { ent.bytes += (r.bytes || 0); ent.count += 1 } else { byDate.set(d, { date: d, bytes: r.bytes || 0, count: 1 }) }
+    }
+    res.json({ days, series: Array.from(byDate.values()) })
   } catch (err) {
     next(err)
   }
