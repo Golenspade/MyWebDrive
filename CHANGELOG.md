@@ -2,6 +2,49 @@
 
 All notable changes to this repository will be documented in this file.
 
+## nextra-v4-migration-step1 - 2025-10-16
+
+## nextra-v4-migration-step2 - 2025-10-16
+
+## nextra-v4-migration-step3 - 2025-10-16
+
+## frontend-site-footer-minimal - 2025-10-16
+
+### Added
+- frontend(cruip-landing): 新增通用页脚组件 `components/site-footer.tsx`
+- frontend(admin): 在 `app/admin/layout.tsx` 注入通用页脚（避免与各页自带的顶部导航重复）
+
+### Verify
+- 访问 `/admin/overview`、`/admin/notifications` 等页面，底部显示统一页脚
+- 文档页仍使用 Nextra 主题页脚
+
+### Changed
+- frontend(cruip-landing): 根路径重定向从 `/` → `/admin/overview`，以后台为默认入口；保留 `/docs` 作为文档入口
+
+### Verify
+- 访问站点根路径自动进入后台面板 `/admin/overview`
+- 文档仍可通过 `/docs` 正常访问
+
+### Configured
+- frontend(cruip-landing): 配置 v4 全局元数据与主题
+  - 新增 `content/_meta.global.js` 定义顶层导航顺序与标题
+  - 更新 `theme.config.jsx`：`docsRepositoryBase` 指向 `content/`，新增 `editLink.text` 与 `search.placeholder`
+
+### Verify
+- `/docs` 可见顶部与侧边导航，编辑链接跳转到 GitHub 对应文件
+
+### Migrated
+- frontend(cruip-landing): 批量迁移 Nextra v3 `pages/docs/*` 到 v4 `content/*`
+  - 新增 `app/docs/[[...mdxPath]]/page.tsx`（v4 App Router 入口）
+  - 迁移与还原主要文档页：`index`、`faq`、`getting-started`、`api/*`、`guide/*`、`resources/*`、`best-practices/*`、`txt2mp4/*`
+  - 为各目录补充 `_meta.js`，使侧边导航与顺序与 v3 对齐
+- 清理 v3 冲突：删除 `pages/_app.tsx` 与 `pages/docs/*` 文件（避免 Pages Router 干扰）
+- Tailwind: 将扫描路径更新为 `./content/**/*.{md,mdx}`，保留 `./app/**/*`、`./components/**/*`
+
+### Verify
+- 本地 `./manage-services.sh start-frontend` 后，访问 `/docs` 正常渲染导航与页面
+- 管理后台仍在 `/admin/overview` 可访问
+
 ## admin-users-frontend - 2025-10-14
 
 ### Added

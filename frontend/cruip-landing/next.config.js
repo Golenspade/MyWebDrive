@@ -1,4 +1,5 @@
-const withNextra = require('nextra').default({
+const nextra = require('nextra')
+const withNextra = (typeof nextra === 'function' ? nextra : nextra.default)({
   theme: 'nextra-theme-docs',
   themeConfig: './theme.config.jsx',
   defaultShowCopyCode: true,
@@ -29,6 +30,14 @@ const nextBase = {
         { source: '/assets/:path*', destination: `${apiBase}/assets/:path*` },
       ],
     }
+  },
+
+  // Make root path non-404 when using Nextra v3 (Pages Router)
+  // Redirect '/' -> '/docs' so users don't land on a 404 in dev/prod
+  async redirects() {
+    return [
+      { source: '/', destination: '/admin/overview', permanent: false },
+    ]
   },
 };
 

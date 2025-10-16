@@ -2,10 +2,17 @@
 
 import { ReactNode } from 'react'
 import { useProtectedAdmin } from '@/lib/hooks/use-protected'
+import SiteFooter from '@/components/site-footer'
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { ready } = useProtectedAdmin()
   if (!ready) return null
-  return <>{children}</>
+  return (
+    <div className='min-h-screen flex flex-col'>
+      <div className='flex-1'>
+        {children}
+      </div>
+      <SiteFooter />
+    </div>
+  )
 }
-

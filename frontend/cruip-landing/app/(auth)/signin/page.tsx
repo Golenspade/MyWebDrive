@@ -1,8 +1,3 @@
-export const metadata = {
-  title: '登录 - MyWebDrive',
-  description: '登录到您的 MyWebDrive 账户，访问您的云端文件。',
-}
-
 'use client'
 
 import { useState } from 'react'
