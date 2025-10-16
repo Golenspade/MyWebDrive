@@ -1,18 +1,17 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `services/` — Node microservices (`auth`, `user`, `metadata`, `storage`, `sharing`, `api-gateway-node`). Each uses `src/index.ts` and may include `prisma/`.
+- `services/` — Node microservices (`auth`, `user`, `metadata`, `storage`, `sharing`, `api-gateway-node`). Each service runs from `src/index.ts` and may include `prisma/`.
 - `packages/` — shared libraries (`common`, `observability`).
-- `apps/web/` — optional Next.js experiments.
+- `apps/web/` — Next.js experiments (optional).
 - `frontend/cruip-landing/` — primary Next.js site.
-- `docs/`, `scripts/`, `infrastructure/` — documentation, helper scripts, deployment.
+- `docs/`, `scripts/`, `infrastructure/` — docs, helper scripts, deployment.
 - Tests live beside code: `src/__tests__/*.test.ts`.
 
 ## Build, Test, and Development Commands
-- Prereqs: Node 20+, `pnpm`.
-- Install deps: `pnpm -w install`.
+- Prereqs: Node 20+, `pnpm`. Install: `pnpm -w install`.
 - Build all TS packages: `pnpm run build:all` or `make build`.
-- Dev per service: `pnpm -C services/auth dev` (apply to other services).
+- Dev per service: `pnpm -C services/auth dev` (replace `auth` as needed).
 - Start backend: `./manage-services.sh start-backend`.
 - Start frontend (landing): `./manage-services.sh start-frontend` (http://127.0.0.1:3100).
 - Start Next demo: `./manage-services.sh start-next` (http://127.0.0.1:4000).
@@ -28,15 +27,18 @@
 ## Testing Guidelines
 - No fixed unit test framework; coverage not enforced.
 - Place tests under `src/__tests__/*.test.ts` next to relevant code.
-- Use smoke scripts against the Node gateway; ensure idempotency and document prerequisites.
+- Keep smoke scripts idempotent; document prerequisites. Example: run gateway and then `test_guest_download.sh`.
 
 ## Commit & Pull Request Guidelines
-- Commits follow Conventional Commits: `feat:`, `fix:`, `chore:`, `docs:`, `refactor:`, `perf:`, `test:`; use scopes (e.g., `feat(auth): refresh tokens`). Keep small and focused.
+- Conventional Commits with scopes (e.g., `feat(auth): refresh tokens`); keep changes small.
 - PRs include description, linked issues, verification steps, and UI screenshots when relevant; call out env changes.
-- Quality gate: `make quality-check` (build + test + lint) before review.
+- Run the quality gate before review: `make quality-check` (build + test + lint).
 
 ## Security & Configuration Tips
 - Create env file: `cp docs/env.example .env` or `./manage-services.sh env:write .env`.
 - Never commit secrets; rotate `JWT_SECRET`.
-- Dev SQLite DBs: `services/*/prisma/*.db` — do not use in production.
+- Dev SQLite DBs live under `services/*/prisma/*.db` — do not use in production.
+
+## Agent-Specific
+- This file applies repo‑wide; more nested AGENTS.md files, if present, override within their directories.
 

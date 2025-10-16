@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { overviewApi, type AdminOverview } from '@/lib/api/overview'
 import { Button } from '@/components/ui/button'
-import { Button } from '@/components/ui/button'
 import { ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid, AreaChart, Area } from 'recharts'
 
 export default function AdminOverviewPage() {

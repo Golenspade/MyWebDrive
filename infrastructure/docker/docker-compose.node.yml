@@ -37,6 +37,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       AUTH_PORT: 7081
       DATABASE_URL: file:./services/auth/prisma/auth.db
+      REGISTRATION_REQUIRE_INVITE: "true"
     command: >
       sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
       pnpm -w install && pnpm -r --filter ./packages/** build && \
@@ -156,6 +157,7 @@ services:
     environment:
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
       GATEWAY_PORT: 9080
+      GATEWAY_DATABASE_URL: file:./services/api-gateway-node/prisma/gateway.db
       AUTH_SERVICE_URL: http://auth:7081
       USER_SERVICE_URL: http://user:7082
       METADATA_SERVICE_URL: http://metadata:7083
@@ -170,10 +172,31 @@ services:
     command: >
       sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
       pnpm -w install && pnpm -r --filter ./packages/** build && \
+      pnpm --filter ./services/api-gateway-node prisma:generate && \
+      pnpm --filter ./services/api-gateway-node db:push && \
       pnpm --filter ./services/api-gateway-node build && \
       pnpm --filter ./services/api-gateway-node start"
     ports:
       - "9080:9080"
+    networks:
+      - mywebdrive
+
+  frontend-cruip:
+    image: node:20-bullseye
+    working_dir: /workspace
+    volumes:
+      - ../../:/workspace:cached
+    environment:
+      API_BASE_URL: http://api-gateway-node:9080
+    depends_on:
+      - api-gateway-node
+    command: >
+      sh -lc "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
+      pnpm -w install && \
+      pnpm --filter ./frontend/cruip-landing build && \
+      pnpm --filter ./frontend/cruip-landing exec next start -H 0.0.0.0 -p 3100"
+    ports:
+      - "3100:3100"
     networks:
       - mywebdrive
 
@@ -184,4 +207,3 @@ volumes:
 networks:
   mywebdrive:
     driver: bridge
-

@@ -232,9 +232,23 @@ case ${1:-status} in
   setup)          cmd_setup ;;
   install)        cmd_install ;;
   build)          cmd_build ;;
-  start)          start_backend; start_frontend ;;
+  start)
+    start_backend
+    if [ "${FRONTEND_MODE}" = "prod" ]; then
+      start_frontend_prod
+    else
+      start_frontend
+    fi
+    ;;
   stop)           stop_frontend; stop_backend ;;
-  restart)        stop_frontend; stop_backend; start_backend; start_frontend ;;
+  restart)
+    stop_frontend; stop_backend; start_backend
+    if [ "${FRONTEND_MODE}" = "prod" ]; then
+      start_frontend_prod
+    else
+      start_frontend
+    fi
+    ;;
   start-frontend) start_frontend ;;
   start-frontend-prod) start_frontend_prod ;;
   stop-frontend)  stop_frontend ;;
