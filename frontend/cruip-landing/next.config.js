@@ -1,9 +1,5 @@
-const nextra = require('nextra')
-const withNextra = (typeof nextra === 'function' ? nextra : nextra.default)({
-  theme: 'nextra-theme-docs',
-  themeConfig: './theme.config.jsx',
-  defaultShowCopyCode: true,
-});
+// Nextra temporarily disabled for admin panel dev
+const withNextra = (_opts) => (cfg) => cfg;
 
 /** @type {import('next').NextConfig} */
 const nextBase = {
@@ -41,4 +37,5 @@ const nextBase = {
   },
 };
 
-module.exports = withNextra(nextBase);
+// Temporarily disable Nextra wrapper to bring up admin panel quickly
+module.exports = nextBase;

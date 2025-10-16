@@ -101,6 +101,21 @@ function useNotifications() {
   return { data, services, load, loading, error, markRead, remove, page, setPage, pageSize, setPageSize, total, category, setCategory, search, setSearch, unreadOnly, setUnreadOnly, serviceFilter, setServiceFilter, range, setRange }
 }
 
+
+function PageSizeSelect({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  return (
+    <select
+      className='h-9 rounded-md border px-2 text-sm'
+      value={value}
+      onChange={(e) => onChange(Number(e.target.value))}
+    >
+      {[10, 12, 20, 50].map((n) => (
+        <option key={n} value={n}>{n} / 页</option>
+      ))}
+    </select>
+  )
+}
+
 export default function NotificationsPage() {
   const { data, services, load, loading, error, markRead, remove, page, setPage, pageSize, setPageSize, total, category, setCategory, search, setSearch, unreadOnly, setUnreadOnly, serviceFilter, setServiceFilter, range, setRange } = useNotifications()
   const { accessToken } = useAuthStore()

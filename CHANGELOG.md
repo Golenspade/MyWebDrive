@@ -2,6 +2,173 @@
 
 All notable changes to this repository will be documented in this file.
 
+## backend-db-migration-and-runtime-smoke - 2025-10-16
+
+## frontend-admin-dev-bringup - 2025-10-16
+
+## deploy-un-2025-10-16-migration-to-postgres - 2025-10-16
+
+### Summary
+- DB: All services now configured to use Postgres (`*_DATABASE_URL`), unified `JWT_SECRET=dev-secret`.
+- Runtime smoke: upload→finalize OK; metadata write verified after secret unification.
+- Frontend: Admin panel brought up; temporary disable Nextra wrapper to avoid config mismatch.
+- Fixes: notifications page adds PageSizeSelect; publish page fixes useToast import path.
+- Shutdown: Stopped frontend (3100) and backend dev servers (9080, 7081–7085).
+
+### Tag
+- Created git tag: `deploy-un-2025-10-16-migration-to-postgres`.
+
+
+### What was done
+- Brought up Next.js dev server for admin panel at http://127.0.0.1:3100
+- Minimal fix to start dev quickly: temporarily disabled Nextra wrapper in `frontend/cruip-landing/next.config.js` to avoid v3/v4 config mismatch (keys `theme/themeConfig`). Admin App Router pages work; docs pages may be unavailable until Nextra config is reconciled.
+
+### Verify
+- GET /admin/overview returns 200 HTML (Next dev), page loads. Use UI “Set Token” to paste admin Bearer token when interacting with protected APIs.
+
+### Follow-up (optional)
+- When ready, reconcile Nextra version: either adjust config to Nextra v4 or pin v3; then re-enable wrapper. Keep focus on admin work for now.
+
+
+### Scope
+- No code changes committed. Verified Postgres migrations for all services and ran a storage upload runtime smoke test.
+- Databases: mywd_auth, mywd_user, mywd_metadata, mywd_storage, mywd_sharing (plus temporary mywd_tmp_* for clean-room tests).
+
+### What was done
+- Migrations (existing DBs): `prisma migrate status` shows schemas up to date for auth/user/metadata/storage/sharing.
+- Clean-room migrations: created mywd_tmp_* databases and ran `prisma migrate deploy` for each service; all applied successfully. Verified expected tables with psql.
+- Runtime (storage upload):
+  - Started backend with unified Postgres *_DATABASE_URLs and JWT_SECRET=dev-secret.
+  - Logged in as admin, created a storage upload session (1KB/1 chunk), uploaded chunk 0, and finalized.
+  - Verified in Postgres: UploadSession row exists with status `completed` (storage→DB write OK).
+
+### Issues encountered & solutions
+1) Metadata Prisma DB connection using default (SQLite) due to DATABASE_URL not set
+- Symptom: 500 on `POST /api/v1/files/:id/versions` with PrismaClientInitializationError ("Authentication failed...")
+- Root cause: start script passed METADATA_DATABASE_URL but Prisma reads DATABASE_URL env var
+- Fix (runtime): restarted metadata with both `METADATA_DATABASE_URL=postgres://.../mywd_metadata` and `DATABASE_URL=postgres://.../mywd_metadata`
+- Recommendation: update manage-services.sh `start_metadata` to set `DATABASE_URL="${METADATA_DATABASE_URL}"` (align with other services)
+
+2) 401 Unauthorized from metadata while calling versions route with admin token
+- Root cause: services were started with mixed JWT_SECRET values from previous runs
+- Fix (runtime): restart services with unified `JWT_SECRET=dev-secret` for all
+- Recommendation: `./manage-services.sh stop-backend && JWT_SECRET=dev-secret ./manage-services.sh start-backend` and keep a single source of truth for JWT_SECRET
+
+3) Storage finalize → metadata callback path
+- Behavior: with `STORAGE_SKIP_METADATA=false` (default), storage posts to metadata to create/update file+version
+- During this run metadata returned 401 (issue #2). Storage has defensive rollback on metadata failure; after unifying JWT_SECRET, finalize→metadata should succeed end-to-end
+
+### Verification (abridged)
+- Auth login (admin), create upload, upload chunk, finalize; check UploadSession row in Postgres.
+- Clean-room: create mywd_tmp_* DBs, run `prisma migrate deploy`, `\dt` shows expected tables for each service.
+
+### Notes
+- No code changes were introduced in this session; only runtime tests and environment fixes were performed.
+- Next: perform a full finalize→metadata persistence check after unified JWT_SECRET restart and confirm File/FileVersion rows in mywd_metadata.
+
+### 问题定位
+
+- JWT 密钥不一致：导致 Storage 调用 Metadata 返回 401。建议统一 `JWT_SECRET`。
+- Metadata 进程的 DB 环境变量：Prisma schema 读取 `METADATA_DATABASE_URL`（services/metadata/prisma/schema.prisma:8），但为兼容 CLI/脚本/历史残留，启动时最好同时导出 `DATABASE_URL="${METADATA_DATABASE_URL}"`（目前脚本未导出）。
+
+### 建议动作（按优先级）
+
+1) 统一密钥并重启全后端
+- 确认 `.env` 中所有服务使用相同 `JWT_SECRET=dev-secret`。
+- 确认五个 `*_DATABASE_URL` 均指向 Postgres 的 `mywd_auth/user/metadata/storage/sharing`。
+- 一次性重启：
+
+```bash
+./manage-services.sh stop-backend && ./manage-services.sh start-backend
+```
+
+2) 为 metadata 启动显式导出兼容变量
+- 临时方案（手动启动时）：在启动 metadata 的同一命令或环境里同时设置 `DATABASE_URL="$METADATA_DATABASE_URL"`。
+- 长期方案（脚本层）：在 `manage-services.sh` 的 `start_metadata` 分支也导出 `DATABASE_URL="${METADATA_DATABASE_URL}"`（与你对 auth/user 的处理保持一致）。
+
+3) 复验 finalize→metadata 打通
+- 登录获取管理员 Token → 创建 1KB 会话 → 上传块 → finalize。
+- 预期：Storage finalize 返回 200，Metadata 新增 FileVersion；
+  - 用 psql 查询 `mywd_metadata`.`FileVersion` 有新记录，或
+  - 调用 `GET /api/v1/files/:id/tags`/`GET /api/v1/catalog/{slug}` 验证（若有发布标签）。
+
+### 数据库进一步校验（补充点位）
+
+- 迁移状态（所有服务应 Up-to-date）
+
+```bash
+pnpm -C services/<svc> dlx prisma migrate status
+```
+
+- 漂移对比（线上库 vs schema）
+
+```bash
+pnpm -C services/<svc> dlx prisma migrate diff \
+  --from-url "$<SVC>_DATABASE_URL" \
+  --to-schema prisma/schema.prisma
+```
+
+- 关键索引/外键抽检（psql）
+  - metadata：`FileVersion(fileId, version)` 唯一约束；`File(parentId)`、`File(path)` 索引
+  - storage：`UploadSession` 上的 `status`/`expiresAt` 索引（如存在）
+
+```sql
+-- 查看表结构与索引
+\d+ "FileVersion"
+\d+ "File"
+\d+ "UploadSession"
+```
+
+
+
+## publish-management-system - 2025-10-16
+
+### Added
+- **Backend (Metadata Service)**: 新增标签管理接口
+  - `GET /api/v1/files/:fileId/tags` - 获取文件所有标签（管理员）
+  - `PUT /api/v1/files/:fileId/catalog` - 设置目录发布信息（管理员）
+  - 支持覆盖式更新 `catalog:*` 标签，实现发布信息管理
+- **Backend (API Gateway)**: 发布接口增强
+  - 拦截 `PUT /api/v1/files/:fileId/catalog` 请求
+  - 自动记录审计日志 (action: `publish`, target: `{slug}@{version}`)
+  - 发送系统通知 (severity: `success`, service: `catalog`)
+- **Frontend (Admin Dashboard)**: 新增发布管理页面 `/admin/publish`
+  - 文件搜索与选择功能
+  - 发布信息编辑表单 (slug, version, channel, os, arch, public, etc.)
+  - 发布预览对话框
+  - 导航菜单新增 "Publish" 入口
+- **Components**: 新增 UI 组件
+  - `components/ui/textarea.tsx` - 多行文本输入组件
+- **Documentation**: 新增发布管理系统文档
+  - `docs/PUBLISH_MANAGEMENT.md` - 完整的使用指南和 API 规格
+- **Testing**: 新增自动化测试脚本
+  - `test_publish_api.sh` - 端到端发布流程测试
+
+### Changed
+- **Frontend (Admin)**: 导航菜单更新
+  - 在 Overview 和 Notifications 之间插入 Publish 菜单项
+
+### Technical Details
+- 发布信息以 `catalog:key=value` 格式存储在 FileTag 表
+- 支持多版本、多渠道、多平台发布
+- 自定义下载 URL 支持 (CDN/OSS 集成)
+- 公开/私有发布控制 (catalog:public=true/false)
+
+### Verify
+```bash
+# 1. 启动后端服务
+./manage-services.sh start-backend
+
+# 2. 运行测试脚本
+bash test_publish_api.sh
+
+# 3. 访问前端发布页面
+# http://localhost:3100/admin/publish (以管理员身份登录)
+
+# 4. 验证目录 API
+curl http://localhost:9080/api/v1/catalog/{slug}
+```
+
 ## nextra-v4-migration-step1 - 2025-10-16
 
 ## nextra-v4-migration-step2 - 2025-10-16
