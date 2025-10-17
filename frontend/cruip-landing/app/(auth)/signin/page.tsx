@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/lib/stores/auth-store'
+import { Input } from '@/components/ui/input'
 
 export default function SignIn() {
   const router = useRouter()
@@ -45,11 +46,11 @@ export default function SignIn() {
         <div className='space-y-4'>
           <div>
             <label className='mb-1 block text-sm font-medium text-gray-700' htmlFor='email'>邮箱</label>
-            <input id='email' className='form-input w-full py-2' type='email' value={email} onChange={(e)=>setEmail(e.target.value)} required />
+            <Input id='email' type='email' value={email} onChange={(e)=>setEmail(e.target.value)} required placeholder='请输入邮箱' />
           </div>
           <div>
             <label className='mb-1 block text-sm font-medium text-gray-700' htmlFor='password'>密码</label>
-            <input id='password' className='form-input w-full py-2' type='password' value={password} onChange={(e)=>setPassword(e.target.value)} required />
+            <Input id='password' type='password' value={password} onChange={(e)=>setPassword(e.target.value)} required placeholder='请输入密码' />
           </div>
         </div>
         <div className='mt-6'>
