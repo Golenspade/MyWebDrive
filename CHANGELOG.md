@@ -2,6 +2,38 @@
 
 All notable changes to this repository will be documented in this file.
 
+## admin-ui-localization-darkmode-and-bugfix - 2025-10-17
+
+### Added
+- frontend(cruip-landing): 深色模式（Dark Mode）支持
+  - 新增组件 `components/theme-provider.tsx`，集成 `next-themes`
+  - 在 `app/layout.tsx` 注入 `ThemeProvider`，开启 `attribute="class"`、`defaultTheme="system"`、`enableSystem` 与 `disableTransitionOnChange`
+  - 根布局增加 `dark:bg-gray-950` 与 `dark:text-gray-50`，自动跟随系统主题
+- frontend(admin/publish): 分类改为下拉选择（shadcn/ui Select）
+  - 选项与前台下载页保持一致：`base|writing|model|script|bundle|modelAsset|article`
+
+### Changed
+- frontend(admin/publish): 发布表单与预览全部中文化（字段标签、占位符、预览文案）
+- frontend(admin/users): 存储配额弹窗 `openQuota` 增加 404 兜底
+  - 若 `GET /api/v1/users/:id/storage` 返回 404（用户尚未在 User 服务建档），前端使用默认 `{ storageQuota: 0, storageUsed: 0 }`
+  - 继续允许保存，`PATCH /api/v1/users/:id/quota` 在后端为 upsert，会自动创建记录
+
+### Verify
+- 刷新后台发布页 `/admin/publish`：
+  - 分类下拉可选且表单中文化
+  - 成功发布后预览对话框中文文案正确
+- 打开后台用户页 `/admin/users`：
+  - 对于未建档用户，点击“存储”不再报错，可设置并保存配额
+- 切换系统为深色模式：
+  - 页面自动进入 Dark Mode（背景深色、文字浅色）
+
+
+## task - 2025-10-16
+
+- Frontend: 增加 `put` 方法到 `frontend/cruip-landing/lib/api/client.ts`，以支持 `apiClient.put`（当前在 `frontend/cruip-landing/app/admin/publish/page.tsx:119` 被调用）。
+- Script: 在 `manage-services.sh` 的 `start_metadata` 中同时导出 `DATABASE_URL="${METADATA_DATABASE_URL}"`，避免 Prisma 默认读取不一致。
+- 验证：重启前端并快速冒烟发布流程；确认 `FileVersion` 写入成功；运行 `make quality-check` 全绿。
+
 ## backend-db-migration-and-runtime-smoke - 2025-10-16
 
 ## frontend-admin-dev-bringup - 2025-10-16

@@ -57,9 +57,20 @@ export default function AdminUsersPage() {
   async function openQuota(id: string) {
     setQuotaUserId(id)
     setQuotaDlgOpen(true)
-    const js = await usersApi.getStorageById(id)
-    setQuotaInfo(js)
-    setQuotaInput(String(js.storageQuota))
+    try {
+      const js = await usersApi.getStorageById(id)
+      setQuotaInfo(js)
+      setQuotaInput(String(js.storageQuota))
+    } catch (err: any) {
+      // 当用户还没有在 User 服务中创建档案时，GET /users/:id/storage 返回 404
+      if (err && typeof err.status === 'number' && err.status === 404) {
+        const fallback = { storageQuota: 0, storageUsed: 0 }
+        setQuotaInfo(fallback)
+        setQuotaInput(String(fallback.storageQuota))
+      } else {
+        console.error(err)
+      }
+    }
   }
 
   async function saveQuota() {

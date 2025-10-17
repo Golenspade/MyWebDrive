@@ -29,19 +29,23 @@ export const metadata = {
   description: "安全、高效的云端文件存储与分享解决方案，支持多用户权限管理和实时协作。",
 };
 
+import { ThemeProvider } from "@/components/theme-provider";
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="scroll-smooth">
+    <html lang="en" suppressHydrationWarning className="scroll-smooth">
       <body
-        className={`${notoSansSC.variable} ${zcoolXiaoWei.variable} ${maShanZheng.variable} bg-gray-50 font-sans tracking-tight text-gray-900 antialiased`}
+        className={`${notoSansSC.variable} ${zcoolXiaoWei.variable} ${maShanZheng.variable} bg-gray-50 dark:bg-gray-950 font-sans tracking-tight text-gray-900 dark:text-gray-50 antialiased`}
       >
-        <div className="flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip">
-          {children}
-        </div>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <div className="flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip">
+            {children}
+          </div>
+        </ThemeProvider>
       </body>
     </html>
   );

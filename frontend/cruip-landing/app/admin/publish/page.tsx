@@ -196,7 +196,7 @@ export default function AdminPublishPage() {
           <CardContent className='space-y-4'>
             <div className='grid grid-cols-2 gap-4'>
               <div className='space-y-2'>
-                <Label htmlFor='slug'>Slug *</Label>
+                <Label htmlFor='slug'>项目标识 *</Label>
                 <Input
                   id='slug'
                   value={formData.slug}
@@ -205,7 +205,7 @@ export default function AdminPublishPage() {
                 />
               </div>
               <div className='space-y-2'>
-                <Label htmlFor='version'>Version *</Label>
+                <Label htmlFor='version'>版本号 *</Label>
                 <Input
                   id='version'
                   value={formData.version}
@@ -216,38 +216,46 @@ export default function AdminPublishPage() {
             </div>
 
             <div className='space-y-2'>
-              <Label htmlFor='name'>Name</Label>
+              <Label htmlFor='name'>名称</Label>
               <Input
                 id='name'
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder='My Project'
+                placeholder='我的项目'
               />
             </div>
 
             <div className='space-y-2'>
-              <Label htmlFor='description'>Description</Label>
+              <Label htmlFor='description'>描述</Label>
               <Textarea
                 id='description'
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder='Project description...'
+                placeholder='项目描述...'
                 rows={3}
               />
             </div>
 
             <div className='grid grid-cols-2 gap-4'>
               <div className='space-y-2'>
-                <Label htmlFor='category'>Category</Label>
-                <Input
-                  id='category'
-                  value={formData.category}
-                  onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                  placeholder='tools'
-                />
+                <Label htmlFor='category'>分类</Label>
+                <Select value={formData.category || undefined} onValueChange={(v: any) => setFormData({ ...formData, category: v })}>
+                  <SelectTrigger id='category'>
+                    <SelectValue placeholder='选择分类' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value='base'>基础工具</SelectItem>
+                    <SelectItem value='writing'>写作工具</SelectItem>
+                    <SelectItem value='model'>模型工具</SelectItem>
+                    <SelectItem value='script'>脚本工具</SelectItem>
+                    <SelectItem value='bundle'>整合包</SelectItem>
+                    <SelectItem value='modelAsset'>模型</SelectItem>
+                    <SelectItem value='article'>文章</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
               <div className='space-y-2'>
-                <Label htmlFor='license'>License</Label>
+                <Label htmlFor='license'>许可证</Label>
                 <Input
                   id='license'
                   value={formData.license}
@@ -258,7 +266,7 @@ export default function AdminPublishPage() {
             </div>
 
             <div className='space-y-2'>
-              <Label htmlFor='repo'>Repository</Label>
+              <Label htmlFor='repo'>代码仓库</Label>
               <Input
                 id='repo'
                 value={formData.repo}
@@ -269,27 +277,27 @@ export default function AdminPublishPage() {
 
             <div className='grid grid-cols-3 gap-4'>
               <div className='space-y-2'>
-                <Label htmlFor='channel'>Channel</Label>
+                <Label htmlFor='channel'>通道</Label>
                 <Select value={formData.channel} onValueChange={(v: any) => setFormData({ ...formData, channel: v })}>
                   <SelectTrigger id='channel'>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='stable'>Stable</SelectItem>
-                    <SelectItem value='beta'>Beta</SelectItem>
-                    <SelectItem value='dev'>Dev</SelectItem>
+                    <SelectItem value='stable'>稳定</SelectItem>
+                    <SelectItem value='beta'>测试</SelectItem>
+                    <SelectItem value='dev'>开发</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
 
               <div className='space-y-2'>
-                <Label htmlFor='os'>OS</Label>
+                <Label htmlFor='os'>操作系统</Label>
                 <Select value={formData.os} onValueChange={(v: any) => setFormData({ ...formData, os: v })}>
                   <SelectTrigger id='os'>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='any'>Any</SelectItem>
+                    <SelectItem value='any'>通用</SelectItem>
                     <SelectItem value='windows'>Windows</SelectItem>
                     <SelectItem value='darwin'>macOS</SelectItem>
                     <SelectItem value='linux'>Linux</SelectItem>
@@ -298,13 +306,13 @@ export default function AdminPublishPage() {
               </div>
 
               <div className='space-y-2'>
-                <Label htmlFor='arch'>Arch</Label>
+                <Label htmlFor='arch'>架构</Label>
                 <Select value={formData.arch} onValueChange={(v: any) => setFormData({ ...formData, arch: v })}>
                   <SelectTrigger id='arch'>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value='any'>Any</SelectItem>
+                    <SelectItem value='any'>通用</SelectItem>
                     <SelectItem value='amd64'>AMD64</SelectItem>
                     <SelectItem value='arm64'>ARM64</SelectItem>
                   </SelectContent>
@@ -313,7 +321,7 @@ export default function AdminPublishPage() {
             </div>
 
             <div className='space-y-2'>
-              <Label htmlFor='url'>Custom URL (optional)</Label>
+              <Label htmlFor='url'>自定义下载 URL（可选）</Label>
               <Input
                 id='url'
                 value={formData.url}
@@ -330,7 +338,7 @@ export default function AdminPublishPage() {
                 onChange={(e) => setFormData({ ...formData, public: e.target.checked })}
                 className='w-4 h-4'
               />
-              <Label htmlFor='public' className='cursor-pointer'>Public (visible in catalog)</Label>
+              <Label htmlFor='public' className='cursor-pointer'>公开（在目录中可见）</Label>
             </div>
 
             <Button onClick={publishCatalog} disabled={loading || !selectedFile} className='w-full'>
@@ -349,21 +357,21 @@ export default function AdminPublishPage() {
           {previewData && (
             <div className='space-y-4'>
               <div>
-                <div className='text-sm font-medium text-gray-500'>Slug</div>
+                <div className='text-sm font-medium text-gray-500'>项目标识</div>
                 <div className='text-lg font-bold'>{previewData.slug}</div>
               </div>
               <div>
-                <div className='text-sm font-medium text-gray-500'>Name</div>
+                <div className='text-sm font-medium text-gray-500'>名称</div>
                 <div>{previewData.name}</div>
               </div>
               {previewData.description && (
                 <div>
-                  <div className='text-sm font-medium text-gray-500'>Description</div>
+                  <div className='text-sm font-medium text-gray-500'>描述</div>
                   <div className='text-sm'>{previewData.description}</div>
                 </div>
               )}
               <div>
-                <div className='text-sm font-medium text-gray-500'>Releases</div>
+                <div className='text-sm font-medium text-gray-500'>版本</div>
                 <div className='space-y-2 mt-2'>
                   {previewData.releases?.map((rel: any, idx: number) => (
                     <div key={idx} className='p-3 border rounded-md'>
@@ -371,14 +379,14 @@ export default function AdminPublishPage() {
                         {rel.version} ({rel.channel})
                       </div>
                       <div className='text-sm text-gray-600 mt-1'>
-                        {rel.assets?.length || 0} asset(s)
+                        {rel.assets?.length || 0} 个资产
                       </div>
                     </div>
                   ))}
                 </div>
               </div>
               <div className='pt-4 border-t'>
-                <div className='text-sm text-gray-500'>API Endpoint</div>
+                <div className='text-sm text-gray-500'>API 接口</div>
                 <code className='text-xs bg-gray-100 p-2 rounded block mt-1'>
                   GET /catalog/{previewData.slug}
                 </code>
