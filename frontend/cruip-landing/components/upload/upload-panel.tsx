@@ -8,7 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { apiClient } from '@/lib/api/client'
 
-export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { fileId: string; fileName: string }) => void }) {
+type UploadPanelProps = {
+  onCompleted?: (result: { fileId: string; fileName: string }) => void
+  showPreMetadata?: boolean
+  showPostDraft?: boolean
+  title?: boolean | string
+}
+
+export default function UploadPanel({ onCompleted, showPreMetadata = true, showPostDraft = true, title = '上传文件' }: UploadPanelProps) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
   const [progress, setProgress] = useState(0) // 0~100
@@ -101,7 +108,9 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
 
   return (
     <div className="space-y-3">
-      <div className="text-sm font-medium">上传文件</div>
+      {title ? (
+        <div className="text-sm font-medium">{typeof title === 'string' ? title : '上传文件'}</div>
+      ) : null}
       <div className="flex items-center gap-2">
         <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
         <Button onClick={startUpload} disabled={!file || uploading}>开始上传</Button>
@@ -116,7 +125,7 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
         </div>
       )}
       {!uploading && status && <div className="text-xs text-muted-foreground">{status}</div>}
-      {uploadId && !uploading && status === '上传完成' && (
+      {showPostDraft && uploadId && !uploading && status === '上传完成' && (
         <div className="space-y-3 text-xs">
           <div>
             已完成。你可以在“我的文件”或发布管理中使用该文件，或直接下载：
@@ -189,7 +198,7 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
         </div>
       )}
 
-      {/* Pre-upload metadata form (用户在上传前填写) */}
+      {showPreMetadata && (
       <div className="p-3 border rounded-md space-y-3">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <div className="space-y-1">
@@ -240,6 +249,7 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
           </div>
         </div>
       </div>
+      )}
 
       {/* Disable upload when no quota or missing name */}
       {quota && quota.total > 0 && quota.used >= quota.total && (

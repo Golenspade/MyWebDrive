@@ -150,20 +150,6 @@ export default function AdminPublishPage() {
         {/* Left: File Selection */}
         <Card>
           <CardHeader>
-              {/* 直接在发布页复用上传面板，便于上传后立即发布 */}
-              <div className='mb-4'>
-                <UploadPanel onCompleted={async ({ fileId, fileName }) => {
-                  try {
-                    // 简单刷新列表并尝试选中刚上传的文件
-                    await searchFiles()
-                    // 在最新 files 中找到匹配名称/ID 的文件并选中
-                    // 注意：若 STORAGE_SKIP_METADATA=true，搜索可能暂不可见，可手动输入ID
-                  } catch (e) {
-                    console.warn('刷新文件列表失败', e)
-                  }
-                }} />
-              </div>
-
             <CardTitle className='text-base'>选择文件</CardTitle>
           </CardHeader>
           <CardContent className='space-y-4'>
