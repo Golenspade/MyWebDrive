@@ -10,6 +10,13 @@ app.disable('x-powered-by')
 // Config
 const JWT_SECRET = getEnv('JWT_SECRET', 'dev-secret')
 const PORT = parseInt(process.env.USER_PORT || '7082', 10)
+const DEFAULT_USER_QUOTA_BYTES = (() => {
+  const v = process.env.USER_DEFAULT_QUOTA_BYTES || ''
+  const n = Number(v)
+  if (Number.isFinite(n) && n >= 0) return Math.floor(n)
+  // Dev-friendly default: 10 GiB
+  return 10 * 1024 * 1024 * 1024
+})()
 
 // DB
 const prisma = new PrismaClient()
@@ -62,7 +69,7 @@ app.get('/api/v1/users/me', requireAuth, async (req, res, next) => {
     let user = await prisma.user.findUnique({ where: { id: userId } })
     if (!user) {
       user = await prisma.user.create({
-        data: { id: userId, name: 'User', storageQuota: BigInt(0), storageUsed: BigInt(0) },
+        data: { id: userId, name: 'User', storageQuota: BigInt(DEFAULT_USER_QUOTA_BYTES), storageUsed: BigInt(0) },
       })
     }
     return res.json({
@@ -91,7 +98,7 @@ app.patch('/api/v1/users/me', requireAuth, async (req, res, next) => {
     const updated = await prisma.user.upsert({
       where: { id: userId },
       update: data,
-      create: { id: userId, name: data.name || 'User', storageQuota: BigInt(0), storageUsed: BigInt(0) },
+      create: { id: userId, name: data.name || 'User', storageQuota: BigInt(DEFAULT_USER_QUOTA_BYTES), storageUsed: BigInt(0) },
     })
 
     return res.json({
