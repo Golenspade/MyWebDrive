@@ -712,6 +712,225 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
   }
 })
 
+// --- Tag Management (Admin) ---
+// GET /api/v1/files/:fileId/tags - Get all tags for a file
+app.get('/api/v1/files/:fileId/tags', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const fileId = req.params.fileId
+    const file = await prisma.file.findFirst({
+      where: { id: fileId, deletedAt: null },
+      include: { tags: { orderBy: { createdAt: 'desc' } } }
+    })
+    if (!file) return res.status(404).json({ error: 'File not found' })
+
+    const tags = file.tags.map((t: any) => ({
+      tagName: t.tagName,
+      createdAt: t.createdAt
+    }))
+
+    return res.json({ tags })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// PUT /api/v1/files/:fileId/catalog - Set catalog metadata (overwrites catalog:* tags)
+app.put('/api/v1/files/:fileId/catalog', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const fileId = req.params.fileId
+    const {
+      slug,
+      name,
+      description,
+      category,
+      license,
+      repo,
+      version,
+      channel,
+      os,
+      arch,
+      public: isPublic,
+      url
+    }: {
+      slug: string
+      name?: string
+      description?: string
+      category?: string
+      license?: string
+      repo?: string
+      version: string
+      channel: 'stable' | 'beta' | 'dev'
+      os?: 'windows' | 'darwin' | 'linux' | 'any'
+      arch?: 'amd64' | 'arm64' | 'any'
+      public: boolean
+      url?: string
+    } = req.body || {}
+
+    // Validate required fields
+    if (!slug || typeof slug !== 'string' || slug.trim().length === 0) {
+      return res.status(400).json({ error: 'Invalid slug' })
+    }
+    if (!version || typeof version !== 'string' || version.trim().length === 0) {
+      return res.status(400).json({ error: 'Invalid version' })
+    }
+    if (!channel || !['stable', 'beta', 'dev'].includes(channel)) {
+      return res.status(400).json({ error: 'Invalid channel (must be stable, beta, or dev)' })
+    }
+    if (typeof isPublic !== 'boolean') {
+      return res.status(400).json({ error: 'Invalid public flag (must be boolean)' })
+    }
+
+    // Normalize slug and validate URL (optional)
+    const s0 = String(slug).toLowerCase().trim()
+    const normalizedSlug = s0.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    if (!normalizedSlug) {
+      return res.status(400).json({ error: 'Invalid slug after normalization' })
+    }
+
+    if (url) {
+      try {
+        const u = new URL(url)
+        if (!(u.protocol === 'http:' || u.protocol === 'https:')) {
+          return res.status(400).json({ error: 'Invalid url protocol (must be http or https)' })
+        }
+        if (url.length > 2048) {
+          return res.status(400).json({ error: 'URL too long' })
+        }
+      } catch {
+        return res.status(400).json({ error: 'Invalid url' })
+      }
+    }
+
+
+    // Check file exists
+    const file = await prisma.file.findFirst({
+      where: { id: fileId, deletedAt: null }
+    })
+    if (!file) return res.status(404).json({ error: 'File not found' })
+
+    // Build catalog tags
+    const catalogTags: string[] = [
+      `catalog:kind=asset`,
+      `catalog:slug=${normalizedSlug}`,
+      `catalog:version=${version}`,
+      `catalog:channel=${channel}`,
+      `catalog:public=${isPublic ? 'true' : 'false'}`
+    ]
+
+    if (name) catalogTags.push(`catalog:name=${name}`)
+    if (description) catalogTags.push(`catalog:description=${description}`)
+    if (category) catalogTags.push(`catalog:category=${category}`)
+    if (license) catalogTags.push(`catalog:license=${license}`)
+    if (repo) catalogTags.push(`catalog:repo=${repo}`)
+    if (os) catalogTags.push(`catalog:os=${os}`)
+    if (arch) catalogTags.push(`catalog:arch=${arch}`)
+    if (url) catalogTags.push(`catalog:url=${url}`)
+
+    // Transaction: delete old catalog:* tags and insert new ones
+    await prisma.$transaction(async (tx) => {
+      // Delete existing catalog:* tags
+      await tx.fileTag.deleteMany({
+        where: {
+          fileId,
+          tagName: { startsWith: 'catalog:' }
+        }
+      })
+
+      // Insert new catalog tags
+      for (const tagName of catalogTags) {
+        await tx.fileTag.create({
+          data: {
+            id: randomUUID(),
+            fileId,
+            tagName
+          }
+        })
+      }
+    })
+
+    logger.info({ fileId, slug: normalizedSlug, version, channel }, 'Catalog metadata updated')
+    return res.json({ ok: true, slug: normalizedSlug, version, channel })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// --- Draft metadata (User-owned) ---
+// Allow file owner to save draft metadata (non-public). Admin may later publish to catalog.
+// Allowed fields: name, description, category, license, os, arch, channel
+app.get('/api/v1/files/:fileId/draft', requireAuth, async (req, res, next) => {
+  try {
+    const fileId = req.params.fileId
+    const userId = (req as any).auth.userId as string
+    const file = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId, deletedAt: null } })
+    if (!file) return res.status(404).json({ error: 'File not found' })
+
+    const tags = await prisma.fileTag.findMany({ where: { fileId, tagName: { startsWith: 'draft:' } } })
+    const out: any = {}
+    for (const t of tags) {
+      const rest = t.tagName.slice('draft:'.length)
+      const eq = rest.indexOf('=')
+      if (eq === -1) continue
+      const k = rest.slice(0, eq)
+      const v = rest.slice(eq + 1)
+      out[k] = v
+    }
+    return res.json(out)
+  } catch (err) {
+    next(err)
+  }
+})
+
+app.put('/api/v1/files/:fileId/draft', requireAuth, async (req, res, next) => {
+  try {
+    const fileId = req.params.fileId
+    const userId = (req as any).auth.userId as string
+    const file = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId, type: 'file', deletedAt: null } })
+    if (!file) return res.status(404).json({ error: 'File not found' })
+
+    const { name, description, category, license, os, arch, channel } = (req.body || {}) as {
+      name?: string
+      description?: string
+      category?: string
+      license?: string
+      os?: 'windows' | 'darwin' | 'linux' | 'any'
+      arch?: 'amd64' | 'arm64' | 'any'
+      channel?: 'stable' | 'beta' | 'dev'
+    }
+
+    const allowedOs = ['windows', 'darwin', 'linux', 'any']
+    const allowedArch = ['amd64', 'arm64', 'any']
+    const allowedChannel = ['stable', 'beta', 'dev']
+
+    if (os && !allowedOs.includes(os)) return res.status(400).json({ error: 'Invalid os' })
+    if (arch && !allowedArch.includes(arch)) return res.status(400).json({ error: 'Invalid arch' })
+    if (channel && !allowedChannel.includes(channel)) return res.status(400).json({ error: 'Invalid channel' })
+
+    const mk = (k: string, v: string | undefined) => (v && String(v).trim().length > 0 ? `draft:${k}=${String(v).trim()}` : null)
+    const toWrite = [
+      mk('name', name),
+      mk('description', description),
+      mk('category', category),
+      mk('license', license),
+      mk('os', os),
+      mk('arch', arch),
+      mk('channel', channel),
+    ].filter(Boolean) as string[]
+
+    await prisma.$transaction(async (tx) => {
+      await tx.fileTag.deleteMany({ where: { fileId, tagName: { startsWith: 'draft:' } } })
+      for (const tagName of toWrite) {
+        await tx.fileTag.create({ data: { id: randomUUID(), fileId, tagName } })
+      }
+    })
+
+    return res.json({ ok: true })
+  } catch (err) {
+    next(err)
+  }
+})
+
+
 // --- Batch operations ---
 // Move multiple files/folders in one request
 // Body: { items: Array<{ id: string; newParentId?: string | null }> }
