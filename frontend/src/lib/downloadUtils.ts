@@ -16,60 +16,30 @@ export async function downloadFileById(
 ): Promise<void> {
   try {
     console.warn('开始下载文件:', fileId)
-    
-    const res = await axios.get(`/api/v1/storage/files/${fileId}/download`, {
-      responseType: 'blob'
-    })
-
-    // 从响应头获取文件名
-    let filename = fallbackName
-    const contentDisposition = res.headers['content-disposition']
-    if (contentDisposition) {
-      const filenameMatch = contentDisposition.match(/filename[^;=\n]*=((['"]).*?\2|[^;\n]*)/)
-      if (filenameMatch && filenameMatch[1]) {
-        filename = filenameMatch[1].replace(/['"]/g, '')
-        // 处理UTF-8编码的文件名
-        if (filename.startsWith('UTF-8\'\'')) {
-          filename = decodeURIComponent(filename.substring(7))
-        }
-      }
+    // 使用预签名直链：先获取直链 JSON，再跳转（MinIO/S3 生效；本地模式回退到内部下载）
+    const resp = await fetch(`/api/v1/storage/files/${fileId}/direct-url?ttl=600`)
+    if (!resp.ok) {
+      const status = resp.status
+      if (status === 404) throw new Error('文件不存在或已被删除')
+      if (status === 401) throw new Error('无权限下载此文件')
+      if (status === 403) throw new Error('下载受限，请检查权限')
+      throw new Error('直链获取失败')
     }
-
-    // 创建下载链接
-    const blob = new Blob([res.data])
-    const url = window.URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    window.URL.revokeObjectURL(url)
-
-    console.warn('文件下载成功:', filename)
+    const js = await resp.json() as { url: string }
+    // 触发浏览器下载（遵循 302 或直链），不经过本服务的限速与并发闸门
+    window.location.href = js.url
 
     toast({
-      title: "下载成功",
-      description: `文件 ${filename} 已开始下载`,
+      title: "开始下载",
+      description: `文件 ${fallbackName} 即将开始下载`,
     })
 
-    onSuccess?.(filename)
+    onSuccess?.(fallbackName)
   } catch (err: unknown) {
     console.error('下载失败:', err)
 
     let errorMessage = '下载失败'
-    if (err && typeof err === 'object' && 'response' in err) {
-      const axiosError = err as { response?: { status?: number } }
-      if (axiosError.response?.status === 404) {
-        errorMessage = '文件不存在或已被删除'
-      } else if (axiosError.response?.status === 401) {
-        errorMessage = '无权限下载此文件'
-      } else if (axiosError.response?.status === 403) {
-        errorMessage = '下载受限，请检查权限'
-      } else if (axiosError.response?.status === 429) {
-        errorMessage = '下载并发已达上限，请稍后重试'
-      }
-    } else if (err && typeof err === 'object' && 'message' in err) {
+    if (err && typeof err === 'object' && 'message' in err) {
       errorMessage = (err as { message: string }).message
     }
 

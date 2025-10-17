@@ -231,7 +231,7 @@ function ProjectCard({ project, channel, os, arch, onOpen, onCopy }: {
               {assets.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">当前筛选无匹配资产</div>}
               {assets.map(a => (
                 <DropdownMenuItem key={a.id} asChild>
-                  <a href={`/api/download/asset/${a.id}`} className="flex items-center justify-between gap-2">
+                  <a href={`/api/v1/storage/files/${a.id}/download-direct?ttl=600`} className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm">{displayAsset(a)}</span>
                     <span className="text-xs text-muted-foreground">{fmtSize(a.sizeBytes)}</span>
                   </a>
@@ -278,7 +278,7 @@ function ProjectModal({ project, channel }: { project: Project; channel: Channel
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {r.assets.map(a => (
-                <a key={a.id} href={`/api/download/asset/${a.id}`} className="text-sm rounded-md border px-3 py-2 hover:bg-muted/50 flex items-center justify-between">
+                <a key={a.id} href={`/api/v1/storage/files/${a.id}/download-direct?ttl=600`} className="text-sm rounded-md border px-3 py-2 hover:bg-muted/50 flex items-center justify-between">
                   <span>{displayAsset(a)}</span>
                   <span className="text-xs text-muted-foreground">{fmtSize(a.sizeBytes)}</span>
                 </a>

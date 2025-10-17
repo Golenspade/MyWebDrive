@@ -4,6 +4,13 @@ All notable changes to this repository will be documented in this file.
 
 ## admin-ui-localization-darkmode-and-bugfix - 2025-10-17
 
+### Changed (frontend download alignment)
+- frontend(cruip-landing/download): 下载链接对齐预签名直链
+  - 将下载按钮的后备链接从 `/api/download/asset/:id` 切换为 `/api/v1/storage/files/:id/download-direct?ttl=600`
+  - 若 `catalog:url` 存在，仍优先使用外部直链（OSS/CDN）
+- frontend(legacy vite): `frontend/src/lib/downloadUtils.ts` 切换为调用 `/api/v1/storage/files/:id/direct-url?ttl=600` 获取 JSON 后进行跳转，兼容本地/MinIO 模式
+
+
 ### Added
 - frontend(cruip-landing): 深色模式（Dark Mode）支持
   - 新增组件 `components/theme-provider.tsx`，集成 `next-themes`
