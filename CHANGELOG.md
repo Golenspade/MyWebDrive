@@ -5,6 +5,9 @@ All notable changes to this repository will be documented in this file.
 ## admin-ui-localization-darkmode-and-bugfix - 2025-10-17
 
 ### Changed (frontend download alignment)
+- frontend(account): 新增用户面板 `/account`（查看与编辑昵称、查看存储用量、复制访问令牌、退出登录）
+- frontend(admin): 用户菜单新增“个人中心”入口，跳转至 `/account`
+
 - frontend(cruip-landing/download): 下载链接对齐预签名直链
   - 将下载按钮的后备链接从 `/api/download/asset/:id` 切换为 `/api/v1/storage/files/:id/download-direct?ttl=600`
   - 若 `catalog:url` 存在，仍优先使用外部直链（OSS/CDN）
