@@ -2,6 +2,40 @@
 
 All notable changes to this repository will be documented in this file.
 
+
+## user-account-upload-and-quota - 2025-10-17
+
+### Added
+- backend(metadata): 用户草稿元数据接口（仅所有者）
+  - GET /api/v1/files/:fileId/draft — 读取草稿（name/description/category/license/os/arch/channel）
+  - PUT /api/v1/files/:fileId/draft — 保存草稿（以 `draft:*` 标签形式存储）
+- backend(user): 新增默认配额与用量调整接口
+  - ENV: `USER_DEFAULT_QUOTA_BYTES`（未配置默认 10 GiB）
+  - POST /api/v1/users/me/storage/adjust — 按增量调整 `storageUsed`（仅所有者）
+- frontend(account): 整合上传面板 UploadPanel 到个人中心
+  - 上传前先填写资源信息（名称为必填）；上传完成自动保存草稿
+  - 仅一处文件选择条；进度与状态提示
+
+### Changed
+- backend(metadata): 在创建/更新文件版本时计算大小差值并调用 user 服务调整 `storageUsed`；删除文件时按文件大小回收 `storageUsed`
+- frontend: 统一存储单位格式化规则（KB/MB/GB 起步；整数位超 5 位自动升级单位）
+  - 新增 `formatCompactBytes` 并用于 `/account` 与 `/admin/users` 的用量/配额显示
+- frontend(admin): 发布页移除内联 UploadPanel，避免与“选择已有文件”流程重复
+
+### Fixed
+- frontend(signin):
+  - 深色模式下输入框改用 shadcn/ui `Input`，解决“白字白底看不见”
+  - 修复登录后在渲染阶段路由跳转导致报错与循环的问题：移动导航到 `useEffect`，并按角色跳转（admin→/admin/overview，user→/account）
+- frontend(account):
+  - 移除 JSX 中的 `@ts-expect-error` 注释引起的构建报错
+  - 修复上传面板重复“选择文件”条导致的双上传入口
+
+### Verify
+- 用户上传后 `/account` 刷新用量应随文件大小增加；删除文件后用量减少
+- 管理后台设置“当前登录用户”的配额后，返回 `/account` 点击“刷新用量”应更新
+- 单位显示遵循 KB/MB/GB 且整数位超 5 位自动升级
+
+
 ## admin-ui-localization-darkmode-and-bugfix - 2025-10-17
 
 ### Changed (frontend download alignment)
