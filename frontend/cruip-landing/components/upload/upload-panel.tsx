@@ -111,10 +111,6 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
       {title ? (
         <div className="text-sm font-medium">{typeof title === 'string' ? title : '上传文件'}</div>
       ) : null}
-      <div className="flex items-center gap-2">
-        <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        <Button onClick={startUpload} disabled={!file || uploading}>开始上传</Button>
-      </div>
       {fileInfo && <div className="text-xs text-muted-foreground">{fileInfo}</div>}
       {uploading && (
         <div className="space-y-2">
