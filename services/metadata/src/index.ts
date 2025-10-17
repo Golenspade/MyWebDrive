@@ -14,6 +14,20 @@ const PORT = parseInt(process.env.METADATA_PORT || '7083', 10)
 const DATABASE_URL = process.env.METADATA_DATABASE_URL || 'file:./metadata.db'
 
 // DB
+const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:8082'
+
+async function adjustUserStorageUsed(req: express.Request, delta: number) {
+  try {
+    const bearer = String(req.headers['authorization'] || '')
+    await fetch(`${USER_SERVICE_URL}/api/v1/users/me/storage/adjust`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': bearer },
+      body: JSON.stringify({ delta }),
+      signal: AbortSignal.timeout(4000),
+    })
+  } catch {}
+}
+
 process.env.METADATA_DATABASE_URL = DATABASE_URL
 const prisma = new PrismaClient()
 
@@ -542,8 +556,12 @@ app.delete('/api/v1/files/:fileId', requireAuth, async (req, res, next) => {
   try {
     const fileId = req.params.fileId
     const userId = (req as any).auth.userId as string
-    const result = await prisma.file.updateMany({ where: { id: fileId, ownerId: userId, type: 'file', deletedAt: null }, data: { deletedAt: new Date() } })
-    if (result.count === 0) return res.status(404).json({ error: 'File not found' })
+    const file = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId, type: 'file', deletedAt: null } })
+    if (!file) return res.status(404).json({ error: 'File not found' })
+    await prisma.file.update({ where: { id: fileId }, data: { deletedAt: new Date() } })
+    // reduce used by file size (best-effort)
+    const sz = Number(file.size || 0)
+    if (Number.isFinite(sz) && sz > 0) await adjustUserStorageUsed(req, -sz)
     return res.status(204).send()
   } catch (err) {
     next(err)
@@ -664,6 +682,7 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
 
     const existing = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId } })
     let newVersion = 1
+    let deltaUsed = size
     if (!existing) {
       const path = parent ? `${parent.path}/${fileName}` : `/${fileName}`
       await prisma.file.create({
@@ -682,6 +701,7 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
       newVersion = 1
     } else {
       newVersion = (existing.version || 1) + 1
+      deltaUsed = size - Number(existing.size || 0)
       await prisma.file.update({
         where: { id: fileId },
         data: {
@@ -693,6 +713,9 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
         },
       })
     }
+
+    // adjust user's storage used (best-effort)
+    if (Number.isFinite(deltaUsed) && deltaUsed !== 0) await adjustUserStorageUsed(req, deltaUsed)
 
     await prisma.fileVersion.create({
       data: {

@@ -9,6 +9,7 @@ import { usersApi } from '@/lib/api/users'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { formatCompactBytes } from '@/lib/utils/format-bytes'
 
 import UploadPanel from '@/components/upload/upload-panel'
 
@@ -60,10 +61,7 @@ export default function AccountPage() {
   }, [quota])
 
   function fmtBytes(n: number) {
-    if (!n) return '0 B'
-    const u = ['B','KB','MB','GB','TB']
-    const i = Math.floor(Math.log(n)/Math.log(1024))
-    return `${(n/Math.pow(1024,i)).toFixed(2)} ${u[i]}`
+    return formatCompactBytes(Number(n || 0))
   }
 
   async function copyToken() {

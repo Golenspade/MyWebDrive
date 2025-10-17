@@ -148,6 +148,27 @@ app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, async (req, res,
   }
 })
 
+// Adjust storage used (owner)
+app.post('/api/v1/users/me/storage/adjust', requireAuth, async (req, res, next) => {
+  try {
+    const userId = (req as any).auth.userId as string
+    const { delta } = (req.body || {}) as { delta?: number }
+    const d = Number(delta)
+    if (!Number.isFinite(d)) return res.status(400).json({ error: 'Invalid delta' })
+    const user = await prisma.user.upsert({
+      where: { id: userId },
+      update: {},
+      create: { id: userId, name: 'User', storageQuota: BigInt(DEFAULT_USER_QUOTA_BYTES), storageUsed: BigInt(0) },
+    })
+    const cur = Number(user.storageUsed || 0)
+    const next = Math.max(0, Math.floor(cur + d))
+    const updated = await prisma.user.update({ where: { id: userId }, data: { storageUsed: BigInt(next) } })
+    return res.json({ storageQuota: Number(updated.storageQuota), storageUsed: Number(updated.storageUsed) })
+  } catch (err) {
+    next(err)
+  }
+})
+
 app.get('/api/v1/users/:id/storage', requireAuth, requireAdmin, async (req, res, next) => {
   try {
     const id = req.params.id

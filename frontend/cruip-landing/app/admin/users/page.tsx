@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
 import { Button } from '@/components/ui/button'
+import { formatCompactBytes } from '@/lib/utils/format-bytes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -170,7 +171,7 @@ export default function AdminUsersPage() {
           </DialogHeader>
           {quotaInfo ? (
             <div className='space-y-3'>
-              <div className='text-sm text-muted-foreground'>已用 {quotaInfo.storageUsed} / 配额 {quotaInfo.storageQuota} 字节</div>
+              <div className='text-sm text-muted-foreground'>已用 {formatCompactBytes(quotaInfo.storageUsed)} / 配额 {formatCompactBytes(quotaInfo.storageQuota)}</div>
               <div className='flex items-center gap-2'>
                 <Input value={quotaInput} onChange={(e)=>setQuotaInput(e.target.value)} />
                 <Button onClick={saveQuota}>保存</Button>
