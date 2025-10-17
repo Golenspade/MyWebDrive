@@ -1,13 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/lib/stores/auth-store'
 
 export default function SignIn() {
   const router = useRouter()
-  const { login, isLoading, isAuthenticated } = useAuthStore()
+  const { login, isLoading, isAuthenticated, role } = useAuthStore()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -17,16 +17,21 @@ export default function SignIn() {
     setError(null)
     try {
       await login(email, password)
-      router.push('/admin')
+      // 根据角色跳转；默认用户跳到个人中心，管理员跳后台概览
+      const nextRole = useAuthStore.getState().role
+      if (nextRole === 'admin') router.push('/admin/overview')
+      else router.push('/account')
     } catch (err: any) {
       setError(err?.message || '登录失败')
     }
   }
 
-  if (isAuthenticated) {
-    router.replace('/admin')
-    return null
-  }
+  // 避免在 render 中导航，使用 effect 监听状态
+  useEffect(() => {
+    if (!isAuthenticated) return
+    if (role === 'admin') router.replace('/admin/overview')
+    else router.replace('/account')
+  }, [isAuthenticated, role, router])
 
   return (
     <>
