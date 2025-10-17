@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 
+import UploadPanel from '@/components/upload/upload-panel'
+
 export default function AccountPage() {
   const { ready } = useProtected('user')
   const router = useRouter()
@@ -153,6 +155,18 @@ export default function AccountPage() {
         </CardContent>
       </Card>
     </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">上传文件</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {/* 简易上传面板 */}
+          {/* @ts-expect-error client component import */}
+          <UploadPanel onCompleted={() => { /* 可选：完成后刷新用量 */ }} />
+        </CardContent>
+      </Card>
+
   )
 }
 
