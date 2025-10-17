@@ -15,12 +15,22 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
   const [status, setStatus] = useState<string>('')
   const [uploadId, setUploadId] = useState<string | null>(null)
 
-  // Draft metadata UI state
-  const [showDraft, setShowDraft] = useState(false)
+  // Draft metadata UI state (pre-upload fill)
   const [draft, setDraft] = useState<{ name?: string; description?: string; category?: string; license?: string; os?: 'windows'|'darwin'|'linux'|'any'; arch?: 'amd64'|'arm64'|'any'; channel?: 'stable'|'beta'|'dev' }>({ channel: 'stable', os: 'any', arch: 'any' })
   const [savingDraft, setSavingDraft] = useState(false)
 
   const token = useAuthStore((s) => s.accessToken)
+
+  // Optional: get quota to disable when no capacity
+  const [quota, setQuota] = useState<{ used: number; total: number } | null>(null)
+  useEffect(() => {
+    ;(async () => {
+      try {
+        const me = await apiClient.get<any>('/users/me')
+        setQuota({ used: Number(me.storageUsed||0), total: Number(me.storageQuota||0) })
+      } catch {}
+    })()
+  }, [])
 
   const fileInfo = useMemo(() => {
     if (!file) return null
@@ -77,9 +87,10 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
       // 3) 完成合并
       setStatus('合并文件…')
       const fin = await apiClient.post<{ fileId: string }>(`/storage/uploads/${id}/finalize`, {})
+      // Save draft metadata for this file id
+      try { await apiClient.put(`/files/${id}/draft`, draft) } catch {}
       setStatus('上传完成')
       onCompleted?.({ fileId: fin.fileId || id, fileName: file.name })
-      setShowDraft(true)
     } catch (err: any) {
       console.error(err)
       setStatus(err?.message || '上传失败')
@@ -111,17 +122,7 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
             已完成。你可以在“我的文件”或发布管理中使用该文件，或直接下载：
             <a className="ml-1 underline" href={`/api/v1/storage/files/${uploadId}/download-direct?ttl=600`}>直链下载</a>
           </div>
-          <div>
-            <Button variant="outline" size="sm" onClick={async () => {
-              try {
-                const d = await apiClient.get<any>(`/files/${uploadId}/draft`)
-                setDraft((prev) => ({ ...prev, ...d }))
-              } catch {}
-              setShowDraft((v) => !v)
-            }}>完善资源信息</Button>
-          </div>
-          {showDraft && (
-            <div className="p-3 border rounded-md space-y-3">
+          <div className="p-3 border rounded-md space-y-3">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <Label htmlFor="name">资源名称</Label>
@@ -185,9 +186,70 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
                 }}>保存草稿</Button>
               </div>
             </div>
-          )}
         </div>
       )}
+
+      {/* Pre-upload metadata form (用户在上传前填写) */}
+      <div className="p-3 border rounded-md space-y-3">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <Label htmlFor="name-pre">资源名称</Label>
+            <Input id="name-pre" value={draft.name || ''} onChange={(e)=>setDraft({ ...draft, name: e.target.value })} placeholder="例如：Awesome Tool" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="category-pre">分类</Label>
+            <Input id="category-pre" value={draft.category || ''} onChange={(e)=>setDraft({ ...draft, category: e.target.value })} placeholder="工具/驱动/素材..." />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="license-pre">许可证</Label>
+            <Input id="license-pre" value={draft.license || ''} onChange={(e)=>setDraft({ ...draft, license: e.target.value })} placeholder="MIT/Apache-2.0/..." />
+          </div>
+          <div className="space-y-1">
+            <Label>兼容性</Label>
+            <div className="grid grid-cols-3 gap-2">
+              <Select value={draft.os} onValueChange={(v:any)=>setDraft({ ...draft, os: v })}>
+                <SelectTrigger><SelectValue placeholder="OS" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">通用</SelectItem>
+                  <SelectItem value="windows">Windows</SelectItem>
+                  <SelectItem value="darwin">macOS</SelectItem>
+                  <SelectItem value="linux">Linux</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={draft.arch} onValueChange={(v:any)=>setDraft({ ...draft, arch: v })}>
+                <SelectTrigger><SelectValue placeholder="Arch" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="any">通用</SelectItem>
+                  <SelectItem value="amd64">AMD64</SelectItem>
+                  <SelectItem value="arm64">ARM64</SelectItem>
+                </SelectContent>
+              </Select>
+              <Select value={draft.channel} onValueChange={(v:any)=>setDraft({ ...draft, channel: v })}>
+                <SelectTrigger><SelectValue placeholder="渠道" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="stable">Stable</SelectItem>
+                  <SelectItem value="beta">Beta</SelectItem>
+                  <SelectItem value="dev">Dev</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <div className="space-y-1 md:col-span-2">
+            <Label htmlFor="desc-pre">描述</Label>
+            <textarea id="desc-pre" className="w-full min-h-[80px] p-2 rounded border bg-background text-foreground" value={draft.description || ''} onChange={(e)=>setDraft({ ...draft, description: e.target.value })} placeholder="简要介绍您的资源..." />
+          </div>
+        </div>
+      </div>
+
+      {/* Disable upload when no quota or missing name */}
+      {quota && quota.total > 0 && quota.used >= quota.total && (
+        <div className="text-xs text-red-600">您的存储配额已用尽，请联系管理员或释放空间</div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        <Button onClick={startUpload} disabled={!file || uploading || !draft.name || (quota && quota.total > 0 && quota.used >= quota.total)}>开始上传</Button>
+      </div>
 
     </div>
   )
