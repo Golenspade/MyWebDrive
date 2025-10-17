@@ -1,8 +1,10 @@
 "use client"
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { apiClient } from '@/lib/api/client'
 
@@ -12,6 +14,11 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
   const [progress, setProgress] = useState(0) // 0~100
   const [status, setStatus] = useState<string>('')
   const [uploadId, setUploadId] = useState<string | null>(null)
+
+  // Draft metadata UI state
+  const [showDraft, setShowDraft] = useState(false)
+  const [draft, setDraft] = useState<{ name?: string; description?: string; category?: string; license?: string; os?: 'windows'|'darwin'|'linux'|'any'; arch?: 'amd64'|'arm64'|'any'; channel?: 'stable'|'beta'|'dev' }>({ channel: 'stable', os: 'any', arch: 'any' })
+  const [savingDraft, setSavingDraft] = useState(false)
 
   const token = useAuthStore((s) => s.accessToken)
 
@@ -72,6 +79,7 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
       const fin = await apiClient.post<{ fileId: string }>(`/storage/uploads/${id}/finalize`, {})
       setStatus('上传完成')
       onCompleted?.({ fileId: fin.fileId || id, fileName: file.name })
+      setShowDraft(true)
     } catch (err: any) {
       console.error(err)
       setStatus(err?.message || '上传失败')
@@ -98,11 +106,89 @@ export default function UploadPanel({ onCompleted }: { onCompleted?: (result: { 
       )}
       {!uploading && status && <div className="text-xs text-muted-foreground">{status}</div>}
       {uploadId && !uploading && status === '上传完成' && (
-        <div className="text-xs">
-          已完成。你可以在“我的文件”或发布管理中使用该文件，或直接下载：
-          <a className="ml-1 underline" href={`/api/v1/storage/files/${uploadId}/download-direct?ttl=600`}>直链下载</a>
+        <div className="space-y-3 text-xs">
+          <div>
+            已完成。你可以在“我的文件”或发布管理中使用该文件，或直接下载：
+            <a className="ml-1 underline" href={`/api/v1/storage/files/${uploadId}/download-direct?ttl=600`}>直链下载</a>
+          </div>
+          <div>
+            <Button variant="outline" size="sm" onClick={async () => {
+              try {
+                const d = await apiClient.get<any>(`/files/${uploadId}/draft`)
+                setDraft((prev) => ({ ...prev, ...d }))
+              } catch {}
+              setShowDraft((v) => !v)
+            }}>完善资源信息</Button>
+          </div>
+          {showDraft && (
+            <div className="p-3 border rounded-md space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="name">资源名称</Label>
+                  <Input id="name" value={draft.name || ''} onChange={(e)=>setDraft({ ...draft, name: e.target.value })} placeholder="例如：Awesome Tool" />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="category">分类</Label>
+                  <Input id="category" value={draft.category || ''} onChange={(e)=>setDraft({ ...draft, category: e.target.value })} placeholder="工具/驱动/素材..." />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="license">许可证</Label>
+                  <Input id="license" value={draft.license || ''} onChange={(e)=>setDraft({ ...draft, license: e.target.value })} placeholder="MIT/Apache-2.0/..." />
+                </div>
+                <div className="space-y-1">
+                  <Label>兼容性</Label>
+                  <div className="grid grid-cols-3 gap-2">
+                    <Select value={draft.os} onValueChange={(v:any)=>setDraft({ ...draft, os: v })}>
+                      <SelectTrigger><SelectValue placeholder="OS" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">通用</SelectItem>
+                        <SelectItem value="windows">Windows</SelectItem>
+                        <SelectItem value="darwin">macOS</SelectItem>
+                        <SelectItem value="linux">Linux</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={draft.arch} onValueChange={(v:any)=>setDraft({ ...draft, arch: v })}>
+                      <SelectTrigger><SelectValue placeholder="Arch" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="any">通用</SelectItem>
+                        <SelectItem value="amd64">AMD64</SelectItem>
+                        <SelectItem value="arm64">ARM64</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Select value={draft.channel} onValueChange={(v:any)=>setDraft({ ...draft, channel: v })}>
+                      <SelectTrigger><SelectValue placeholder="渠道" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="stable">Stable</SelectItem>
+                        <SelectItem value="beta">Beta</SelectItem>
+                        <SelectItem value="dev">Dev</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div className="space-y-1 md:col-span-2">
+                  <Label htmlFor="desc">描述</Label>
+                  <textarea id="desc" className="w-full min-h-[80px] p-2 rounded border bg-background text-foreground" value={draft.description || ''} onChange={(e)=>setDraft({ ...draft, description: e.target.value })} placeholder="简要介绍您的资源..." />
+                </div>
+              </div>
+              <div>
+                <Button size="sm" disabled={savingDraft} onClick={async()=>{
+                  if (!uploadId) return
+                  setSavingDraft(true)
+                  try {
+                    await apiClient.put(`/files/${uploadId}/draft`, draft)
+                    setStatus('草稿信息已保存')
+                  } catch (e:any) {
+                    setStatus(e?.message || '保存失败')
+                  } finally {
+                    setSavingDraft(false)
+                  }
+                }}>保存草稿</Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
+
     </div>
   )
 }
