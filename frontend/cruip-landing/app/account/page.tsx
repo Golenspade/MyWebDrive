@@ -154,7 +154,6 @@ export default function AccountPage() {
           </div>
         </CardContent>
       </Card>
-    </div>
 
       <Card>
         <CardHeader>
@@ -162,10 +161,12 @@ export default function AccountPage() {
         </CardHeader>
         <CardContent>
           {/* 简易上传面板 */}
-          {/* @ts-expect-error client component import */}
           <UploadPanel onCompleted={() => { /* 可选：完成后刷新用量 */ }} />
         </CardContent>
       </Card>
+
+    </div>
+
 
   )
 }
