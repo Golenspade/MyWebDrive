@@ -824,7 +824,7 @@ app.get('/api/v1/storage/files/:fileId', requireServiceToken, async (req, res) =
     } catch {
       return res.status(404).json({ error: 'File not found' })
     }
-    res.sendFile(p)
+    res.sendFile(path.resolve(p))
   }
 })
 

@@ -5,6 +5,29 @@ All notable changes to this repository will be documented in this file.
 
 
 
+## deploy-un-2025-10-19-2238 - 2025-10-19
+
+### Fixed
+- fix(storage): 使用绝对路径调用 res.sendFile，修复公开分享游客下载 500（本地文件系统模式）
+
+### Added
+- chore(auth): 新增测试辅助脚本（仅开发使用）
+  - services/auth/scripts/update-password.ts（创建/更新用户密码）
+  - services/auth/scripts/delete-user.ts（按邮箱删除用户）
+
+### Verify
+- 启动本地后端与前端（Gateway 9080 / Next 3200）
+- Postgres/Redis 通过 Docker 提供（5432/6379）
+- Prisma 同步：对 auth/user/metadata/storage/sharing/gateway 执行 db push
+- E2E：
+  - test_invitation_system.sh 全部通过（注册→登录→上传→分享→游客下载→权限校验）
+  - test_guest_download.sh 下载步骤成功（脚本摘要文本存在历史提示）
+
+### Diff
+- 相比上次远端部署标签 deploy-un-2025-10-16-migration-to-postgres：
+  - 本次修复了游客下载关键路径并补充了测试辅助脚本，完成端到端验证
+
+
 ## invite-quota-e2e-and-notif-format - 2025-10-19
 
 ### Added
