@@ -135,7 +135,20 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="category">分类</Label>
-                  <Input id="category" value={draft.category || ''} onChange={(e)=>setDraft({ ...draft, category: e.target.value })} placeholder="工具/驱动/素材..." />
+                  <Select value={draft.category as any} onValueChange={(v:any)=>setDraft({ ...draft, category: v })}>
+                    <SelectTrigger className="w-[200px]">
+                      <SelectValue placeholder="选择分类" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="base">基础工具</SelectItem>
+                      <SelectItem value="writing">写作工具</SelectItem>
+                      <SelectItem value="model">模型工具</SelectItem>
+                      <SelectItem value="script">脚本工具</SelectItem>
+                      <SelectItem value="bundle">整合包</SelectItem>
+                      <SelectItem value="modelAsset">模型</SelectItem>
+                      <SelectItem value="article">文章</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="license">许可证</Label>
@@ -203,7 +216,20 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
           </div>
           <div className="space-y-1">
             <Label htmlFor="category-pre">分类</Label>
-            <Input id="category-pre" value={draft.category || ''} onChange={(e)=>setDraft({ ...draft, category: e.target.value })} placeholder="工具/驱动/素材..." />
+            <Select value={draft.category as any} onValueChange={(v:any)=>setDraft({ ...draft, category: v })}>
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="选择分类" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="base">基础工具</SelectItem>
+                <SelectItem value="writing">写作工具</SelectItem>
+                <SelectItem value="model">模型工具</SelectItem>
+                <SelectItem value="script">脚本工具</SelectItem>
+                <SelectItem value="bundle">整合包</SelectItem>
+                <SelectItem value="modelAsset">模型</SelectItem>
+                <SelectItem value="article">文章</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <Label htmlFor="license-pre">许可证</Label>
