@@ -12,6 +12,10 @@ import { Input } from '@/components/ui/input'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
 import { userFilesApi, type FileItem } from '@/lib/api/files'
 
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
+import { userFileVersionsApi, type FileVersion } from '@/lib/api/files'
+
+
 
 import UploadPanel from '@/components/upload/upload-panel'
 
@@ -32,6 +36,27 @@ export default function AccountPage() {
       setMyFiles(cursor ? [...myFiles, ...r.items] : r.items)
       setFilesCursor(r.nextCursor)
     } finally {
+      setFilesLoading(false)
+    }
+  }
+
+  const [verOpenFor, setVerOpenFor] = useState<FileItem|null>(null)
+  const [versions, setVersions] = useState<FileVersion[]>([])
+  const [verLoading, setVerLoading] = useState(false)
+
+  async function openVersions(f: FileItem){
+    setVerOpenFor(f)
+    setVerLoading(true)
+    try{ const r = await userFileVersionsApi.list(f.id, 20); setVersions(r.versions||[]) } finally { setVerLoading(false) }
+  }
+  async function restoreVersion(v: FileVersion){
+    if (!verOpenFor) return
+    if (!confirm(`确认回滚到版本 ${v.version} 吗？`)) return
+    await userFileVersionsApi.restore(verOpenFor.id, v.id)
+    await loadMyFiles() // refresh list
+    await openVersions(verOpenFor) // refresh versions
+  }
+
       setFilesLoading(false)
     }
   }
@@ -218,6 +243,9 @@ export default function AccountPage() {
                     <Button size="sm" variant="outline" onClick={()=>navigator.clipboard?.writeText(`${window.location.origin}/api/v1/storage/files/${f.id}/download-direct?ttl=600`)}>
                       复制下载链接
                     </Button>
+                    <Button size="sm" variant="outline" onClick={()=>openVersions(f)}>
+                      版本历史
+                    </Button>
                   </div>
                 </div>
               ))}
@@ -230,6 +258,40 @@ export default function AccountPage() {
           )}
         </CardContent>
       </Card>
+      <Dialog open={!!verOpenFor} onOpenChange={(o)=>{ if(!o){ setVerOpenFor(null); setVersions([]) } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>版本历史 {verOpenFor ? `- ${verOpenFor.name}` : ''}</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm space-y-2">
+            {verLoading ? (
+              <div className="text-muted-foreground">加载中...</div>
+            ) : versions.length === 0 ? (
+              <div className="text-muted-foreground">暂无版本</div>
+            ) : (
+              <div className="space-y-1">
+                <div className="grid grid-cols-4 gap-2 text-muted-foreground">
+                  <div>版本</div>
+                  <div>大小</div>
+                  <div>创建时间</div>
+                  <div className="text-right">操作</div>
+                </div>
+                {versions.map(v => (
+                  <div key={v.id} className="grid grid-cols-4 gap-2 py-1 border-b last:border-b-0 items-center">
+                    <div>{v.version}</div>
+                    <div>{fmtBytes(v.size)}</div>
+                    <div>{new Date(v.createdAt).toLocaleString()}</div>
+                    <div className="text-right">
+                      <Button size="sm" variant="outline" onClick={()=>restoreVersion(v)}>回滚</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
 
 
     </div>

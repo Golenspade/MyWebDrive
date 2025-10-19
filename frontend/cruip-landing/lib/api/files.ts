@@ -24,6 +24,19 @@ export const userFilesApi = {
     return apiClient.get<FilesResp>(`/files/me${qs ? `?${qs}` : ''}`)
   }
 }
+export type FileVersion = {
+  id: string
+  version: number
+  size: number
+  md5Hash?: string | null
+  createdAt: string
+}
+
+export const userFileVersionsApi = {
+  list: (fileId: string, limit = 20) => apiClient.get<{ versions: FileVersion[] }>(`/files/${encodeURIComponent(fileId)}/versions?limit=${limit}`),
+  restore: (fileId: string, versionId: string) => apiClient.post(`/files/${encodeURIComponent(fileId)}/versions/${encodeURIComponent(versionId)}/restore`),
+}
+
 
 
 export type AdminFileItem = {
