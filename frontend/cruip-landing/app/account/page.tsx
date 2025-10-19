@@ -56,6 +56,19 @@ export default function AccountPage() {
     await loadMyFiles() // refresh list
     await openVersions(verOpenFor) // refresh versions
   }
+  async function previewFile(f: FileItem){
+    try{
+      const token = (typeof window!=='undefined' ? localStorage.getItem('accessToken') : accessToken) || accessToken || ''
+      const r = await fetch(`/api/v1/files/${f.id}/preview`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      if (!r.ok) { alert('预览失败'); return }
+      const blob = await r.blob()
+      const url = URL.createObjectURL(blob)
+      const w = window.open('about:blank')
+      if (w) { w.location.href = url } else { window.location.href = url }
+      setTimeout(()=> URL.revokeObjectURL(url), 60_000)
+    }catch(err){ alert('预览失败') }
+  }
+
 
 
   const [saving, setSaving] = useState(false)
@@ -232,10 +245,8 @@ export default function AccountPage() {
                   <div>{typeof f.version === 'number' ? f.version : '-'}</div>
                   <div>{new Date(f.updatedAt).toLocaleString()}</div>
                   <div className="flex justify-end gap-2">
-                    <Button size="sm" variant="outline" asChild>
-                      <a href={`/api/v1/files/${f.id}/preview`} target="_blank" rel="noreferrer">
-                        预览
-                      </a>
+                    <Button size="sm" variant="outline" onClick={()=>previewFile(f)}>
+                      预览
                     </Button>
                     <Button size="sm" variant="outline" onClick={()=>navigator.clipboard?.writeText(`${window.location.origin}/api/v1/storage/files/${f.id}/download-direct?ttl=600`)}>
                       复制下载链接
