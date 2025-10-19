@@ -44,6 +44,10 @@ coverage/
 
 
 
+
+# Runtime storage payloads (do not track)
+services/storage/storage/
+
 # Large local assets (not tracked)
 assetsReal/
 

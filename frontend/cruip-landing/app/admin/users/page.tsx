@@ -118,6 +118,7 @@ export default function AdminUsersPage() {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className='w-[320px]'>ID</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>姓名</TableHead>
                   <TableHead>角色</TableHead>
@@ -128,6 +129,12 @@ export default function AdminUsersPage() {
               <TableBody>
                 {data.items.map((u) => (
                   <TableRow key={u.id}>
+                    <TableCell>
+                      <div className='flex items-center gap-2'>
+                        <span className='font-mono text-xs break-all'>{u.id}</span>
+                        <Button size='sm' variant='outline' onClick={()=>navigator.clipboard?.writeText(u.id)}>复制</Button>
+                      </div>
+                    </TableCell>
                     <TableCell className='font-medium'>{u.email}</TableCell>
                     <TableCell>{u.name || '-'}</TableCell>
                     <TableCell>

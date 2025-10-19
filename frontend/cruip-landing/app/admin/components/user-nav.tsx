@@ -42,6 +42,8 @@ export function UserNav() {
             <p className="text-sm font-medium leading-none">{user?.name || (isAuthenticated ? 'User' : 'Guest')}</p>
             <p className="text-xs leading-none text-muted-foreground">角色: {role || '-'}</p>
           </div>
+            <p className="text-[10px] font-mono leading-none text-muted-foreground break-all">ID: {user?.id || '-'}</p>
+
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
@@ -52,6 +54,10 @@ export function UserNav() {
           <DropdownMenuItem>
             Settings
             <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => user?.id && navigator.clipboard?.writeText(user.id)}>
+            复制用户ID
+            <DropdownMenuShortcut>⌘C</DropdownMenuShortcut>
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
