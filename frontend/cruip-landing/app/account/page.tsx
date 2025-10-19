@@ -57,9 +57,6 @@ export default function AccountPage() {
     await openVersions(verOpenFor) // refresh versions
   }
 
-      setFilesLoading(false)
-    }
-  }
 
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
