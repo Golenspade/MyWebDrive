@@ -135,6 +135,37 @@ app.get('/api/v1/files/admin/by-user/:id', requireAuth, requireAdmin, async (req
   }
 })
 
+// --- User: List my files (flat, by updatedAt desc) ---
+app.get('/api/v1/files/me', requireAuth, async (req, res, next) => {
+  try {
+    const ownerId = (req as any).auth.userId as string
+    const limitParam = Number.parseInt(String(req.query.limit || '20'), 10)
+    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(100, limitParam)) : 20
+    const cursorRaw = String(req.query.cursor || '')
+    let offset = 0
+    if (cursorRaw) {
+      try {
+        const decoded = Buffer.from(cursorRaw, 'base64').toString('utf8')
+        const parsed = Number.parseInt(decoded, 10)
+        if (Number.isFinite(parsed) && parsed >= 0) offset = parsed
+      } catch {}
+    }
+
+    const items = await prisma.file.findMany({
+      where: { ownerId, deletedAt: null, type: 'file' },
+      orderBy: [{ updatedAt: 'desc' }],
+      skip: offset,
+      take: limit,
+      select: { id: true, name: true, size: true, mimeType: true, updatedAt: true, path: true, version: true }
+    })
+    const nextCursor = items.length === limit ? Buffer.from(String(offset + limit), 'utf8').toString('base64') : null
+    return res.json({ items, nextCursor })
+  } catch (err) {
+    next(err)
+  }
+})
+
+
 function baseUrl(req: express.Request): string {
   const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http'
   const host = (req.headers['x-forwarded-host'] as string) || req.headers.host || 'localhost'

@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
+import { userFilesApi, type FileItem } from '@/lib/api/files'
+
 
 import UploadPanel from '@/components/upload/upload-panel'
 
@@ -19,6 +21,21 @@ export default function AccountPage() {
   const { user, role, accessToken, logout, isAuthenticated, isLoading } = useAuthStore()
   const [profile, setProfile] = useState(user)
   const [nameInput, setNameInput] = useState(user?.name || '')
+  const [myFiles, setMyFiles] = useState<FileItem[]>([])
+  const [filesCursor, setFilesCursor] = useState<string | null>(null)
+  const [filesLoading, setFilesLoading] = useState(false)
+
+  async function loadMyFiles(cursor?: string) {
+    setFilesLoading(true)
+    try {
+      const r = await userFilesApi.listMine({ limit: 20, cursor })
+      setMyFiles(cursor ? [...myFiles, ...r.items] : r.items)
+      setFilesCursor(r.nextCursor)
+    } finally {
+      setFilesLoading(false)
+    }
+  }
+
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -30,6 +47,7 @@ export default function AccountPage() {
         const me = await usersApi.me()
         setProfile(me)
         if (!nameInput) setNameInput(me.name || '')
+        await loadMyFiles()
       } finally {
         setLoading(false)
       }
@@ -162,6 +180,57 @@ export default function AccountPage() {
           <UploadPanel onCompleted={() => { /* 可选：完成后刷新用量 */ }} />
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-base">我的上传</CardTitle>
+            <Button variant="outline" onClick={()=>loadMyFiles()} disabled={filesLoading}>刷新</Button>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {myFiles.length === 0 ? (
+            <div className="text-sm text-muted-foreground">暂无上传内容</div>
+          ) : (
+            <div className="text-sm">
+              <div className="grid grid-cols-5 gap-2 text-muted-foreground mb-2">
+                <div>文件名</div>
+                <div>大小 / 类型</div>
+                <div>版本</div>
+                <div>更新时间</div>
+                <div className="text-right">操作</div>
+              </div>
+              {myFiles.map(f => (
+                <div key={f.id} className="grid grid-cols-5 gap-2 py-1 border-b last:border-b-0 items-center">
+                  <div className="truncate" title={f.name}>
+                    <a className="text-primary hover:underline" href={`/api/v1/storage/files/${f.id}/download`}>
+                      {f.name}
+                    </a>
+                  </div>
+                  <div>{fmtBytes(f.size||0)}{f.mimeType?` · ${f.mimeType}`:''}</div>
+                  <div>{typeof f.version === 'number' ? f.version : '-'}</div>
+                  <div>{new Date(f.updatedAt).toLocaleString()}</div>
+                  <div className="flex justify-end gap-2">
+                    <Button size="sm" variant="outline" asChild>
+                      <a href={`/api/v1/files/${f.id}/preview`} target="_blank" rel="noreferrer">
+                        预览
+                      </a>
+                    </Button>
+                    <Button size="sm" variant="outline" onClick={()=>navigator.clipboard?.writeText(`${window.location.origin}/api/v1/storage/files/${f.id}/download-direct?ttl=600`)}>
+                      复制下载链接
+                    </Button>
+                  </div>
+                </div>
+              ))}
+              {filesCursor && (
+                <div className="mt-3">
+                  <Button variant="outline" onClick={()=>loadMyFiles(filesCursor!)} disabled={filesLoading}>加载更多</Button>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
 
     </div>
 

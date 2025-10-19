@@ -13,7 +13,8 @@ export const adminApi = {
     if (query.page) usp.set('page', String(query.page))
     if (query.pageSize) usp.set('pageSize', String(query.pageSize))
     const qs = usp.toString()
-    return apiClient.get<UsersResp>(`/auth/admin/users${qs ? `?${qs}` : ''}`)
+    // Use gateway aggregated endpoint to overlay profile name from User service
+    return apiClient.get<UsersResp>(`/admin/users${qs ? `?${qs}` : ''}`)
   },
   getUser: (id: string) => apiClient.get<AdminUser>(`/auth/admin/users/${id}`),
   setRole: (id: string, role: 'user' | 'admin') => apiClient.patch<{ id: string; role: 'user' | 'admin' }>(`/auth/admin/users/${id}/role`, { role }),

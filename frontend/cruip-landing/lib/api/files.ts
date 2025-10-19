@@ -1,7 +1,30 @@
-// Files (Metadata) admin APIs
+// Files (Metadata) APIs (user + admin)
 // Style: 2-space indent, single quotes, no semicolons
 
 import { apiClient } from './client'
+
+export type FileItem = {
+  id: string
+  name: string
+  size: number | null
+  mimeType?: string | null
+  updatedAt: string
+  path: string
+  version?: number
+}
+
+export type FilesResp = { items: FileItem[]; nextCursor: string | null }
+
+export const userFilesApi = {
+  listMine: (opts: { limit?: number; cursor?: string } = {}) => {
+    const usp = new URLSearchParams()
+    if (opts.limit) usp.set('limit', String(opts.limit))
+    if (opts.cursor) usp.set('cursor', String(opts.cursor))
+    const qs = usp.toString()
+    return apiClient.get<FilesResp>(`/files/me${qs ? `?${qs}` : ''}`)
+  }
+}
+
 
 export type AdminFileItem = {
   id: string

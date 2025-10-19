@@ -174,7 +174,7 @@ app.get('/api/v1/users/:id/storage', requireAuth, requireAdmin, async (req, res,
     const id = req.params.id
     const user = await prisma.user.findUnique({ where: { id } })
     if (!user) return res.status(404).json({ error: 'User not found' })
-    return res.json({ id: user.id, storageQuota: Number(user.storageQuota), storageUsed: Number(user.storageUsed) })
+    return res.json({ id: user.id, name: user.name, storageQuota: Number(user.storageQuota), storageUsed: Number(user.storageUsed) })
   } catch (err) {
     next(err)
   }
