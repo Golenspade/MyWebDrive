@@ -3,6 +3,38 @@
 All notable changes to this repository will be documented in this file.
 
 
+
+## admin-storage-quota-and-user-detail - 2025-10-19
+
+### Added
+- frontend(admin/users): 存储配额对话框支持两种分配方式
+  - 滑杆按“总容量参考”划分（单位可切换 KB/MB/GB/TB；默认参考 40 GiB，可在对话框调整）
+  - 手动输入带单位的配额值（如 `500 MB`、`20GB`、或纯字节 `1048576`），自动换算为字节
+  - 新增工具 `lib/utils/parse-bytes.ts`（解析/换算工具）
+- frontend(admin): 新增“存储面板” `/admin/storage`
+  - 使用 shadcn + recharts 展示每位用户 已用/剩余（配额-已用）堆叠柱状图与明细表格
+- frontend(admin/users): 新增“用户详情”页 `/admin/users/[id]`
+  - 基本信息 + 存储信息，上传内容列表（分页占位已接好 API）
+  - 用户列表增加“详情”按钮跳转
+- backend(metadata): 新增 Admin API 按用户列出上传内容
+  - GET `/api/v1/files/admin/by-user/:id?limit=&cursor=`（requireAdmin）
+  - 返回字段：id、name、size、mimeType、updatedAt、path
+
+### Changed
+- frontend(admin): 管理菜单新增“存储面板”入口
+- frontend(admin/users): 存储配额弹窗初始化逻辑优化（404 兜底后仍可设置）
+
+### Ops/Env (dev)
+- 统一本地开发数据库为“单库多 schema”，并完成 Auth 种子与测试用户创建（本地环境变更，不包含在此次提交中）
+
+### Verify
+- 登录后台，打开 `/admin/users`：
+  - 点任意用户“存储”→ 可通过滑杆或手动输入设置配额（保存成功后刷新显示）
+- 打开 `/admin/storage`：
+  - 顶部图表显示各用户“已用/剩余（MB）”，下方表格展示已用/配额
+- 打开 `/admin/users/[id]`：
+  - 可见基本信息、存储信息与“上传内容”列表（若用户有上传）
+
 ## user-account-upload-and-quota - 2025-10-17
 
 ### Added

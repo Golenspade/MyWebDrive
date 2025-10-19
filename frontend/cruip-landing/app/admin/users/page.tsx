@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { format } from 'date-fns'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -14,6 +15,7 @@ import { useAuthStore } from '@/lib/stores/auth-store'
 import { adminApi } from '@/lib/api/admin'
 import { usersApi } from '@/lib/api/users'
 import { auditApi } from '@/lib/api/audit'
+import { parseBytes, toUnit } from '@/lib/utils/parse-bytes'
 
 type AdminUser = { id: string; name: string | null; email: string; role: 'user' | 'admin'; createdAt: string }
 type UsersResp = { items: AdminUser[]; page: number; pageSize: number; total: number }
@@ -54,6 +56,10 @@ export default function AdminUsersPage() {
   const [quotaUserId, setQuotaUserId] = useState<string | null>(null)
   const [quotaInput, setQuotaInput] = useState('')
   const [quotaInfo, setQuotaInfo] = useState<{ storageQuota: number; storageUsed: number } | null>(null)
+  const [quotaUnit, setQuotaUnit] = useState<'KB'|'MB'|'GB'|'TB'>('GB')
+  const DEFAULT_TOTAL_BYTES = 40 * 1024 * 1024 * 1024 // 40 GiB
+  const [sliderMax, setSliderMax] = useState<number>(toUnit(DEFAULT_TOTAL_BYTES, 'GB'))
+  const [sliderVal, setSliderVal] = useState<number>(0)
 
   async function openQuota(id: string) {
     setQuotaUserId(id)
@@ -61,13 +67,15 @@ export default function AdminUsersPage() {
     try {
       const js = await usersApi.getStorageById(id)
       setQuotaInfo(js)
-      setQuotaInput(String(js.storageQuota))
+      setSliderVal(toUnit(js.storageQuota || 0, quotaUnit))
+      setQuotaInput('')
     } catch (err: any) {
       // 当用户还没有在 User 服务中创建档案时，GET /users/:id/storage 返回 404
       if (err && typeof err.status === 'number' && err.status === 404) {
         const fallback = { storageQuota: 0, storageUsed: 0 }
         setQuotaInfo(fallback)
-        setQuotaInput(String(fallback.storageQuota))
+        setSliderVal(0)
+        setQuotaInput('')
       } else {
         console.error(err)
       }
@@ -76,10 +84,13 @@ export default function AdminUsersPage() {
 
   async function saveQuota() {
     if (!quotaUserId) return
-    const val = Number.parseInt(quotaInput, 10)
-    if (!Number.isFinite(val) || val < 0) return
-    await usersApi.setQuotaById(quotaUserId, val)
-    try { await auditApi.create({ action: 'user.quota.update', target: quotaUserId, meta: { storageQuota: val } }) } catch {}
+    // prefer manual input if provided (supports units), else use slider value with selected unit
+    const bytes = quotaInput.trim() ? parseBytes(quotaInput) : (() => {
+      const map: Record<string, number> = { KB: 1024, MB: 1024**2, GB: 1024**3, TB: 1024**4 }
+      return Math.max(0, Math.floor((map[quotaUnit] || 1) * sliderVal))
+    })()
+    await usersApi.setQuotaById(quotaUserId, bytes)
+    try { await auditApi.create({ action: 'user.quota.update', target: quotaUserId, meta: { storageQuota: bytes } }) } catch {}
     const fresh = await usersApi.getStorageById(quotaUserId)
     setQuotaInfo(fresh)
   }
@@ -134,6 +145,7 @@ export default function AdminUsersPage() {
                     <TableCell>{format(new Date(u.createdAt), 'yyyy-MM-dd HH:mm')}</TableCell>
                     <TableCell className='text-right'>
                       <div className='flex justify-end gap-2'>
+                        <Button variant='outline' asChild><Link href={`/admin/users/${u.id}`}>详情</Link></Button>
                         <Button variant='outline' onClick={()=>openQuota(u.id)}>存储</Button>
                       </div>
                     </TableCell>
@@ -170,10 +182,34 @@ export default function AdminUsersPage() {
             <DialogTitle>存储配额</DialogTitle>
           </DialogHeader>
           {quotaInfo ? (
-            <div className='space-y-3'>
+            <div className='space-y-4'>
               <div className='text-sm text-muted-foreground'>已用 {formatCompactBytes(quotaInfo.storageUsed)} / 配额 {formatCompactBytes(quotaInfo.storageQuota)}</div>
+
+              {/* Slider mode */}
+              <div className='space-y-2'>
+                <div className='flex items-center gap-2'>
+                  <label className='text-sm text-muted-foreground'>单位</label>
+                  <Select value={quotaUnit} onValueChange={(v)=>{ setQuotaUnit(v as any); setSliderVal(0); setSliderMax(toUnit(DEFAULT_TOTAL_BYTES, v as any)) }}>
+                    <SelectTrigger className='w-[110px]'><SelectValue placeholder='单位' /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value='KB'>KB</SelectItem>
+                      <SelectItem value='MB'>MB</SelectItem>
+                      <SelectItem value='GB'>GB</SelectItem>
+                      <SelectItem value='TB'>TB</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <label className='text-sm text-muted-foreground'>总容量参考({quotaUnit})</label>
+                  <Input className='w-24' value={String(sliderMax)} onChange={(e)=>{
+                    const v = Number.parseInt(e.target.value||'0',10); setSliderMax(Number.isFinite(v)&&v>0? v: sliderMax)
+                  }} />
+                </div>
+                <input type='range' min={0} max={sliderMax} value={sliderVal} onChange={(e)=>setSliderVal(Number(e.target.value))} className='w-full' />
+                <div className='text-xs text-muted-foreground'>当前选择：{sliderVal} {quotaUnit}</div>
+              </div>
+
+              {/* Manual input */}
               <div className='flex items-center gap-2'>
-                <Input value={quotaInput} onChange={(e)=>setQuotaInput(e.target.value)} />
+                <Input placeholder='例如: 500 MB / 20GB / 1048576 (bytes)' value={quotaInput} onChange={(e)=>setQuotaInput(e.target.value)} />
                 <Button onClick={saveQuota}>保存</Button>
               </div>
             </div>

@@ -99,26 +99,40 @@ function parseCatalogTags(tags: Array<{ tagName: string }>): Record<string, stri
     if (eq === -1) continue
     const key = rest.slice(0, eq).trim()
 
-// --- Admin: Files statistics (top-level to precede fileId routes) ---
-app.get('/api/v1/files/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
-  try {
-    const where: any = { type: 'file', deletedAt: null }
-    const [totalFiles, agg] = await Promise.all([
-      prisma.file.count({ where }),
-      prisma.file.aggregate({ where, _sum: { size: true } }),
-    ])
-    const totalSizeBytes = (agg._sum as any)?.size || 0
-    res.json({ totalFiles, totalSizeBytes })
-  } catch (err) {
-    next(err)
-  }
-})
-
     const value = rest.slice(eq + 1).trim()
     if (key) kv[key] = value
   }
   return kv
-}
+
+// --- Admin: List files by user ---
+app.get('/api/v1/files/admin/by-user/:id', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const ownerId = req.params.id
+    const limitParam = Number.parseInt(String(req.query.limit || '20'), 10)
+    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(100, limitParam)) : 20
+    const cursorRaw = String(req.query.cursor || '')
+    let offset = 0
+    if (cursorRaw) {
+      try {
+        const decoded = Buffer.from(cursorRaw, 'base64').toString('utf8')
+        const parsed = Number.parseInt(decoded, 10)
+        if (Number.isFinite(parsed) && parsed >= 0) offset = parsed
+      } catch {}
+    }
+
+    const items = await prisma.file.findMany({
+      where: { ownerId, deletedAt: null, type: 'file' },
+      orderBy: [{ updatedAt: 'desc' }],
+      skip: offset,
+      take: limit,
+      select: { id: true, name: true, size: true, mimeType: true, updatedAt: true, path: true }
+    })
+    const nextCursor = items.length === limit ? Buffer.from(String(offset + limit), 'utf8').toString('base64') : null
+    return res.json({ items, nextCursor })
+  } catch (err) {
+    next(err)
+  }
+})
 
 function baseUrl(req: express.Request): string {
   const proto = (req.headers['x-forwarded-proto'] as string) || req.protocol || 'http'
