@@ -4,6 +4,74 @@ All notable changes to this repository will be documented in this file.
 
 
 
+## post-reboot-actions - 2025-10-19
+
+Planned steps to run immediately after OS reboot to validate the latest admin features (storage quota UI, storage panel, user detail, metadata admin API):
+
+### 1) Raise file descriptor limits (avoid EMFILE/ENFILE)
+- Temporary for current terminal session:
+```
+ulimit -n 10000
+```
+- Recommended system-wide (persist for current login session; re-run after OS reboot):
+```
+sudo launchctl limit maxfiles 65536 200000
+```
+- Verify:
+```
+launchctl limit maxfiles
+ulimit -n
+```
+
+### 2) Start backend and frontend
+- Backend (gateway + services):
+```
+./manage-services.sh start-backend
+```
+- Frontend (Next dev; auto-config API_BASE_URL):
+```
+PORT=3100 bash scripts/start-frontend-dev.sh
+```
+- Status/health:
+```
+./manage-services.sh status
+curl -fsS http://127.0.0.1:9080/health
+```
+
+### 3) Acquire admin token and set in UI
+```
+curl -sS :7081/api/v1/auth/login -H 'Content-Type: application/json' \
+ -d '{"email":"admin@local","password":"admin123456"}'
+```
+- Copy accessToken → in UI click “Set Token” and paste the Bearer token
+
+### 4) Verify new admin features
+- Users list: /admin/users → open “存储” dialog on any user
+  - Slider mode: unit switch KB/MB/GB/TB, default total reference 40 GiB
+  - Manual input: e.g. 500 MB / 20GB / 1048576
+  - Save → quota updates, reopen to confirm
+- Storage panel: /admin/storage → stacked bars show 已用/剩余（MB），table shows per-user used/quota
+- User detail: /admin/users/[id] → basic info, storage info, uploads list (if any)
+
+### 5) Backend API spot checks
+- Metadata admin API (files by user, admin required):
+```
+curl -H "Authorization: Bearer <ADMIN_ACCESS_TOKEN>" \
+  -fsS "http://127.0.0.1:9080/api/v1/files/admin/by-user/<USER_ID>?limit=10"
+```
+- User service quota (admin):
+```
+curl -H "Authorization: Bearer <ADMIN_ACCESS_TOKEN>" -H 'Content-Type: application/json' \
+  -X PATCH :9080/api/v1/users/<USER_ID>/quota -d '{"storageQuota": 104857600}'
+```
+
+### 6) Optional quick quality gate (dev)
+```
+make quality-check
+```
+- Ensure TypeScript build, tests, and linting pass after reboot
+
+
 ## admin-storage-quota-and-user-detail - 2025-10-19
 
 ### Added
