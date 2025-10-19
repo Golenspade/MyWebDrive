@@ -30,6 +30,29 @@ app.use((req, res, next) => {
 });
 // Prometheus metrics (unified)
 const { register, metricsMiddleware, metricsHandler } = createMetrics('api-gateway-node');
+// Simple UV aggregator (per-day unique ip+ua)
+const uvByDate = new Map();
+function visitorKey(req) {
+    const ip = req.headers['x-forwarded-for']?.split(',')[0]?.trim() || (req.socket.remoteAddress || '');
+    const ua = req.headers['user-agent'] || '';
+    return `${ip}|${ua}`;
+}
+app.use((req, _res, next) => {
+    try {
+        if (req.path.startsWith('/api/')) {
+            const day = new Date().toISOString().slice(0, 10);
+            const k = visitorKey(req);
+            let set = uvByDate.get(day);
+            if (!set) {
+                set = new Set();
+                uvByDate.set(day, set);
+            }
+            set.add(k);
+        }
+    }
+    catch { }
+    next();
+});
 app.use(metricsMiddleware);
 // Serve static assets from repo (dev only) so frontend can link /assets/* to assetsReal/*
 const __filename = fileURLToPath(import.meta.url);
@@ -74,13 +97,15 @@ app.get('/api/v1/admin/health', requireAuth, requireAdmin, async (_req, res, nex
 app.get('/api/v1/admin/overview', requireAuth, requireAdmin, async (req, res, next) => {
     try {
         const authHeader = String(req.headers['authorization'] || '');
+        const range = String(req.query.range || '7d').toLowerCase();
+        const days = range === 'today' ? 1 : range === '30d' ? 30 : 7;
         const [authStats, fileStats, storageTotals, storageDaily, downloadsTotals, downloadsDaily, gwMetrics, auMetrics, usMetrics, mdMetrics, stMetrics] = await Promise.all([
             fetch(`${AUTH}/api/v1/auth/admin/users/statistics?range=7d`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { totalUsers: 0, newUsers: 0 }).catch(() => ({ totalUsers: 0, newUsers: 0 })),
             fetch(`${METADATA}/api/v1/files/statistics`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { totalFiles: 0, totalSizeBytes: 0 }).catch(() => ({ totalFiles: 0, totalSizeBytes: 0 })),
             fetch(`${STORAGE}/api/v1/storage/statistics`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { totalUploadsBytes: 0, totalUploadsCount: 0 }).catch(() => ({ totalUploadsBytes: 0, totalUploadsCount: 0 })),
-            fetch(`${STORAGE}/api/v1/storage/statistics/daily?days=7`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { days: 7, series: [] }).catch(() => ({ days: 7, series: [] })),
+            fetch(`${STORAGE}/api/v1/storage/statistics/daily?days=${days}`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { days, series: [] }).catch(() => ({ days, series: [] })),
             fetch(`${STORAGE}/api/v1/storage/downloads/statistics`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { totalDownloadsBytes: 0, totalDownloadsCount: 0 }).catch(() => ({ totalDownloadsBytes: 0, totalDownloadsCount: 0 })),
-            fetch(`${STORAGE}/api/v1/storage/downloads/statistics/daily?days=7`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { days: 7, series: [] }).catch(() => ({ days: 7, series: [] })),
+            fetch(`${STORAGE}/api/v1/storage/downloads/statistics/daily?days=${days}`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.json() : { days, series: [] }).catch(() => ({ days, series: [] })),
             // metrics text for requests/errors
             fetch(`http://localhost:${PORT}/metrics`, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.text() : '').catch(() => ''),
             fetch(`${AUTH}/metrics`, { signal: AbortSignal.timeout(6000) }).then(r => r.ok ? r.text() : '').catch(() => ''),
@@ -139,6 +164,72 @@ app.get('/api/v1/admin/overview', requireAuth, requireAdmin, async (req, res, ne
         const r5 = sumRequests(stMetrics);
         const requests_count = r1.total + r2.total + r3.total + r4.total + r5.total;
         const errors_count = r1.errors + r2.errors + r3.errors + r4.errors + r5.errors;
+        function parseLatency(text) {
+            const buckets = new Map();
+            if (!text)
+                return buckets;
+            for (const line of text.split('\n')) {
+                if (!line.startsWith('http_request_duration_ms_bucket'))
+                    continue;
+                // http_request_duration_ms_bucket{le="10",method="GET",route="/x",status="200"} 123
+                const m = line.match(/^http_request_duration_ms_bucket\{([^}]*)}\s+(\d+(?:\.\d+)?)/);
+                if (!m)
+                    continue;
+                const labels = m[1];
+                const val = Number(m[2] || '0');
+                const lm = labels.match(/le="([^"]+)"/);
+                if (!lm)
+                    continue;
+                const le = Number(lm[1]);
+                if (!Number.isFinite(le))
+                    continue;
+                buckets.set(le, (buckets.get(le) || 0) + val);
+            }
+            return buckets;
+        }
+        function sumCounts(text) {
+            let total = 0;
+            if (!text)
+                return total;
+            for (const line of text.split('\n')) {
+                if (!line.startsWith('http_request_duration_ms_count'))
+                    continue;
+                const m = line.match(/^http_request_duration_ms_count\{[^}]*}\s+(\d+(?:\.\d+)?)/);
+                if (!m)
+                    continue;
+                total += Number(m[1] || '0');
+            }
+            return total;
+        }
+        // merge buckets across services
+        const mergedBuckets = new Map();
+        for (const t of [gwMetrics, auMetrics, usMetrics, mdMetrics, stMetrics]) {
+            const b = parseLatency(t);
+            for (const [le, cnt] of b)
+                mergedBuckets.set(le, (mergedBuckets.get(le) || 0) + cnt);
+        }
+        const totalCount = [gwMetrics, auMetrics, usMetrics, mdMetrics, stMetrics].reduce((acc, t) => acc + sumCounts(t), 0);
+        function percentile(p) {
+            if (totalCount <= 0 || mergedBuckets.size === 0)
+                return 0;
+            const target = totalCount * p;
+            const entries = Array.from(mergedBuckets.entries()).sort((a, b) => a[0] - b[0]);
+            let cum = 0;
+            for (const [le, cnt] of entries) {
+                cum += cnt;
+                if (cum >= target)
+                    return le;
+            }
+            return entries[entries.length - 1][0];
+        }
+        const latency_ms_p95 = Math.round(percentile(0.95));
+        const latency_ms_p99 = Math.round(percentile(0.99));
+        // build visits uv series for selected days
+        const uvSeries = [];
+        for (let i = days; i >= 1; i--) {
+            const d = new Date(Date.now() - i * 24 * 3600 * 1000).toISOString().slice(0, 10);
+            uvSeries.push({ date: d, value: (uvByDate.get(d)?.size || 0) });
+        }
         res.json({
             totals: {
                 total_users: Number(a.totalUsers || 0),
@@ -151,14 +242,16 @@ app.get('/api/v1/admin/overview', requireAuth, requireAdmin, async (req, res, ne
                 uploads_count: Number(st.totalUploadsCount || 0),
                 downloads_count: todayDownloadsCount,
                 active_users: Number(a.newUsers || 0),
-                visits_uv: 0,
+                visits_uv: uvByDate.get(todayISO)?.size || 0,
                 requests_count,
                 errors_count,
+                latency_ms_p95,
+                latency_ms_p99,
             },
             last7d: {
                 uploads_bytes: uploadsSeries,
                 downloads_bytes: downloadsSeries,
-                visits_uv: uploadsSeries.map((d) => ({ date: d.date, value: 0 })),
+                visits_uv: uvSeries,
             },
         });
     }
@@ -216,6 +309,45 @@ function mountProxy(basePath, target) {
         },
     }));
 }
+// Intercept quota change to add audit, then forward to user service
+app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
+    try {
+        const id = req.params.id;
+        const token = parseBearerToken(req);
+        // Forward request to user service
+        const upstream = await fetch(`${USER}${req.originalUrl}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(req.body || {}),
+            signal: AbortSignal.timeout(10000),
+        });
+        const text = await upstream.text();
+        res.status(upstream.status);
+        res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
+        if (upstream.ok) {
+            // Best-effort audit log
+            try {
+                const actorId = req.auth?.userId;
+                const newQuota = (req.body || {}).storageQuota;
+                if (prisma) {
+                    await prisma.auditLog.create({ data: { action: 'users.quota.set', target: id, actorId, meta: { storageQuota: newQuota } } });
+                }
+                else {
+                    const auditId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+                    const item = { id: auditId, action: 'users.quota.set', target: id, actorId, createdAt: new Date().toISOString(), meta: { storageQuota: newQuota } };
+                    AUDITS.unshift(item);
+                    if (AUDITS.length > 500)
+                        AUDITS.pop();
+                }
+            }
+            catch { }
+        }
+        return res.end(text);
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // Route mapping aligned with current API contract
 mountProxy('/api/v1/auth', AUTH);
 mountProxy('/api/v1/users', USER);
@@ -234,6 +366,42 @@ app.use('/api/v1/files/:fileId/shares', createProxyMiddleware({
     },
 }));
 mountProxy('/api/v1/catalog', METADATA);
+// Special handling for catalog publish - audit & notify
+app.put('/api/v1/files/:fileId/catalog', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
+    try {
+        const fileId = req.params.fileId;
+        const { slug, version, channel } = req.body || {};
+        const actorId = req.auth?.userId;
+        // Forward to metadata service
+        const token = parseBearerToken(req);
+        const metadataRes = await fetch(`${METADATA}/api/v1/files/${fileId}/catalog`, {
+            method: 'PUT',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify(req.body),
+        });
+        const data = await metadataRes.json();
+        if (metadataRes.ok) {
+            // Audit log (DB or memory fallback)
+            await pushAudit({ action: 'publish', target: `${slug}@${version}`, actorId, meta: { fileId, slug, version, channel } });
+            // Notification
+            await pushNotif({
+                title: '发布成功',
+                description: `项目 ${slug} 版本 ${version} (${channel}) 已发布`,
+                severity: 'success',
+                service: 'catalog',
+                meta: { fileId, slug, version, channel },
+            });
+            logger.info({ fileId, slug, version, channel, actorId }, 'Catalog published');
+        }
+        return res.status(metadataRes.status).json(data);
+    }
+    catch (err) {
+        next(err);
+    }
+});
 mountProxy('/api/v1/files', METADATA);
 mountProxy('/api/v1/folders', METADATA);
 mountProxy('/api/v1/storage', STORAGE);
@@ -284,6 +452,21 @@ async function pushNotif(n) {
     broadcastNotif(notif);
     return notif;
 }
+async function pushAudit(a) {
+    if (prisma) {
+        try {
+            const created = await prisma.auditLog.create({ data: { action: a.action, target: a.target, actorId: a.actorId, meta: a.meta || undefined } });
+            return created;
+        }
+        catch { }
+    }
+    const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const item = { id, action: a.action, target: a.target, actorId: a.actorId, createdAt: new Date().toISOString(), meta: a.meta };
+    AUDITS.unshift(item);
+    if (AUDITS.length > 500)
+        AUDITS.pop();
+    return item;
+}
 function broadcastNotif(notif) {
     for (const res of sseClients) {
         try {
@@ -323,6 +506,8 @@ app.get('/api/v1/admin/notifications', requireAuth, requireAdmin, async (req, re
     const pageSizeParam = Number.parseInt(String(req.query.pageSize || '20'), 10);
     const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
     const pageSize = Number.isFinite(pageSizeParam) ? Math.max(1, Math.min(200, pageSizeParam)) : 20;
+    const from = req.query.from || '';
+    const to = req.query.to || '';
     if (prisma) {
         const where = {};
         if (unreadOnly)
@@ -337,6 +522,13 @@ app.get('/api/v1/admin/notifications', requireAuth, requireAdmin, async (req, re
                 { description: { contains: q } },
                 { service: { contains: q } },
             ];
+        if (from || to) {
+            where.createdAt = {};
+            if (from)
+                where.createdAt.gte = new Date(from);
+            if (to)
+                where.createdAt.lte = new Date(to);
+        }
         const [total, items] = await Promise.all([
             prisma.adminNotification.count({ where }),
             prisma.adminNotification.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
@@ -352,6 +544,10 @@ app.get('/api/v1/admin/notifications', requireAuth, requireAdmin, async (req, re
         items = items.filter((n) => n.severity === severity);
     if (q)
         items = items.filter((n) => (n.title + ' ' + (n.description || '') + ' ' + (n.service || '')).toLowerCase().includes(q.toLowerCase()));
+    if (from)
+        items = items.filter(n => new Date(n.createdAt) >= new Date(from));
+    if (to)
+        items = items.filter(n => new Date(n.createdAt) <= new Date(to));
     const total = items.length;
     const slice = items.slice((page - 1) * pageSize, (page - 1) * pageSize + pageSize);
     return res.json({ items: slice, page, pageSize, total });

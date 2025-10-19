@@ -9,6 +9,7 @@
 - **安全认证**: JWT令牌认证，支持访问令牌和刷新令牌
 - **文件管理**: 完整的文件和文件夹操作功能
 - **断点续传**: 基于TUS协议的可续传文件上传
+- **发布管理**: 将文件发布到公开目录，支持多版本、多平台发布 🆕
 - **响应式UI**: 现代化的用户界面，支持多种视图模式
 - **容器化部署**: Docker和Kubernetes支持
 - **API优先**: 完整的OpenAPI 3.0规范文档
@@ -92,6 +93,52 @@
 > 需要在生产环境强制邀请码注册时，将 `REGISTRATION_REQUIRE_INVITE=true` 写入运行时环境变量，并用管理员账号调用 `/api/v1/auth/invitations` 创建首批邀请码。可运行 `pnpm --filter services/auth prisma:seed` 快速生成默认管理员和初始邀请码。
 
 > 生产预览：`./manage-services.sh start-frontend-prod` 会先构建 `frontend/cruip-landing` 再以 `next start` 启动，默认监听 `FRONTEND_PORT`。
+
+## 📦 发布管理系统 🆕
+
+发布管理系统允许管理员将已上传的文件发布到公开目录，实现完整的软件发布流程。
+
+### 快速开始
+
+1. **访问发布管理页面**
+   ```
+   http://localhost:3100/admin/publish
+   ```
+
+2. **发布流程**
+   - 搜索并选择已上传的文件
+   - 填写发布信息（slug, version, channel, etc.）
+   - 点击发布按钮
+   - 查看发布预览
+
+3. **查看目录**
+   ```bash
+   curl http://localhost:9080/api/v1/catalog
+   curl http://localhost:9080/api/v1/catalog/{slug}
+   ```
+
+### 主要功能
+
+- ✅ **多版本管理**: 同一项目支持多个版本并存
+- ✅ **多平台支持**: 为不同操作系统和架构发布独立资产
+- ✅ **发布渠道**: stable/beta/dev 三种发布渠道
+- ✅ **公开/私有**: 控制项目在目录中的可见性
+- ✅ **自定义 URL**: 支持 CDN/OSS 外部下载链接
+- ✅ **审计日志**: 自动记录所有发布操作
+- ✅ **实时通知**: 发布成功后推送系统通知
+
+### 文档
+
+- 📖 [完整文档](docs/PUBLISH_MANAGEMENT.md) - API 规格、使用指南、实现细节
+- 🚀 [快速开始](docs/PUBLISH_QUICKSTART.md) - 5 分钟上手指南
+- 📋 [实施总结](docs/PUBLISH_IMPLEMENTATION_SUMMARY.md) - 技术实现详情
+
+### 测试
+
+```bash
+# 运行自动化测试
+bash test_publish_api.sh
+```
 
 ## 下载目录（方案 A）开发期用法
 

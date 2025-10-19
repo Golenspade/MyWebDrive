@@ -13,6 +13,7 @@ export function MainNav({
   const items = [
     { label: 'Overview', href: '/admin/overview' },
     { label: 'Users', href: '/admin/users' },
+    { label: 'Publish', href: '/admin/publish' },
     { label: 'Notifications', href: '/admin/notifications' },
   ]
   return (

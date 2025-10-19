@@ -4,6 +4,23 @@ All notable changes to this repository will be documented in this file.
 
 
 
+
+## invite-quota-e2e-and-notif-format - 2025-10-19
+
+### Added
+- scripts: 新增端到端脚本 `scripts/test_invite_quota_flow.sh`，覆盖“创建邀请码 → 注册 → 小/大文件上传（超配额失败）→ 管理员提配额 → 重传成功 → 下载 → 拉取通知”的完整流程
+- docs: 新增 `docs/TEST_INVITE_QUOTA_FLOW.md` 使用说明与期望结果
+
+### Changed
+- frontend(admin/notifications): 将通知描述中的字节数自动格式化为 KB/MB/GB，并遵循“整数位超过 5 位自动升级单位”的规则（与其它模块一致）
+- gateway(admin): `PATCH /api/v1/users/:id/quota` 成功后新增“配额修改”通知（含用户ID与新配额）
+- storage(finalize): 当元数据写入失败（含配额超限 413）时，明确抛错并回滚已保存文件，向客户端返回 502（之前可能被吞掉导致看似成功）
+
+### Verify
+- 运行 `bash scripts/test_invite_quota_flow.sh`：
+  - 小文件 finalize = 200；大文件在小配额阶段 finalize = 502；提配额后重传 finalize = 200；下载 = 200
+  - 通知列表可见：创建邀请码 / 新用户注册 / 文件上传完成 / 文件上传失败（status=502）/ 配额修改 / 下载请求
+
 ## post-reboot-actions - 2025-10-19
 
 Planned steps to run immediately after OS reboot to validate the latest admin features (storage quota UI, storage panel, user detail, metadata admin API):

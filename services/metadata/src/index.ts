@@ -103,6 +103,7 @@ function parseCatalogTags(tags: Array<{ tagName: string }>): Record<string, stri
     if (key) kv[key] = value
   }
   return kv
+}
 
 // --- Admin: List files by user ---
 app.get('/api/v1/files/admin/by-user/:id', requireAuth, requireAdmin, async (req, res, next) => {
@@ -685,6 +686,16 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
     const fileId = req.params.fileId
     const userId = (req as any).auth.userId as string
     const { fileName, size, mimeType, storagePath, md5Hash, parentId }: { fileName: string; size: number; mimeType?: string; storagePath: string; md5Hash: string; parentId?: string | null } = req.body || ({} as any)
+    // Enforce quota before creating/updating version
+    async function getUserStorage(): Promise<{ storageQuota:number; storageUsed:number }|null> {
+      try {
+        const bearer = String(req.headers['authorization'] || '')
+        const r = await fetch(`${USER_SERVICE_URL}/api/v1/users/me/storage`, { headers: { Authorization: bearer }, signal: AbortSignal.timeout(4000) })
+        if (!r.ok) return null
+        return r.json()
+      } catch { return null }
+    }
+
     if (!fileName || typeof size !== 'number' || !storagePath || !md5Hash) return res.status(400).json({ error: 'Invalid request' })
 
     // Optional parent validation
@@ -699,6 +710,18 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
     let deltaUsed = size
     if (!existing) {
       const path = parent ? `${parent.path}/${fileName}` : `/${fileName}`
+      // Quota check before creating file record
+      {
+        const profile = await getUserStorage()
+        if (profile) {
+          const deltaPos = Math.max(0, deltaUsed)
+          const projected = Number(profile.storageUsed || 0) + deltaPos
+          const quota = Number(profile.storageQuota || 0)
+          if (quota > 0 && projected > quota) {
+            return res.status(413).json({ error: 'Quota exceeded', message: `Used ${projected} > quota ${quota}` })
+          }
+        }
+      }
       await prisma.file.create({
         data: {
           id: fileId,
@@ -716,6 +739,18 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
     } else {
       newVersion = (existing.version || 1) + 1
       deltaUsed = size - Number(existing.size || 0)
+      // Quota check before updating file record
+      {
+        const profile = await getUserStorage()
+        if (profile) {
+          const deltaPos = Math.max(0, deltaUsed)
+          const projected = Number(profile.storageUsed || 0) + deltaPos
+          const quota = Number(profile.storageQuota || 0)
+          if (quota > 0 && projected > quota) {
+            return res.status(413).json({ error: 'Quota exceeded', message: `Used ${projected} > quota ${quota}` })
+          }
+        }
+      }
       await prisma.file.update({
         where: { id: fileId },
         data: {
@@ -1146,3 +1181,5 @@ app.listen(PORT, async () => {
   await ensureSchema()
   logger.info({ port: PORT }, 'metadata-service-node listening')
 })
+
+

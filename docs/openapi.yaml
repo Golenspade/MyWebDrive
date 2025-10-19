@@ -255,11 +255,10 @@ paths:
           application/json:
             schema:
               type: object
-              required: [type]
               properties:
-                type: { type: string, enum: [link] }
                 password: { type: string, nullable: true }
                 expiresAt: { type: string, format: date-time, nullable: true }
+                maxDownloads: { type: integer, format: int32, nullable: true }
       responses:
         '201':
           description: Created
@@ -363,6 +362,6 @@ components:
         id: { type: string }
         token: { type: string }
         fileId: { type: string }
-        protected: { type: boolean }
+        requiresPassword: { type: boolean }
         expiresAt: { type: string, format: date-time, nullable: true }
 

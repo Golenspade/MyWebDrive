@@ -85,6 +85,9 @@ Prisma.NullTypes = {
  * Enums
  */
 exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
+  ReadUncommitted: 'ReadUncommitted',
+  ReadCommitted: 'ReadCommitted',
+  RepeatableRead: 'RepeatableRead',
   Serializable: 'Serializable'
 });
 
@@ -134,6 +137,11 @@ exports.Prisma.FileAccessLogScalarFieldEnum = {
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
+};
+
+exports.Prisma.QueryMode = {
+  default: 'default',
+  insensitive: 'insensitive'
 };
 
 exports.Prisma.NullsOrder = {
@@ -189,7 +197,7 @@ const config = {
   "datasourceNames": [
     "db"
   ],
-  "activeProvider": "sqlite",
+  "activeProvider": "postgresql",
   "postinstall": false,
   "inlineDatasources": {
     "db": {
@@ -199,8 +207,8 @@ const config = {
       }
     }
   },
-  "inlineSchema": "generator client {\n  provider      = \"prisma-client-js\"\n  output        = \"./client\"\n  binaryTargets = [\"native\", \"windows\"]\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  url      = env(\"METADATA_DATABASE_URL\")\n}\n\nmodel File {\n  id        String    @id\n  name      String\n  type      String // 'file' | 'folder'\n  size      Int?\n  mimeType  String?\n  parentId  String?\n  ownerId   String\n  path      String\n  version   Int       @default(1)\n  createdAt DateTime  @default(now())\n  updatedAt DateTime  @updatedAt\n  deletedAt DateTime?\n\n  parent     File?           @relation(\"FolderChildren\", fields: [parentId], references: [id])\n  children   File[]          @relation(\"FolderChildren\")\n  versions   FileVersion[]\n  tags       FileTag[]\n  accessLogs FileAccessLog[]\n\n  @@index([parentId])\n  @@index([ownerId])\n  @@index([type])\n  @@index([path])\n}\n\nmodel FileVersion {\n  id          String   @id\n  fileId      String\n  version     Int\n  size        Int\n  storagePath String\n  md5Hash     String\n  comment     String?\n  createdAt   DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@unique([fileId, version])\n  @@index([fileId])\n}\n\nmodel FileTag {\n  id        String   @id\n  fileId    String\n  tagName   String\n  createdAt DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@index([fileId])\n  @@index([tagName])\n}\n\nmodel FileAccessLog {\n  id         Int      @id @default(autoincrement())\n  fileId     String\n  userId     String\n  action     String // 'view' | 'download' | 'edit' | 'delete'\n  ipAddress  String?\n  userAgent  String?\n  accessedAt DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@index([fileId])\n  @@index([userId])\n  @@index([accessedAt])\n}\n",
-  "inlineSchemaHash": "fdefdb0380441e7f6b72bec5cf7ce1cb7dc13f95a72e076012046d519a0b7b4d",
+  "inlineSchema": "generator client {\n  provider      = \"prisma-client-js\"\n  output        = \"./client\"\n  binaryTargets = [\"native\", \"windows\"]\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"METADATA_DATABASE_URL\")\n}\n\nmodel File {\n  id        String    @id\n  name      String\n  type      String // 'file' | 'folder'\n  size      Int?\n  mimeType  String?\n  parentId  String?\n  ownerId   String\n  path      String\n  version   Int       @default(1)\n  createdAt DateTime  @default(now())\n  updatedAt DateTime  @updatedAt\n  deletedAt DateTime?\n\n  parent     File?           @relation(\"FolderChildren\", fields: [parentId], references: [id])\n  children   File[]          @relation(\"FolderChildren\")\n  versions   FileVersion[]\n  tags       FileTag[]\n  accessLogs FileAccessLog[]\n\n  @@index([parentId])\n  @@index([ownerId])\n  @@index([type])\n  @@index([path])\n}\n\nmodel FileVersion {\n  id          String   @id\n  fileId      String\n  version     Int\n  size        Int\n  storagePath String\n  md5Hash     String\n  comment     String?\n  createdAt   DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@unique([fileId, version])\n  @@index([fileId])\n}\n\nmodel FileTag {\n  id        String   @id\n  fileId    String\n  tagName   String\n  createdAt DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@index([fileId])\n  @@index([tagName])\n}\n\nmodel FileAccessLog {\n  id         Int      @id @default(autoincrement())\n  fileId     String\n  userId     String\n  action     String // 'view' | 'download' | 'edit' | 'delete'\n  ipAddress  String?\n  userAgent  String?\n  accessedAt DateTime @default(now())\n\n  file File @relation(fields: [fileId], references: [id])\n\n  @@index([fileId])\n  @@index([userId])\n  @@index([accessedAt])\n}\n",
+  "inlineSchemaHash": "f07566e4fae57be8527623f568483a057f7984337b1ec8c521b9ef298e617955",
   "copyEngine": true
 }
 

@@ -318,6 +318,123 @@ function mountProxy(basePath: string, target: string) {
   )
 }
 
+// Intercept invitation creation to push notification
+app.post('/api/v1/auth/invitations', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
+  try {
+    const token = parseBearerToken(req)
+    const upstream = await fetch(`${AUTH}${(req as any).originalUrl}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(10000),
+    })
+    const text = await upstream.text()
+    res.status(upstream.status)
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
+    if (upstream.ok) {
+      try {
+        const data = JSON.parse(text)
+        await pushNotif({ title: '创建邀请码', description: `code=${data.code}`, severity: 'info', service: 'auth-service' })
+      } catch {}
+    }
+    return res.end(text)
+  } catch (err) { next(err) }
+})
+
+// Intercept user registration to push notification
+app.post('/api/v1/auth/register', express.json(), async (req, res, next) => {
+  try {
+    const upstream = await fetch(`${AUTH}${(req as any).originalUrl}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(10000),
+    })
+    const text = await upstream.text()
+    res.status(upstream.status)
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
+    if (upstream.ok) {
+      try {
+        const data = JSON.parse(text)
+        await pushNotif({ title: '新用户注册', description: data.email || '', severity: 'success', service: 'auth-service' })
+      } catch {}
+    }
+    return res.end(text)
+  } catch (err) { next(err) }
+})
+
+// Intercept storage finalize to push upload notifications
+app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, express.json(), async (req, res, next) => {
+  try {
+    const token = parseBearerToken(req)
+    const upstream = await fetch(`${STORAGE}${(req as any).originalUrl}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(30000),
+    })
+    const text = await upstream.text()
+    res.status(upstream.status)
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
+    try {
+      if (upstream.ok) {
+        const data = JSON.parse(text)
+        await pushNotif({ title: '文件上传完成', description: `${data.fileName} (${data.fileSize} bytes)`, severity: 'success', service: 'storage-service' })
+      } else {
+        await pushNotif({ title: '文件上传失败', description: `status=${upstream.status}`, severity: 'warning', service: 'storage-service' })
+      }
+    } catch {}
+    return res.end(text)
+  } catch (err) { next(err) }
+})
+
+// Pre-route notification for downloads (non-blocking)
+app.use('/api/v1/storage/files/:fileId/download', async (req, _res, next) => {
+  try {
+    const fileId = (req.params as any).fileId
+    await pushNotif({ title: '下载请求', description: `fileId=${fileId}`, severity: 'info', service: 'storage-service', })
+  } catch {}
+  return next()
+})
+
+// Intercept quota change to add audit, then forward to user service
+app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
+  try {
+    const id = req.params.id
+    const token = parseBearerToken(req)
+    // Forward request to user service
+    const upstream = await fetch(`${USER}${(req as any).originalUrl}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(req.body || {}),
+      signal: AbortSignal.timeout(10000),
+    })
+    const text = await upstream.text()
+    res.status(upstream.status)
+    res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
+
+    if (upstream.ok) {
+      // Best-effort audit log
+      try {
+        const actorId = (req as any).auth?.userId
+        const newQuota = (req.body || {}).storageQuota
+        if (prisma) {
+          await prisma.auditLog.create({ data: { action: 'users.quota.set', target: id, actorId, meta: { storageQuota: newQuota } } })
+        } else {
+          const auditId = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+          const item = { id: auditId, action: 'users.quota.set', target: id, actorId, createdAt: new Date().toISOString(), meta: { storageQuota: newQuota } }
+          AUDITS.unshift(item as any)
+          if (AUDITS.length > 500) AUDITS.pop()
+        }
+      } catch {}
+        // Notification for quota changed
+        try {
+          const newQuota = (req.body || {}).storageQuota
+          await pushNotif({ title: '\u914d\u989d\u4fee\u6539', description: `user=${id} -> ${newQuota} bytes`, severity: 'info', service: 'user-service' })
+        } catch {}
+
+    }
+
+    return res.end(text)
+  } catch (err) {
+    next(err)
+  }
+})
+
 // Route mapping aligned with current API contract
 mountProxy('/api/v1/auth', AUTH)
 mountProxy('/api/v1/users', USER)
@@ -339,6 +456,49 @@ app.use(
   })
 )
 mountProxy('/api/v1/catalog', METADATA)
+
+// Special handling for catalog publish - audit & notify
+app.put('/api/v1/files/:fileId/catalog', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
+  try {
+    const fileId = req.params.fileId
+    const { slug, version, channel } = req.body || {}
+    const actorId = (req as any).auth?.userId
+
+    // Forward to metadata service
+    const token = parseBearerToken(req)
+    const metadataRes = await fetch(`${METADATA}/api/v1/files/${fileId}/catalog`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`,
+      },
+      body: JSON.stringify(req.body),
+    })
+
+    const data = await metadataRes.json()
+
+    if (metadataRes.ok) {
+      // Audit log (DB or memory fallback)
+      await pushAudit({ action: 'publish', target: `${slug}@${version}`, actorId, meta: { fileId, slug, version, channel } })
+
+      // Notification
+      await pushNotif({
+        title: '发布成功',
+        description: `项目 ${slug} 版本 ${version} (${channel}) 已发布`,
+        severity: 'success',
+        service: 'catalog',
+        meta: { fileId, slug, version, channel },
+      })
+
+      logger.info({ fileId, slug, version, channel, actorId }, 'Catalog published')
+    }
+
+    return res.status(metadataRes.status).json(data)
+  } catch (err) {
+    next(err)
+  }
+})
+
 mountProxy('/api/v1/files', METADATA)
 mountProxy('/api/v1/folders', METADATA)
 mountProxy('/api/v1/storage', STORAGE)
@@ -412,6 +572,21 @@ async function pushNotif(n: Omit<AdminNotification, 'id' | 'createdAt' | 'unread
   if (NOTIFS.length > MAX_NOTIFS) NOTIFS.pop()
   broadcastNotif(notif)
   return notif
+}
+
+
+async function pushAudit(a: Omit<AuditLog, 'id' | 'createdAt'> & { meta?: Record<string, unknown> }): Promise<AuditLog> {
+  if (prisma) {
+    try {
+      const created = await prisma.auditLog.create({ data: { action: a.action, target: a.target, actorId: a.actorId, meta: a.meta || undefined } })
+      return created
+    } catch {}
+  }
+  const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const item: AuditLog = { id, action: a.action, target: a.target, actorId: a.actorId, createdAt: new Date().toISOString(), meta: a.meta }
+  AUDITS.unshift(item)
+  if (AUDITS.length > 500) AUDITS.pop()
+  return item
 }
 
 function broadcastNotif(notif: AdminNotification) {

@@ -11,6 +11,19 @@ const JWT_SECRET = getEnv('JWT_SECRET', 'dev-secret');
 const PORT = parseInt(process.env.METADATA_PORT || '7083', 10);
 const DATABASE_URL = process.env.METADATA_DATABASE_URL || 'file:./metadata.db';
 // DB
+const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:8082';
+async function adjustUserStorageUsed(req, delta) {
+    try {
+        const bearer = String(req.headers['authorization'] || '');
+        await fetch(`${USER_SERVICE_URL}/api/v1/users/me/storage/adjust`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': bearer },
+            body: JSON.stringify({ delta }),
+            signal: AbortSignal.timeout(4000),
+        });
+    }
+    catch { }
+}
 process.env.METADATA_DATABASE_URL = DATABASE_URL;
 const prisma = new PrismaClient();
 // Middleware
@@ -48,6 +61,21 @@ function requireAdmin(req, res, next) {
         return res.status(403).json({ error: 'Admin access required' });
     next();
 }
+// --- Admin: Files statistics (top-level; before any /files/:fileId routes) ---
+app.get('/api/v1/files/statistics', requireAuth, requireAdmin, async (_req, res, next) => {
+    try {
+        const where = { type: 'file', deletedAt: null };
+        const [totalFiles, agg] = await Promise.all([
+            prisma.file.count({ where }),
+            prisma.file.aggregate({ where, _sum: { size: true } }),
+        ]);
+        const totalSizeBytes = agg._sum?.size || 0;
+        res.json({ totalFiles, totalSizeBytes });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // Health & metrics
 app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'metadata-service-node' }));
 app.get('/metrics', metricsHandler);
@@ -70,6 +98,37 @@ function parseCatalogTags(tags) {
     }
     return kv;
 }
+// --- Admin: List files by user ---
+app.get('/api/v1/files/admin/by-user/:id', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const ownerId = req.params.id;
+        const limitParam = Number.parseInt(String(req.query.limit || '20'), 10);
+        const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(100, limitParam)) : 20;
+        const cursorRaw = String(req.query.cursor || '');
+        let offset = 0;
+        if (cursorRaw) {
+            try {
+                const decoded = Buffer.from(cursorRaw, 'base64').toString('utf8');
+                const parsed = Number.parseInt(decoded, 10);
+                if (Number.isFinite(parsed) && parsed >= 0)
+                    offset = parsed;
+            }
+            catch { }
+        }
+        const items = await prisma.file.findMany({
+            where: { ownerId, deletedAt: null, type: 'file' },
+            orderBy: [{ updatedAt: 'desc' }],
+            skip: offset,
+            take: limit,
+            select: { id: true, name: true, size: true, mimeType: true, updatedAt: true, path: true }
+        });
+        const nextCursor = items.length === limit ? Buffer.from(String(offset + limit), 'utf8').toString('base64') : null;
+        return res.json({ items, nextCursor });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 function baseUrl(req) {
     const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
     const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
@@ -483,9 +542,14 @@ app.delete('/api/v1/files/:fileId', requireAuth, async (req, res, next) => {
     try {
         const fileId = req.params.fileId;
         const userId = req.auth.userId;
-        const result = await prisma.file.updateMany({ where: { id: fileId, ownerId: userId, type: 'file', deletedAt: null }, data: { deletedAt: new Date() } });
-        if (result.count === 0)
+        const file = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId, type: 'file', deletedAt: null } });
+        if (!file)
             return res.status(404).json({ error: 'File not found' });
+        await prisma.file.update({ where: { id: fileId }, data: { deletedAt: new Date() } });
+        // reduce used by file size (best-effort)
+        const sz = Number(file.size || 0);
+        if (Number.isFinite(sz) && sz > 0)
+            await adjustUserStorageUsed(req, -sz);
         return res.status(204).send();
     }
     catch (err) {
@@ -605,6 +669,7 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
         }
         const existing = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId } });
         let newVersion = 1;
+        let deltaUsed = size;
         if (!existing) {
             const path = parent ? `${parent.path}/${fileName}` : `/${fileName}`;
             await prisma.file.create({
@@ -624,6 +689,7 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
         }
         else {
             newVersion = (existing.version || 1) + 1;
+            deltaUsed = size - Number(existing.size || 0);
             await prisma.file.update({
                 where: { id: fileId },
                 data: {
@@ -635,6 +701,9 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
                 },
             });
         }
+        // adjust user's storage used (best-effort)
+        if (Number.isFinite(deltaUsed) && deltaUsed !== 0)
+            await adjustUserStorageUsed(req, deltaUsed);
         await prisma.fileVersion.create({
             data: {
                 id: randomUUID(),
@@ -647,6 +716,188 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
             },
         });
         return res.status(201).json({ ok: true, version: newVersion });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// --- Tag Management (Admin) ---
+// GET /api/v1/files/:fileId/tags - Get all tags for a file
+app.get('/api/v1/files/:fileId/tags', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const fileId = req.params.fileId;
+        const file = await prisma.file.findFirst({
+            where: { id: fileId, deletedAt: null },
+            include: { tags: { orderBy: { createdAt: 'desc' } } }
+        });
+        if (!file)
+            return res.status(404).json({ error: 'File not found' });
+        const tags = file.tags.map((t) => ({
+            tagName: t.tagName,
+            createdAt: t.createdAt
+        }));
+        return res.json({ tags });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// PUT /api/v1/files/:fileId/catalog - Set catalog metadata (overwrites catalog:* tags)
+app.put('/api/v1/files/:fileId/catalog', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const fileId = req.params.fileId;
+        const { slug, name, description, category, license, repo, version, channel, os, arch, public: isPublic, url } = req.body || {};
+        // Validate required fields
+        if (!slug || typeof slug !== 'string' || slug.trim().length === 0) {
+            return res.status(400).json({ error: 'Invalid slug' });
+        }
+        if (!version || typeof version !== 'string' || version.trim().length === 0) {
+            return res.status(400).json({ error: 'Invalid version' });
+        }
+        if (!channel || !['stable', 'beta', 'dev'].includes(channel)) {
+            return res.status(400).json({ error: 'Invalid channel (must be stable, beta, or dev)' });
+        }
+        if (typeof isPublic !== 'boolean') {
+            return res.status(400).json({ error: 'Invalid public flag (must be boolean)' });
+        }
+        // Normalize slug and validate URL (optional)
+        const s0 = String(slug).toLowerCase().trim();
+        const normalizedSlug = s0.replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+        if (!normalizedSlug) {
+            return res.status(400).json({ error: 'Invalid slug after normalization' });
+        }
+        if (url) {
+            try {
+                const u = new URL(url);
+                if (!(u.protocol === 'http:' || u.protocol === 'https:')) {
+                    return res.status(400).json({ error: 'Invalid url protocol (must be http or https)' });
+                }
+                if (url.length > 2048) {
+                    return res.status(400).json({ error: 'URL too long' });
+                }
+            }
+            catch {
+                return res.status(400).json({ error: 'Invalid url' });
+            }
+        }
+        // Check file exists
+        const file = await prisma.file.findFirst({
+            where: { id: fileId, deletedAt: null }
+        });
+        if (!file)
+            return res.status(404).json({ error: 'File not found' });
+        // Build catalog tags
+        const catalogTags = [
+            `catalog:kind=asset`,
+            `catalog:slug=${normalizedSlug}`,
+            `catalog:version=${version}`,
+            `catalog:channel=${channel}`,
+            `catalog:public=${isPublic ? 'true' : 'false'}`
+        ];
+        if (name)
+            catalogTags.push(`catalog:name=${name}`);
+        if (description)
+            catalogTags.push(`catalog:description=${description}`);
+        if (category)
+            catalogTags.push(`catalog:category=${category}`);
+        if (license)
+            catalogTags.push(`catalog:license=${license}`);
+        if (repo)
+            catalogTags.push(`catalog:repo=${repo}`);
+        if (os)
+            catalogTags.push(`catalog:os=${os}`);
+        if (arch)
+            catalogTags.push(`catalog:arch=${arch}`);
+        if (url)
+            catalogTags.push(`catalog:url=${url}`);
+        // Transaction: delete old catalog:* tags and insert new ones
+        await prisma.$transaction(async (tx) => {
+            // Delete existing catalog:* tags
+            await tx.fileTag.deleteMany({
+                where: {
+                    fileId,
+                    tagName: { startsWith: 'catalog:' }
+                }
+            });
+            // Insert new catalog tags
+            for (const tagName of catalogTags) {
+                await tx.fileTag.create({
+                    data: {
+                        id: randomUUID(),
+                        fileId,
+                        tagName
+                    }
+                });
+            }
+        });
+        logger.info({ fileId, slug: normalizedSlug, version, channel }, 'Catalog metadata updated');
+        return res.json({ ok: true, slug: normalizedSlug, version, channel });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// --- Draft metadata (User-owned) ---
+// Allow file owner to save draft metadata (non-public). Admin may later publish to catalog.
+// Allowed fields: name, description, category, license, os, arch, channel
+app.get('/api/v1/files/:fileId/draft', requireAuth, async (req, res, next) => {
+    try {
+        const fileId = req.params.fileId;
+        const userId = req.auth.userId;
+        const file = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId, deletedAt: null } });
+        if (!file)
+            return res.status(404).json({ error: 'File not found' });
+        const tags = await prisma.fileTag.findMany({ where: { fileId, tagName: { startsWith: 'draft:' } } });
+        const out = {};
+        for (const t of tags) {
+            const rest = t.tagName.slice('draft:'.length);
+            const eq = rest.indexOf('=');
+            if (eq === -1)
+                continue;
+            const k = rest.slice(0, eq);
+            const v = rest.slice(eq + 1);
+            out[k] = v;
+        }
+        return res.json(out);
+    }
+    catch (err) {
+        next(err);
+    }
+});
+app.put('/api/v1/files/:fileId/draft', requireAuth, async (req, res, next) => {
+    try {
+        const fileId = req.params.fileId;
+        const userId = req.auth.userId;
+        const file = await prisma.file.findFirst({ where: { id: fileId, ownerId: userId, type: 'file', deletedAt: null } });
+        if (!file)
+            return res.status(404).json({ error: 'File not found' });
+        const { name, description, category, license, os, arch, channel } = (req.body || {});
+        const allowedOs = ['windows', 'darwin', 'linux', 'any'];
+        const allowedArch = ['amd64', 'arm64', 'any'];
+        const allowedChannel = ['stable', 'beta', 'dev'];
+        if (os && !allowedOs.includes(os))
+            return res.status(400).json({ error: 'Invalid os' });
+        if (arch && !allowedArch.includes(arch))
+            return res.status(400).json({ error: 'Invalid arch' });
+        if (channel && !allowedChannel.includes(channel))
+            return res.status(400).json({ error: 'Invalid channel' });
+        const mk = (k, v) => (v && String(v).trim().length > 0 ? `draft:${k}=${String(v).trim()}` : null);
+        const toWrite = [
+            mk('name', name),
+            mk('description', description),
+            mk('category', category),
+            mk('license', license),
+            mk('os', os),
+            mk('arch', arch),
+            mk('channel', channel),
+        ].filter(Boolean);
+        await prisma.$transaction(async (tx) => {
+            await tx.fileTag.deleteMany({ where: { fileId, tagName: { startsWith: 'draft:' } } });
+            for (const tagName of toWrite) {
+                await tx.fileTag.create({ data: { id: randomUUID(), fileId, tagName } });
+            }
+        });
+        return res.json({ ok: true });
     }
     catch (err) {
         next(err);

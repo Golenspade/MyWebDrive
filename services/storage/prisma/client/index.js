@@ -85,6 +85,9 @@ Prisma.NullTypes = {
  * Enums
  */
 exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
+  ReadUncommitted: 'ReadUncommitted',
+  ReadCommitted: 'ReadCommitted',
+  RepeatableRead: 'RepeatableRead',
   Serializable: 'Serializable'
 });
 
@@ -117,6 +120,11 @@ exports.Prisma.DownloadEventScalarFieldEnum = {
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
+};
+
+exports.Prisma.QueryMode = {
+  default: 'default',
+  insensitive: 'insensitive'
 };
 
 exports.Prisma.NullsOrder = {
@@ -166,8 +174,7 @@ const config = {
   "datasourceNames": [
     "db"
   ],
-  "activeProvider": "sqlite",
-  "postinstall": false,
+  "activeProvider": "postgresql",
   "inlineDatasources": {
     "db": {
       "url": {
@@ -176,8 +183,8 @@ const config = {
       }
     }
   },
-  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"./client\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  url      = env(\"STORAGE_DATABASE_URL\")\n}\n\nmodel UploadSession {\n  id             String   @id\n  fileName       String\n  fileSize       Int\n  mimeType       String\n  chunkSize      Int\n  totalChunks    Int\n  uploadedChunks String // JSON string of Record<Int, true>\n  chunkMd5s      String? // JSON string of Record<Int, String>\n  ownerId        String\n  status         String   @default(\"uploading\")\n  storagePath    String?\n  md5Hash        String?\n  createdAt      DateTime @default(now())\n  updatedAt      DateTime @updatedAt\n  expiresAt      DateTime\n\n  @@index([ownerId])\n  @@index([status])\n  @@index([expiresAt])\n}\n\nmodel DownloadEvent {\n  id        String   @id @default(cuid())\n  fileId    String\n  bytes     Int\n  ip        String?\n  createdAt DateTime @default(now())\n\n  @@index([createdAt])\n}\n",
-  "inlineSchemaHash": "f9e2ee63fcbadfe4625a1d8a34c43ef7dfadfce894d684fa0903f1bfe784eb68",
+  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"./client\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"STORAGE_DATABASE_URL\")\n}\n\nmodel UploadSession {\n  id             String   @id\n  fileName       String\n  fileSize       Int\n  mimeType       String\n  chunkSize      Int\n  totalChunks    Int\n  uploadedChunks String // JSON string of Record<Int, true>\n  chunkMd5s      String? // JSON string of Record<Int, String>\n  ownerId        String\n  status         String   @default(\"uploading\")\n  storagePath    String?\n  md5Hash        String?\n  createdAt      DateTime @default(now())\n  updatedAt      DateTime @updatedAt\n  expiresAt      DateTime\n\n  @@index([ownerId])\n  @@index([status])\n  @@index([expiresAt])\n}\n\nmodel DownloadEvent {\n  id        String   @id @default(cuid())\n  fileId    String\n  bytes     Int\n  ip        String?\n  createdAt DateTime @default(now())\n\n  @@index([createdAt])\n}\n",
+  "inlineSchemaHash": "3a24e2941030debb8150c2cf720097b8801ae14bd73272ca32e3a52aa6baab2f",
   "copyEngine": true
 }
 

@@ -84,6 +84,9 @@ Prisma.NullTypes = {
  * Enums
  */
 exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
+  ReadUncommitted: 'ReadUncommitted',
+  ReadCommitted: 'ReadCommitted',
+  RepeatableRead: 'RepeatableRead',
   Serializable: 'Serializable'
 });
 
@@ -106,6 +109,11 @@ exports.Prisma.ShareScalarFieldEnum = {
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
+};
+
+exports.Prisma.QueryMode = {
+  default: 'default',
+  insensitive: 'insensitive'
 };
 
 exports.Prisma.NullsOrder = {
@@ -154,7 +162,7 @@ const config = {
   "datasourceNames": [
     "db"
   ],
-  "activeProvider": "sqlite",
+  "activeProvider": "postgresql",
   "inlineDatasources": {
     "db": {
       "url": {
@@ -163,8 +171,8 @@ const config = {
       }
     }
   },
-  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"./client\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  url      = env(\"SHARING_DATABASE_URL\")\n}\n\nmodel Share {\n  id             String    @id\n  token          String    @unique\n  ownerId        String\n  fileId         String\n  passwordHash   String?\n  expiresAt      DateTime?\n  isActive       Boolean   @default(true)\n  failedAttempts Int       @default(0)\n  lockUntil      DateTime?\n  maxDownloads   Int?\n  downloadCount  Int       @default(0)\n  createdAt      DateTime  @default(now())\n  updatedAt      DateTime  @updatedAt\n\n  @@index([ownerId])\n  @@index([fileId])\n  @@index([isActive])\n}\n",
-  "inlineSchemaHash": "003faebfc454ee9de3e97641faa9c5613ea60ed3712d707b364aa14e0e18229c",
+  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"./client\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"SHARING_DATABASE_URL\")\n}\n\nmodel Share {\n  id             String    @id\n  token          String    @unique\n  ownerId        String\n  fileId         String\n  passwordHash   String?\n  expiresAt      DateTime?\n  isActive       Boolean   @default(true)\n  failedAttempts Int       @default(0)\n  lockUntil      DateTime?\n  maxDownloads   Int?\n  downloadCount  Int       @default(0)\n  createdAt      DateTime  @default(now())\n  updatedAt      DateTime  @updatedAt\n\n  @@index([ownerId])\n  @@index([fileId])\n  @@index([isActive])\n}\n",
+  "inlineSchemaHash": "bfb61ab9b655573e4291d2cb0e34f7949968321d6d74a7f73c59502623da49ef",
   "copyEngine": true
 }
 config.dirname = '/'

@@ -29,6 +29,9 @@ const prisma = new PrismaClient()
 // Middleware
 app.use(express.json())
 const logger = createLogger({ service: 'auth-service-node' })
+// Debug: print DB URL protocol and db name once at startup (remove in production)
+try { const u = new URL(String(process.env.DATABASE_URL || '')); logger.info({ proto: u.protocol, host: u.host, pathname: u.pathname }, 'auth db url'); } catch {}
+
 app.use(createHttpLogger(logger))
 
 const { register, metricsMiddleware, metricsHandler } = createMetrics('auth-service-node')

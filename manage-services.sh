@@ -68,6 +68,8 @@ start_auth(){
   if [ "$(check_on_port $AUTH_PORT)" != "STOPPED" ]; then log_warn "auth already running"; return; fi
   mkdir -p logs
   (cd services/auth && JWT_SECRET=${JWT_SECRET:-your-secret-key} AUTH_PORT=$AUTH_PORT \
+    AUTH_DATABASE_URL="${AUTH_DATABASE_URL}" \
+    DATABASE_URL="${AUTH_DATABASE_URL:-$DATABASE_URL}" \
     nohup pnpm dev > ../../logs/auth.log 2>&1 & echo $! > ../../logs/auth.pid)
 }
 start_user(){
@@ -75,6 +77,8 @@ start_user(){
   if [ "$(check_on_port $USER_PORT)" != "STOPPED" ]; then log_warn "user already running"; return; fi
   mkdir -p logs
   (cd services/user && JWT_SECRET=${JWT_SECRET:-your-secret-key} USER_PORT=$USER_PORT \
+    USER_DATABASE_URL="${USER_DATABASE_URL}" \
+    DATABASE_URL="${USER_DATABASE_URL:-$DATABASE_URL}" \
     nohup pnpm dev > ../../logs/user.log 2>&1 & echo $! > ../../logs/user.pid)
 }
 start_metadata(){
@@ -83,7 +87,8 @@ start_metadata(){
   mkdir -p logs
   (pnpm --filter ./services/metadata prisma:generate > logs/metadata.prisma.log 2>&1 || true)
   (cd services/metadata && JWT_SECRET=${JWT_SECRET:-your-secret-key} METADATA_PORT=$META_PORT \
-    METADATA_DATABASE_URL=${METADATA_DATABASE_URL:-file:./metadata.db} \
+    METADATA_DATABASE_URL="${METADATA_DATABASE_URL:-file:./metadata.db}" \
+    USER_SERVICE_URL="http://localhost:${USER_PORT}" \
     nohup pnpm dev > ../../logs/metadata.log 2>&1 & echo $! > ../../logs/metadata.pid)
 }
 start_storage(){
@@ -93,13 +98,20 @@ start_storage(){
   (pnpm --filter ./services/storage prisma:generate > logs/storage.prisma.log 2>&1 || true)
   (pnpm --filter ./services/storage db:push > logs/storage.dbpush.log 2>&1 || true)
   (cd services/storage && JWT_SECRET=${JWT_SECRET:-your-secret-key} STORAGE_PORT=$STOR_PORT \
-    STORAGE_PATH=${STORAGE_PATH:-./storage} METADATA_SERVICE_URL=${METADATA_SERVICE_URL:-http://localhost:${META_PORT}} \
-    STORAGE_DATABASE_URL=${STORAGE_DATABASE_URL:-file:./storage.db} \
-    REDIS_URL=${REDIS_URL:-redis://localhost:6379/0} \
-    DOWNLOAD_CONCURRENCY_LIMIT=${DOWNLOAD_CONCURRENCY_LIMIT:-3} \
-    DOWNLOAD_Mbps=${DOWNLOAD_Mbps:-300} \
-    OWNER_COOKIE_SECRET=${OWNER_COOKIE_SECRET:-please-change-me} \
-    OWNER_COOKIE_TTL_SEC=${OWNER_COOKIE_TTL_SEC:-86400} \
+    STORAGE_PATH="${STORAGE_PATH:-./storage}" METADATA_SERVICE_URL="${METADATA_SERVICE_URL:-http://localhost:${META_PORT}}" \
+
+    STORAGE_DATABASE_URL="${STORAGE_DATABASE_URL:-file:./storage.db}" \
+
+    REDIS_URL="${REDIS_URL:-redis://localhost:6379/0}" \
+
+    DOWNLOAD_CONCURRENCY_LIMIT="${DOWNLOAD_CONCURRENCY_LIMIT:-3}" \
+
+    DOWNLOAD_Mbps="${DOWNLOAD_Mbps:-300}" \
+
+    OWNER_COOKIE_SECRET="${OWNER_COOKIE_SECRET:-please-change-me}" \
+
+    OWNER_COOKIE_TTL_SEC="${OWNER_COOKIE_TTL_SEC:-86400}" \
+
     nohup pnpm dev > ../../logs/storage.log 2>&1 & echo $! > ../../logs/storage.pid)
 }
 start_sharing(){
@@ -109,8 +121,10 @@ start_sharing(){
   (pnpm --filter ./services/sharing prisma:generate > logs/sharing.prisma.log 2>&1 || true)
   (pnpm --filter ./services/sharing db:push > logs/sharing.dbpush.log 2>&1 || true)
   (cd services/sharing && JWT_SECRET=${JWT_SECRET:-your-secret-key} SHARING_PORT=$SHAR_PORT \
-    STORAGE_SERVICE_URL=${STORAGE_SERVICE_URL:-http://localhost:${STOR_PORT}} METADATA_SERVICE_URL=${METADATA_SERVICE_URL:-http://localhost:${META_PORT}} \
-    SHARING_DATABASE_URL=${SHARING_DATABASE_URL:-file:./sharing.db} \
+    STORAGE_SERVICE_URL="${STORAGE_SERVICE_URL:-http://localhost:${STOR_PORT}}" METADATA_SERVICE_URL="${METADATA_SERVICE_URL:-http://localhost:${META_PORT}}" \
+
+    SHARING_DATABASE_URL="${SHARING_DATABASE_URL:-file:./sharing.db}" \
+
     nohup pnpm dev > ../../logs/sharing.log 2>&1 & echo $! > ../../logs/sharing.pid)
 }
 start_gateway(){
@@ -162,6 +176,41 @@ start_next(){
   if [ "$(check_on_port 4000)" != "STOPPED" ]; then log_warn "Next already running"; return; fi
   mkdir -p logs
   (cd apps/web && API_BASE_URL="http://localhost:${GW_PORT}" nohup pnpm dev > ../../logs/next.log 2>&1 & echo $! > ../../logs/next.pid)
+}
+
+# --- Postgres DB via docker-compose ---
+db_start(){
+  log_service "Starting Postgres (docker-compose)"
+  if [ -f infrastructure/docker-compose.db.yml ]; then
+    docker compose -f infrastructure/docker-compose.db.yml up -d
+    log_info "Postgres started (port 5432)"
+  else
+    log_error "infrastructure/docker-compose.db.yml not found"
+    exit 1
+  fi
+}
+
+db_stop(){
+  log_service "Stopping Postgres"
+  if [ -f infrastructure/docker-compose.db.yml ]; then
+    docker compose -f infrastructure/docker-compose.db.yml down
+    log_info "Postgres stopped"
+  else
+    log_error "infrastructure/docker-compose.db.yml not found"
+    exit 1
+  fi
+}
+
+db_reset(){
+  log_service "Resetting Postgres volume (DANGEROUS: drops data)"
+  if [ -f infrastructure/docker-compose.db.yml ]; then
+    docker compose -f infrastructure/docker-compose.db.yml down -v
+    docker compose -f infrastructure/docker-compose.db.yml up -d
+    log_info "Postgres reset complete"
+  else
+    log_error "infrastructure/docker-compose.db.yml not found"
+    exit 1
+  fi
 }
 
 # --- 环境模板与工具 ---
@@ -228,10 +277,13 @@ cmd_build(){ ensure_pnpm; pnpm build:all; }
 # --- 主入口 ---
 case ${1:-status} in
   help|-h|--help)
-    echo "Usage: $0 {setup|install|build|start|stop|restart|start-backend|stop-backend|start-frontend|start-frontend-prod|stop-frontend|start-next|status|env:print|env:write}" ;;
+    echo "Usage: $0 {setup|install|build|db:start|db:stop|db:reset|start|stop|restart|start-backend|stop-backend|start-frontend|start-frontend-prod|stop-frontend|start-next|status|env:print|env:write}" ;;
   setup)          cmd_setup ;;
   install)        cmd_install ;;
   build)          cmd_build ;;
+  db:start)       db_start ;;
+  db:stop)        db_stop ;;
+  db:reset)       db_reset ;;
   start)
     start_backend
     if [ "${FRONTEND_MODE}" = "prod" ]; then

@@ -46,6 +46,10 @@ Important environment variables
   - JWT_SECRET (please change)
   - ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL
 
+- Databases (PostgreSQL)
+  - Each service uses its own `*_DATABASE_URL` (e.g., `AUTH_DATABASE_URL`, `USER_DATABASE_URL`, `METADATA_DATABASE_URL`, `STORAGE_DATABASE_URL`, `SHARING_DATABASE_URL`, `GATEWAY_DATABASE_URL`)
+  - See docs/env.example for examples and connection options (schema, pool limits)
+
 Notes
 - The script uses Corepack to activate pnpm@9.7.0 to match the repo’s packageManager field.
 - For production, set COOKIE_SECURE=true and use a strong OWNER_COOKIE_SECRET.

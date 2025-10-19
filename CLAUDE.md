@@ -9,7 +9,7 @@ MyWebDrive is a microservices-based cloud storage platform built with Node.js + 
 **Key Characteristics:**
 - Chinese primary language project (documentation and user-facing content)
 - Microservices architecture with clear System of Record (SoR) boundaries
-- SQLite for each service's database with Prisma ORM
+- PostgreSQL for each service's database with Prisma ORM
 - JWT-based authentication with access/refresh tokens
 - TUS protocol for resumable uploads
 
@@ -28,13 +28,15 @@ MyWebDrive is a microservices-based cloud storage platform built with Node.js + 
 
 **Critical**: Each service owns its domain data. Do not duplicate fields across services.
 
-- **Auth**: Identity (id, email, passwordHash, role)
+- **Auth**: Identity (id, email, passwordHash, role, name)
 - **User**: Profile & quotas (id, name, storageQuota, storageUsed)
 - **Metadata**: Files & folders (fileId, name, path, versions)
 - **Storage**: Physical storage (uploads, chunks, S3/MinIO paths)
 - **Sharing**: Share links (shareToken, password, expiresAt)
 
-**Important**: User service does NOT store email/password/role - these live in Auth. Role is carried in JWT.
+**Important**: User service does NOT store email/password/role — these live in Auth, and role is carried in JWT.
+
+**Note**: `name` currently exists in both Auth and User (historical duplication). Treat User as the SoR for profile fields unless explicitly stated otherwise; plan to de-duplicate in a future migration.
 
 ### Prisma Client Pattern
 
@@ -220,6 +222,14 @@ STORAGE_SKIP_METADATA=false  # Set to true for local testing
 FRONTEND_PORT=3100
 FRONTEND_HOST=127.0.0.1
 API_BASE_URL=http://localhost:9080
+
+# Databases (PostgreSQL)
+AUTH_DATABASE_URL=postgres://user:pass@localhost:5432/auth
+USER_DATABASE_URL=postgres://user:pass@localhost:5432/user
+METADATA_DATABASE_URL=postgres://user:pass@localhost:5432/metadata
+STORAGE_DATABASE_URL=postgres://user:pass@localhost:5432/storage
+SHARING_DATABASE_URL=postgres://user:pass@localhost:5432/sharing
+GATEWAY_DATABASE_URL=postgres://user:pass@localhost:5432/gateway
 ```
 
 Generate template: `./manage-services.sh env:write .env.example`
@@ -333,8 +343,10 @@ All admin routes require authentication + admin role (`requireAuth` + `requireAd
 ### Aggregated Overview (Gateway)
 - `GET /api/v1/admin/overview` - Dashboard stats aggregating:
   - `totals`: total_users, total_files, total_storage_bytes
-  - `today`: uploads_count (other fields placeholders)
-  - `last7d`: uploads_bytes array (from storage/statistics/daily)
+  - `today`: uploads_bytes, downloads_count, requests_count, errors_count, latency_ms_p95, latency_ms_p99
+  - `last7d`: uploads_bytes, downloads_bytes (from storage/statistics/daily)
+
+  Gateway also persists admin notifications and audit logs in its own PostgreSQL database.
 
 **Note**: Gateway forwards `Authorization` header to downstream services and provides fallback to 0 on failure.
 
@@ -429,7 +441,7 @@ Import these in services via workspace protocol: `"@mywebdrive/common": "workspa
 
 2. **Missing Prisma Generate**: Before building a service, run `prisma generate` or use `pnpm build` which includes it.
 
-3. **Database Path**: Each service uses its own SQLite file via `<SERVICE>_DATABASE_URL` env var (e.g., `METADATA_DATABASE_URL=file:./metadata.db`).
+3. **Database**: Each service connects to PostgreSQL via `<SERVICE>_DATABASE_URL` (e.g., `AUTH_DATABASE_URL=postgres://...`). Do not assume SQLite file paths.
 
 4. **JWT Secret**: Must be identical across all services for token verification.
 

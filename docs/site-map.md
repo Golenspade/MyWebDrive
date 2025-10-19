@@ -20,16 +20,21 @@
 ## 路由结构总览
 
 ### App Router（app/）
-- / → app/(marketing)/page.tsx
-- /download → app/(default)/download/page.tsx
-- /article → app/(default)/article/page.tsx
-- /tutorials → app/(default)/tutorials/page.tsx
-- /login → app/login/page.tsx
-- /register → app/register/page.tsx
-- /注册 → app/注册/page.tsx（经 middleware 重定向到 /signup）
+- / → app/page.tsx（重定向到 /admin/overview）
+- /admin → 管理后台（布局：app/admin/layout.tsx）
+  - /admin/overview → 系统概览（图表与统计卡）
+  - /admin/users → 用户管理（搜索/分页/角色/配额）
+  - /admin/notifications → 通知
+  - /admin/invitations → 邀请码管理
+  - /admin/publish → 发布管理
 - /signin → app/(auth)/signin/page.tsx
 - /signup → app/(auth)/signup/page.tsx
 - /reset-password → app/(auth)/reset-password/page.tsx
+- （营销与下载）
+  - /download → app/(default)/download/page.tsx（目录页组件）
+  - /article → app/(default)/article/page.tsx
+  - /tutorials → app/(default)/tutorials/page.tsx
+- /注册 → app/注册/page.tsx（经 middleware 重定向到 /signup）
 - /api/hello → app/api/hello/route.ts
 
 ### 文档站（Pages Router + Nextra，统一前缀 /docs）

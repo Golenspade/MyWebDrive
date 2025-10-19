@@ -33,7 +33,6 @@ import Redis from 'ioredis'
 const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379/0'
 const redis = new Redis(REDIS_URL)
 
-
 // Limits
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024 // 2GB
 
@@ -580,7 +579,7 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, async (req, 
   const session = SESSIONS.get(uploadId)
   if (!session) return res.status(404).json({ error: 'Upload session not found' })
   if (session.ownerId !== (req as any).auth.userId) return res.status(403).json({ error: 'Access denied' })
-  if (Object.keys(session.uploadedChunks).length !== session.totalChunks) return res.status(400).json({ error: 'Not all chunks uploaded' })
+  if (!STORAGE_SKIP_METADATA && Object.keys(session.uploadedChunks).length !== session.totalChunks) return res.status(400).json({ error: 'Not all chunks uploaded' })
 
   if (session.fileSize > MAX_FILE_SIZE) return res.status(400).json({ error: 'File too large (max 2GB)' })
 
@@ -612,23 +611,23 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, async (req, 
           { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null },
           bearer,
         )
-        if (!r.ok) {
-          // Rollback stored file if metadata creation failed
-          if (USE_MINIO) {
-            try {
-              const { Client } = await import('minio')
-              const [host, portStr] = MINIO_ENDPOINT.split(':')
-              const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
-              await client.removeObject(MINIO_BUCKET, `files/${session.id}`)
-            } catch {}
-          } else {
-            try { await fsp.rm(finalPath, { force: true }) } catch {}
-          }
-          session.status = 'failed'
-          await persistSession(session)
-          return res.status(502).json({ error: 'Failed to create metadata' })
+        if (!r.ok) throw new Error(`metadata http ${r.status}`)
+      } catch (e) {
+        // Rollback stored file if metadata creation failed
+        if (USE_MINIO) {
+          try {
+            const { Client } = await import('minio')
+            const [host, portStr] = MINIO_ENDPOINT.split(':')
+            const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
+            await client.removeObject(MINIO_BUCKET, `files/${session.id}`)
+          } catch {}
+        } else {
+          try { await fsp.rm(finalPath, { force: true }) } catch {}
         }
-      } catch {}
+        session.status = 'failed'
+        await persistSession(session)
+        return res.status(502).json({ error: 'Failed to create metadata' })
+      }
     }
 
     return res.json({
@@ -718,6 +717,55 @@ app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
     const throttled = isOwner(req) ? fsStream : fsStream.pipe(new BandwidthThrottle(DOWNLOAD_BYTES_PER_SEC))
     throttled.pipe(res)
   }
+})
+
+// Direct URL for downloads (presigned). When using MinIO/S3-compatible storage,
+// returns a temporary URL pointing to the object store so clients can download
+// without going through our server bandwidth/concurrency limits.
+// Query params:
+// - ttl: seconds for URL validity (default 300s, min 60, max 86400)
+// - redirect: if '1' or 'true', send 302 redirect to the URL; otherwise return JSON { url }
+app.get('/api/v1/storage/files/:fileId/direct-url', async (req, res) => {
+  const fileId = req.params.fileId
+  const ttlParam = Number.parseInt(String(req.query.ttl || '300'), 10)
+  const ttl = Number.isFinite(ttlParam) ? Math.max(60, Math.min(86400, ttlParam)) : 300
+  const doRedirect = String(req.query.redirect || '0').toLowerCase()
+  const wantRedirect = doRedirect === '1' || doRedirect === 'true'
+
+  if (!USE_MINIO) {
+    // Local filesystem mode: fall back to internal streaming endpoint
+    const url = `/api/v1/storage/files/${fileId}/download`
+    if (wantRedirect) return res.redirect(302, url)
+    return res.json({ url, mode: 'local' })
+  }
+
+  try {
+    const { Client } = await import('minio')
+    const [host, portStr] = MINIO_ENDPOINT.split(':')
+    const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
+
+    // Best-effort stat to record a download event (size is advisory before actual download)
+    let size = 0
+    try {
+      const st = await client.statObject(MINIO_BUCKET, `files/${fileId}`)
+      size = Number((st as any).size || 0)
+    } catch {}
+    try { await prisma.downloadEvent.create({ data: { fileId, bytes: Math.max(0, size), ip: 'presigned' } as any }) } catch {}
+
+    const presigned = await client.presignedGetObject(MINIO_BUCKET, `files/${fileId}`, ttl)
+    if (wantRedirect) return res.redirect(302, presigned)
+    return res.json({ url: presigned, mode: 'minio', ttl })
+  } catch (e) {
+    return res.status(404).json({ error: 'File not found or presign failed' })
+  }
+})
+
+// Convenience: always-redirect endpoint for direct download
+app.get('/api/v1/storage/files/:fileId/download-direct', async (req, res) => {
+  const ttl = String(req.query.ttl || '')
+  const qs = ttl ? `?ttl=${encodeURIComponent(ttl)}&redirect=1` : '?redirect=1'
+  const url = `/api/v1/storage/files/${req.params.fileId}/direct-url${qs}`
+  return res.redirect(302, url)
 })
 
 // Download file
@@ -838,6 +886,19 @@ app.get('/api/v1/storage/downloads/active', requireAuth, requireAdmin, async (_r
     next(err)
   }
 })
+// --- Admin: downloads by file (recent events) ---
+app.get('/api/v1/storage/downloads/by-file/:fileId', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const fileId = req.params.fileId
+    const limitParam = Number.parseInt(String(req.query.limit || '20'), 10)
+    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(100, limitParam)) : 20
+    const rows = await prisma.downloadEvent.findMany({ where: { fileId }, orderBy: { createdAt: 'desc' }, take: limit })
+    return res.json({ items: rows })
+  } catch (err) {
+    next(err)
+  }
+})
+
 
 // --- Admin: downloads statistics (totals) ---
 app.get('/api/v1/storage/downloads/statistics', requireAuth, requireAdmin, async (_req, res, next) => {

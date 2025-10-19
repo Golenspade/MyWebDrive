@@ -84,6 +84,9 @@ Prisma.NullTypes = {
  * Enums
  */
 exports.Prisma.TransactionIsolationLevel = makeStrictEnum({
+  ReadUncommitted: 'ReadUncommitted',
+  ReadCommitted: 'ReadCommitted',
+  RepeatableRead: 'RepeatableRead',
   Serializable: 'Serializable'
 });
 
@@ -114,6 +117,11 @@ exports.Prisma.InvitationCodeScalarFieldEnum = {
 exports.Prisma.SortOrder = {
   asc: 'asc',
   desc: 'desc'
+};
+
+exports.Prisma.QueryMode = {
+  default: 'default',
+  insensitive: 'insensitive'
 };
 
 exports.Prisma.NullsOrder = {
@@ -164,18 +172,17 @@ const config = {
   "datasourceNames": [
     "db"
   ],
-  "activeProvider": "sqlite",
-  "postinstall": false,
+  "activeProvider": "postgresql",
   "inlineDatasources": {
     "db": {
       "url": {
-        "fromEnvVar": "DATABASE_URL",
+        "fromEnvVar": "AUTH_DATABASE_URL",
         "value": null
       }
     }
   },
-  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"./client\"\n}\n\ndatasource db {\n  provider = \"sqlite\"\n  url      = env(\"DATABASE_URL\")\n}\n\nmodel User {\n  id        String   @id @default(uuid())\n  name      String\n  email     String   @unique\n  password  String\n  role      String   @default(\"user\")\n  createdAt DateTime @default(now())\n  updatedAt DateTime @updatedAt\n}\n\nmodel InvitationCode {\n  id         String    @id @default(uuid())\n  code       String    @unique\n  issuedBy   String\n  issuedAt   DateTime  @default(now())\n  expiresAt  DateTime?\n  usageLimit Int       @default(1)\n  usedCount  Int       @default(0)\n  isActive   Boolean   @default(true)\n  usedBy     String?\n  usedAt     DateTime?\n  notes      String?\n}\n",
-  "inlineSchemaHash": "a8aaf89d7892f60bef51671b68cad1e87004a938009bd0322e681e0f2f531cc6",
+  "inlineSchema": "generator client {\n  provider = \"prisma-client-js\"\n  output   = \"./client\"\n}\n\ndatasource db {\n  provider = \"postgresql\"\n  url      = env(\"AUTH_DATABASE_URL\")\n}\n\nmodel User {\n  id        String   @id @default(uuid())\n  name      String\n  email     String   @unique\n  password  String\n  role      String   @default(\"user\")\n  createdAt DateTime @default(now())\n  updatedAt DateTime @updatedAt\n}\n\nmodel InvitationCode {\n  id         String    @id @default(uuid())\n  code       String    @unique\n  issuedBy   String\n  issuedAt   DateTime  @default(now())\n  expiresAt  DateTime?\n  usageLimit Int       @default(1)\n  usedCount  Int       @default(0)\n  isActive   Boolean   @default(true)\n  usedBy     String?\n  usedAt     DateTime?\n  notes      String?\n}\n",
+  "inlineSchemaHash": "4dac8903dee4ddd0156d2ffa35e84fed87ed012c52f63748e3e73de0d27efa88",
   "copyEngine": true
 }
 config.dirname = '/'
@@ -186,7 +193,7 @@ config.engineWasm = undefined
 
 config.injectableEdgeEnv = () => ({
   parsed: {
-    DATABASE_URL: typeof globalThis !== 'undefined' && globalThis['DATABASE_URL'] || typeof process !== 'undefined' && process.env && process.env.DATABASE_URL || undefined
+    AUTH_DATABASE_URL: typeof globalThis !== 'undefined' && globalThis['AUTH_DATABASE_URL'] || typeof process !== 'undefined' && process.env && process.env.AUTH_DATABASE_URL || undefined
   }
 })
 

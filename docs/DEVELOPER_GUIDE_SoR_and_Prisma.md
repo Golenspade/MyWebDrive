@@ -48,27 +48,23 @@ Minimal type declaration for packages without types:
   - `src/types/bcryptjs.d.ts` with `declare module 'bcryptjs';`
 
 ## 3) Local initialization (dev)
-Each service uses its own SQLite DB file. Minimal init:
+Each service connects to PostgreSQL via its own `* _DATABASE_URL`. Minimal init:
 
-- Auth
-  - `DATABASE_URL="file:./services/auth/prisma/auth.db" pnpm -C services/auth prisma:generate`
-  - `DATABASE_URL="file:./services/auth/prisma/auth.db" pnpm -C services/auth exec prisma db push --accept-data-loss`
+Prereqs:
+- A local PostgreSQL instance is running (e.g., docker compose up)
+- `.env` contains per‑service URLs, for example:
+  - `AUTH_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/mywd_auth?schema=public`
+  - `USER_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/mywd_user?schema=public`
+  - `METADATA_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/mywd_metadata?schema=public`
+  - `STORAGE_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/mywd_storage?schema=public`
+  - `SHARING_DATABASE_URL=postgresql://user:pass@127.0.0.1:5432/mywd_sharing?schema=public`
 
-- User
-  - `DATABASE_URL="file:./services/user/prisma/user.db" pnpm -C services/user prisma:generate`
-  - `DATABASE_URL="file:./services/user/prisma/user.db" pnpm -C services/user db:push --accept-data-loss`
-
-- Metadata
-  - `METADATA_DATABASE_URL="file:./services/metadata/prisma/metadata.db" pnpm -C services/metadata prisma:generate`
-  - `METADATA_DATABASE_URL="file:./services/metadata/prisma/metadata.db" pnpm -C services/metadata db:push --accept-data-loss`
-
-- Storage
-  - `STORAGE_DATABASE_URL="file:./services/storage/prisma/storage.db" pnpm -C services/storage prisma:generate`
-  - `STORAGE_DATABASE_URL="file:./services/storage/prisma/storage.db" pnpm -C services/storage db:push --accept-data-loss`
-
-- Sharing
-  - `SHARING_DATABASE_URL="file:./services/sharing/prisma/sharing.db" pnpm -C services/sharing prisma:generate`
-  - `SHARING_DATABASE_URL="file:./services/sharing/prisma/sharing.db" pnpm -C services/sharing db:push --accept-data-loss`
+Init steps (per service):
+- Generate Prisma Client
+  - `pnpm -C services/<name> prisma:generate`
+- Push schema (dev) or run migrations (prod/CI)
+  - `pnpm -C services/<name> db:push`
+  - or `pnpm -C services/<name> prisma:migrate deploy`
 
 ## 4) Build verification
 - Run: `pnpm -C services/<name> build`
@@ -96,7 +92,7 @@ Each service uses its own SQLite DB file. Minimal init:
 - [ ] Import `PrismaClient` from local client path; use explicit `.js` if NodeNext requires it
 - [ ] Ensure tsconfig has `composite: true` if using `tsBuildInfoFile`
 - [ ] Provide minimal d.ts for libraries without types where needed
-- [ ] Initialize SQLite via `prisma db push`
+- [ ] Initialize PostgreSQL via service-specific `*_DATABASE_URL` and run `prisma generate` + `db:push` (or `migrate deploy`)
 - [ ] `pnpm -C services/<name> build` passes
 - [ ] Add an entry to CHANGELOG
 

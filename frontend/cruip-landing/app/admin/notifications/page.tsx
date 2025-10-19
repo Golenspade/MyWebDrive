@@ -4,6 +4,7 @@ import React from 'react'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 import { BellRing, ShieldAlert, Server, Info, CheckCircle2, Filter, MoreHorizontal, Download, RefreshCw, Calendar as CalendarIcon } from 'lucide-react'
+import { formatCompactBytes } from '@/lib/utils/format-bytes'
 
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -41,6 +42,15 @@ function sevIcon(sev: Severity) {
       return <CheckCircle2 className='text-green-600' />
   }
 }
+function formatDescription(desc?: string): string {
+  if (!desc) return ''
+  // Replace numbers followed by 'bytes' with compact KB/MB/GB units
+  return desc.replace(/(\d+)\s*bytes\b/gi, (_m, g1) => {
+    const n = Number(g1)
+    return Number.isFinite(n) ? formatCompactBytes(n) : _m
+  })
+}
+
 
 function sevBadge(sev: Severity) {
   if (sev === 'critical') return <Badge className='bg-red-600 text-white'>紧急</Badge>
@@ -356,7 +366,7 @@ export default function NotificationsPage() {
                             {n.title}
                           </button>
                           <div className='line-clamp-1 text-xs text-muted-foreground'>
-                            {n.description}
+                            {formatDescription(n.description)}
                           </div>
                         </TableCell>
                         <TableCell className='hidden md:table-cell'>
@@ -403,7 +413,7 @@ export default function NotificationsPage() {
                       <div className='mb-3 text-sm text-muted-foreground'>
                         生成于：{new Date(openItem.createdAt).toLocaleString()}
                       </div>
-                      <Accordion title={openItem.title} content={openItem.description || ''} />
+                      <Accordion title={openItem.title} content={formatDescription(openItem.description || '')} />
                       <div className='mt-4 text-sm'>
                         <div>服务：{openItem.service}</div>
                         <div>状态：{String(openItem.meta?.status || '')}</div>
