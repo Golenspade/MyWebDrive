@@ -413,7 +413,7 @@ export default function NotificationsPage() {
                       <div className='mb-3 text-sm text-muted-foreground'>
                         生成于：{new Date(openItem.createdAt).toLocaleString()}
                       </div>
-                      <Accordion title={openItem.title} content={formatDescription(openItem.description || '')} />
+                      <Accordion id={openItem.id} title={openItem.title}>{formatDescription(openItem.description || '')}</Accordion>
                       <div className='mt-4 text-sm'>
                         <div>服务：{openItem.service}</div>
                         <div>状态：{String(openItem.meta?.status || '')}</div>

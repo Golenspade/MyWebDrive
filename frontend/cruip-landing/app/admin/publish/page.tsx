@@ -77,7 +77,6 @@ export default function AdminPublishPage() {
       toast({
         title: '搜索失败',
         description: err.message || '无法搜索文件',
-        variant: 'destructive',
       })
     } finally {
       setLoading(false)
@@ -102,7 +101,6 @@ export default function AdminPublishPage() {
       toast({
         title: '错误',
         description: '请先选择要发布的文件',
-        variant: 'destructive',
       })
       return
     }
@@ -111,7 +109,6 @@ export default function AdminPublishPage() {
       toast({
         title: '错误',
         description: 'Slug 和 Version 是必填项',
-        variant: 'destructive',
       })
       return
     }
@@ -133,7 +130,6 @@ export default function AdminPublishPage() {
       toast({
         title: '发布失败',
         description: err.message || '无法发布项目',
-        variant: 'destructive',
       })
     } finally {
       setLoading(false)
@@ -242,7 +238,7 @@ export default function AdminPublishPage() {
               <div className='space-y-2'>
                 <Label htmlFor='category'>分类</Label>
                 <Select value={formData.category || undefined} onValueChange={(v: any) => setFormData({ ...formData, category: v })}>
-                  <SelectTrigger id='category'>
+                  <SelectTrigger>
                     <SelectValue placeholder='选择分类' />
                   </SelectTrigger>
                   <SelectContent>
@@ -281,7 +277,7 @@ export default function AdminPublishPage() {
               <div className='space-y-2'>
                 <Label htmlFor='channel'>通道</Label>
                 <Select value={formData.channel} onValueChange={(v: any) => setFormData({ ...formData, channel: v })}>
-                  <SelectTrigger id='channel'>
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -295,7 +291,7 @@ export default function AdminPublishPage() {
               <div className='space-y-2'>
                 <Label htmlFor='os'>操作系统</Label>
                 <Select value={formData.os} onValueChange={(v: any) => setFormData({ ...formData, os: v })}>
-                  <SelectTrigger id='os'>
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -310,7 +306,7 @@ export default function AdminPublishPage() {
               <div className='space-y-2'>
                 <Label htmlFor='arch'>架构</Label>
                 <Select value={formData.arch} onValueChange={(v: any) => setFormData({ ...formData, arch: v })}>
-                  <SelectTrigger id='arch'>
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

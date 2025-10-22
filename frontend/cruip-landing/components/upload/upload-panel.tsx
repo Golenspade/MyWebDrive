@@ -280,7 +280,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
 
       <div className="flex items-center gap-2">
         <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        <Button onClick={startUpload} disabled={!file || uploading || !draft.name || (quota && quota.total > 0 && quota.used >= quota.total)}>开始上传</Button>
+        <Button onClick={startUpload} disabled={!file || uploading || !draft.name || !!(quota && quota.total > 0 && quota.used >= quota.total)}>开始上传</Button>
       </div>
 
     </div>

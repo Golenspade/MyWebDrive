@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { useSearchParams } from 'next/navigation'
 
-export default function SignUp() {
+function SignUpInner() {
   const router = useRouter()
   const { register, isLoading, isAuthenticated } = useAuthStore()
   const searchParams = useSearchParams()
@@ -36,12 +36,12 @@ export default function SignUp() {
   }
 
   // Prefill invitation code from ?code=
-  if (typeof window !== 'undefined') {
-    const code = searchParams.get('code')
+  useEffect(() => {
+    const code = searchParams?.get('code') ?? (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('code') : null)
     if (code && !invitationCode) {
       setInvitationCode(code)
     }
-  }
+  }, [searchParams, invitationCode])
 
   return (
     <>
@@ -77,5 +77,14 @@ export default function SignUp() {
         </div>
       </form>
     </>
+  )
+}
+
+
+export default function SignUp() {
+  return (
+    <Suspense>
+      <SignUpInner />
+    </Suspense>
   )
 }
