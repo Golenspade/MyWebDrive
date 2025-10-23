@@ -675,8 +675,16 @@ app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
   }
 
   const fileId = req.params.fileId
+
+  // Get original filename from upload session
+  let fileName = fileId
+  try {
+    const session = await prisma.uploadSession.findUnique({ where: { id: fileId }, select: { fileName: true } })
+    if (session?.fileName) fileName = session.fileName
+  } catch {}
+
   res.setHeader('Content-Type', 'application/octet-stream')
-  res.setHeader('Content-Disposition', `attachment; filename="${fileId}"`)
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`)
   if (USE_MINIO) {
     try {
       const { Client } = await import('minio')
