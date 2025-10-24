@@ -414,7 +414,7 @@ app.get('/api/v1/admin/users', requireAuth, requireAdmin, async (req, res, next)
       try {
         const r = await fetch(`${USER}/api/v1/users/${u.id}/storage`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(4000) })
         if (r.ok) {
-          const prof = await r.json()
+          const prof = await r.json() as any
           return { ...u, name: (prof?.name ?? u.name) }
         }
       } catch {}
@@ -453,6 +453,7 @@ app.get('/api/v1/files/:fileId/preview', requireAuth, async (req, res, next) => 
     const filename = (info?.name && typeof info.name === 'string') ? info.name : fileId
     res.setHeader('Content-Type', mime)
     res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`)
+    // @ts-ignore - Node.js ReadableStream has pipe method
     stor.body.pipe(res)
   } catch (err) {
     next(err)
@@ -571,6 +572,8 @@ app.put('/api/v1/files/:fileId/catalog', requireAuth, requireAdmin, express.json
 
 mountProxy('/api/v1/files', METADATA)
 mountProxy('/api/v1/folders', METADATA)
+mountProxy('/api/v1/search', METADATA)
+mountProxy('/api/v1/catalog', METADATA)
 mountProxy('/api/v1/storage', STORAGE)
 mountProxy('/api/v1/shares', SHARING)
 
