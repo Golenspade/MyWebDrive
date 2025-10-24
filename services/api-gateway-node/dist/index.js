@@ -309,6 +309,161 @@ function mountProxy(basePath, target) {
         },
     }));
 }
+// Intercept invitation creation to push notification
+app.post('/api/v1/auth/invitations', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
+    try {
+        const token = parseBearerToken(req);
+        const upstream = await fetch(`${AUTH}${req.originalUrl}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(10000),
+        });
+        const text = await upstream.text();
+        res.status(upstream.status);
+        res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
+        if (upstream.ok) {
+            try {
+                const data = JSON.parse(text);
+                await pushNotif({ title: '创建邀请码', description: `code=${data.code}`, severity: 'info', service: 'auth-service' });
+            }
+            catch { }
+        }
+        return res.end(text);
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// Intercept user registration to push notification
+app.post('/api/v1/auth/register', express.json(), async (req, res, next) => {
+    try {
+        const upstream = await fetch(`${AUTH}${req.originalUrl}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(10000),
+        });
+        const text = await upstream.text();
+        res.status(upstream.status);
+        res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
+        if (upstream.ok) {
+            try {
+                const data = JSON.parse(text);
+                await pushNotif({ title: '新用户注册', description: data.email || '', severity: 'success', service: 'auth-service' });
+            }
+            catch { }
+        }
+        return res.end(text);
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// Intercept storage finalize to push upload notifications
+app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, express.json(), async (req, res, next) => {
+    try {
+        const token = parseBearerToken(req);
+        const upstream = await fetch(`${STORAGE}${req.originalUrl}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(30000),
+        });
+        const text = await upstream.text();
+        res.status(upstream.status);
+        res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
+        try {
+            if (upstream.ok) {
+                const data = JSON.parse(text);
+                await pushNotif({ title: '文件上传完成', description: `${data.fileName} (${data.fileSize} bytes)`, severity: 'success', service: 'storage-service' });
+            }
+            else {
+                await pushNotif({ title: '文件上传失败', description: `status=${upstream.status}`, severity: 'warning', service: 'storage-service' });
+            }
+        }
+        catch { }
+        return res.end(text);
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// Pre-route notification for downloads (non-blocking)
+app.use('/api/v1/storage/files/:fileId/download', async (req, _res, next) => {
+    try {
+        const fileId = req.params.fileId;
+        await pushNotif({ title: '下载请求', description: `fileId=${fileId}`, severity: 'info', service: 'storage-service', });
+    }
+    catch { }
+    return next();
+});
+// Aggregated admin users list: overlay profile name from User service (SoR)
+app.get('/api/v1/admin/users', requireAuth, requireAdmin, async (req, res, next) => {
+    try {
+        const q = String(req.query.query || req.query.q || '');
+        const page = String(req.query.page || '1');
+        const pageSize = String(req.query.pageSize || '20');
+        const authHeader = String(req.headers['authorization'] || '');
+        const url = new URL(`${AUTH}/api/v1/auth/admin/users`);
+        if (q)
+            url.searchParams.set('query', q);
+        url.searchParams.set('page', page);
+        url.searchParams.set('pageSize', pageSize);
+        const base = await fetch(url.toString(), { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(8000) });
+        if (!base.ok) {
+            res.status(base.status);
+            res.setHeader('Content-Type', base.headers.get('content-type') || 'application/json');
+            return res.end(await base.text());
+        }
+        const js = await base.json();
+        // Overlay names from user service profile (batch in parallel, best-effort)
+        const items = js.items;
+        const enriched = await Promise.all(items.map(async (u) => {
+            try {
+                const r = await fetch(`${USER}/api/v1/users/${u.id}/storage`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(4000) });
+                if (r.ok) {
+                    const prof = await r.json();
+                    return { ...u, name: (prof?.name ?? u.name) };
+                }
+            }
+            catch { }
+            return u;
+        }));
+        return res.json({ ...js, items: enriched });
+    }
+    catch (err) {
+        next(err);
+    }
+});
+// Preview stream: verify ownership via Metadata, set inline headers, and proxy Storage stream
+app.get('/api/v1/files/:fileId/preview', requireAuth, async (req, res, next) => {
+    try {
+        const fileId = req.params.fileId;
+        const authHeader = String(req.headers['authorization'] || '');
+        // Verify ownership and get metadata (mimeType, name)
+        const meta = await fetch(`${METADATA}/api/v1/files/${encodeURIComponent(fileId)}`, {
+            headers: { Authorization: authHeader },
+            signal: AbortSignal.timeout(6000)
+        });
+        if (!meta.ok) {
+            res.status(meta.status);
+            res.setHeader('Content-Type', meta.headers.get('content-type') || 'application/json');
+            return res.end(await meta.text());
+        }
+        const info = await meta.json();
+        // Fetch storage stream
+        const stor = await fetch(`${STORAGE}/api/v1/storage/files/${encodeURIComponent(fileId)}/download`, { signal: AbortSignal.timeout(60_000) });
+        if (!stor.ok || !stor.body) {
+            res.status(stor.status || 502);
+            return res.end(await stor.text().catch(() => ''));
+        }
+        // Inline headers for preview
+        const mime = (info?.mimeType && typeof info.mimeType === 'string') ? info.mimeType : 'application/octet-stream';
+        const filename = (info?.name && typeof info.name === 'string') ? info.name : fileId;
+        res.setHeader('Content-Type', mime);
+        res.setHeader('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+        // @ts-ignore - Node.js ReadableStream has pipe method
+        stor.body.pipe(res);
+    }
+    catch (err) {
+        next(err);
+    }
+});
 // Intercept quota change to add audit, then forward to user service
 app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
     try {
@@ -339,6 +494,12 @@ app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, express.json(), 
                     if (AUDITS.length > 500)
                         AUDITS.pop();
                 }
+            }
+            catch { }
+            // Notification for quota changed
+            try {
+                const newQuota = (req.body || {}).storageQuota;
+                await pushNotif({ title: '\u914d\u989d\u4fee\u6539', description: `user=${id} -> ${newQuota} bytes`, severity: 'info', service: 'user-service' });
             }
             catch { }
         }
@@ -404,6 +565,8 @@ app.put('/api/v1/files/:fileId/catalog', requireAuth, requireAdmin, express.json
 });
 mountProxy('/api/v1/files', METADATA);
 mountProxy('/api/v1/folders', METADATA);
+mountProxy('/api/v1/search', METADATA);
+mountProxy('/api/v1/catalog', METADATA);
 mountProxy('/api/v1/storage', STORAGE);
 mountProxy('/api/v1/shares', SHARING);
 app.listen(PORT, () => {

@@ -1,0 +1,1 @@
+bash ~/myWebDrive/infrastructure/alicloud/prod-diagnose.sh

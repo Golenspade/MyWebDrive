@@ -599,29 +599,30 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, async (req, 
             try {
                 const bearer = String(req.headers['authorization'] || '');
                 const r = await callMetadataServiceWithRetry(`${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`, { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null }, bearer);
-                if (!r.ok) {
-                    // Rollback stored file if metadata creation failed
-                    if (USE_MINIO) {
-                        try {
-                            const { Client } = await import('minio');
-                            const [host, portStr] = MINIO_ENDPOINT.split(':');
-                            const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY });
-                            await client.removeObject(MINIO_BUCKET, `files/${session.id}`);
-                        }
-                        catch { }
-                    }
-                    else {
-                        try {
-                            await fsp.rm(finalPath, { force: true });
-                        }
-                        catch { }
-                    }
-                    session.status = 'failed';
-                    await persistSession(session);
-                    return res.status(502).json({ error: 'Failed to create metadata' });
-                }
+                if (!r.ok)
+                    throw new Error(`metadata http ${r.status}`);
             }
-            catch { }
+            catch (e) {
+                // Rollback stored file if metadata creation failed
+                if (USE_MINIO) {
+                    try {
+                        const { Client } = await import('minio');
+                        const [host, portStr] = MINIO_ENDPOINT.split(':');
+                        const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY });
+                        await client.removeObject(MINIO_BUCKET, `files/${session.id}`);
+                    }
+                    catch { }
+                }
+                else {
+                    try {
+                        await fsp.rm(finalPath, { force: true });
+                    }
+                    catch { }
+                }
+                session.status = 'failed';
+                await persistSession(session);
+                return res.status(502).json({ error: 'Failed to create metadata' });
+            }
         }
         return res.json({
             uploadId,
@@ -668,8 +669,16 @@ app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
         res.on('finish', () => { void release(ip); });
     }
     const fileId = req.params.fileId;
+    // Get original filename from upload session
+    let fileName = fileId;
+    try {
+        const session = await prisma.uploadSession.findUnique({ where: { id: fileId }, select: { fileName: true } });
+        if (session?.fileName)
+            fileName = session.fileName;
+    }
+    catch { }
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileId}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
     if (USE_MINIO) {
         try {
             const { Client } = await import('minio');
@@ -833,7 +842,7 @@ app.get('/api/v1/storage/files/:fileId', requireServiceToken, async (req, res) =
         catch {
             return res.status(404).json({ error: 'File not found' });
         }
-        res.sendFile(p);
+        res.sendFile(path.resolve(p));
     }
 });
 // Error handler
