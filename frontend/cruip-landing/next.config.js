@@ -32,7 +32,8 @@ const nextBase = {
   // Redirect '/' -> '/docs' so users don't land on a 404 in dev/prod
   async redirects() {
     return [
-      { source: '/', destination: '/admin/overview', permanent: false },
+      // Default landing to download catalog so guests/users can find resources
+      { source: '/', destination: '/download', permanent: false },
     ]
   },
 };

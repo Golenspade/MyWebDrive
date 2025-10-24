@@ -23,11 +23,8 @@ function SignUpInner() {
         setError('请输入有效的邀请码')
         return
       }
+      // 仅完成注册与状态更新，导航放在下面的 effect 中统一处理，避免竞态导致 404
       await register({ name, email, password, invitationCode: invitationCode.trim() })
-      // 根据角色跳转
-      const nextRole = useAuthStore.getState().role
-      if (nextRole === 'admin') router.push('/admin/overview')
-      else router.push('/account')
     } catch (err: any) {
       setError(err?.message || '注册失败')
     }
