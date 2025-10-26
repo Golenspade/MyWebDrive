@@ -26,13 +26,9 @@ const nextBase = {
     }
   },
 
-  // Make root path non-404 when using Nextra v3 (Pages Router)
-  // Redirect '/' -> '/docs' so users don't land on a 404 in dev/prod
+  // Root stays on marketing landing page; no default redirect
   async redirects() {
-    return [
-      // Default landing to download catalog so guests/users can find resources
-      { source: '/', destination: '/download', permanent: false },
-    ]
+    return []
   },
 };
 

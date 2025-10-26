@@ -1,6 +1,2 @@
-import { redirect } from 'next/navigation'
-
-export default function RootRedirect() {
-  // Redirect root to the public downloads/catalog page by default
-  redirect('/download')
-}
+export { metadata } from './(marketing)/page'
+export { default } from './(marketing)/page'
