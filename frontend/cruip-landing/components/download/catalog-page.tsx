@@ -252,7 +252,7 @@ function ProjectCard({ project, channel, os, arch, onOpen, onCopy }: {
               {assets.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">当前筛选无匹配资产</div>}
               {assets.map(a => (
                 <DropdownMenuItem key={a.id} asChild>
-                  <a href={a.url ?? `/api/v1/storage/files/${a.id}/download-direct?ttl=600`} className="flex items-center justify-between gap-2">
+                  <a href={assetLink(a)} className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm">{displayAsset(a)}</span>
                     <span className="text-xs text-muted-foreground">{fmtSize(a.sizeBytes)}</span>
                   </a>
@@ -262,9 +262,9 @@ function ProjectCard({ project, channel, os, arch, onOpen, onCopy }: {
           </DropdownMenu>
           <Tooltip>
             <TooltipTrigger>
-              <Button size="icon" variant="outline" onClick={() => onCopy(genInstallCmd(project, os))}><Copy className="size-4"/></Button>
+              <Button size="icon" variant="outline" disabled={assets.length===0} onClick={() => assets.length>0 && onCopy(assetLink(assets[0]))}><Copy className="size-4"/></Button>
             </TooltipTrigger>
-            <TooltipContent>复制安装命令</TooltipContent>
+            <TooltipContent>复制下载链接</TooltipContent>
           </Tooltip>
           <Button size="sm" variant="ghost" onClick={onOpen} className="ml-auto gap-1">
             版本与日志 <ExternalLink className="size-4"/>
@@ -297,7 +297,7 @@ function ProjectModal({ project, channel }: { project: Project; channel: Channel
             </div>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               {r.assets.map(a => (
-                <a key={a.id} href={a.url ?? `/api/v1/storage/files/${a.id}/download-direct?ttl=600`} className="text-sm rounded-md border px-3 py-2 hover:bg-muted/50 flex items-center justify-between">
+                <a key={a.id} href={assetLink(a)} className="text-sm rounded-md border px-3 py-2 hover:bg-muted/50 flex items-center justify-between">
                   <span>{displayAsset(a)}</span>
                   <span className="text-xs text-muted-foreground">{fmtSize(a.sizeBytes)}</span>
                 </a>
@@ -364,6 +364,27 @@ function fmtSize(n: number) {
   do { v /= 1024; i++; } while (v >= 1024 && i < u.length-1);
   return `${v.toFixed(1)} ${u[i]}`;
 }
+
+function assetLink(a: Asset) {
+  if (!a) return ''
+  const u = a.url || ''
+  try {
+    if (u && /^https?:\/\//.test(u)) {
+      const url = new URL(u)
+      // If points to our storage path, always use relative direct link to avoid mixed-content and enforce https
+      if (url.pathname.startsWith(`/api/v1/storage/files/${a.id}/`)) {
+        return `/api/v1/storage/files/${a.id}/download-direct?ttl=600`
+      }
+      // Upgrade to https when same host
+      if (typeof location !== 'undefined' && url.host === location.host && url.protocol === 'http:') {
+        return `https://${url.host}${url.pathname}${url.search}${url.hash}`
+      }
+      return u
+    }
+  } catch {}
+  return `/api/v1/storage/files/${a.id}/download-direct?ttl=600`
+}
+
 
 function displayAsset(a: Asset) {
   const osLabel = a.os && a.os !== "any" ? ({ darwin: "macOS", windows: "Windows", linux: "Linux" } as const)[a.os as OS] : undefined;

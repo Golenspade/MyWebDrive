@@ -38,6 +38,15 @@ type CatalogFormData = {
   url: string
 }
 
+function fmtSize(n: number) {
+  if (!n) return '0 B'
+  const units = ['B','KB','MB','GB','TB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(i === 0 ? 0 : 2)} ${units[i]}`
+}
+
 export default function AdminPublishPage() {
   const { isAuthenticated, role } = useAuthStore()
   const { toast } = useToast()
@@ -178,7 +187,7 @@ export default function AdminPublishPage() {
                 >
                   <div className='text-sm font-medium'>{file.name}</div>
                   <div className='text-xs text-gray-500'>
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
+                    {fmtSize(file.size)}
                   </div>
                 </div>
               ))}
