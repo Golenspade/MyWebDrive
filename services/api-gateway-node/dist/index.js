@@ -14,6 +14,9 @@ const SHARING = getEnv('SHARING_SERVICE_URL', 'http://localhost:8085');
 // Default gateway port aligns with manage-services.sh (9080)
 const PORT = parseInt(process.env.GATEWAY_PORT || '9080', 10);
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+// Long operations timeouts (tuned for large uploads/finalize)
+const GATEWAY_PROXY_TIMEOUT_MS = parseInt(process.env.GATEWAY_PROXY_TIMEOUT_MS || '600000', 10); // 10 minutes
+const UPLOAD_FINALIZE_TIMEOUT_MS = parseInt(process.env.UPLOAD_FINALIZE_TIMEOUT_MS || '600000', 10);
 const app = express();
 app.disable('x-powered-by');
 // Logger & request logging
@@ -293,6 +296,8 @@ function mountProxy(basePath, target) {
     app.use(basePath, createProxyMiddleware({
         target,
         changeOrigin: true,
+        timeout: GATEWAY_PROXY_TIMEOUT_MS,
+        proxyTimeout: GATEWAY_PROXY_TIMEOUT_MS,
         // Reconstruct original path because Express strips the mount prefix
         pathRewrite: (_path, req) => req.originalUrl,
         on: {
@@ -362,7 +367,7 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, express.json
         const token = parseBearerToken(req);
         const upstream = await fetch(`${STORAGE}${req.originalUrl}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-            body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(30000),
+            body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(UPLOAD_FINALIZE_TIMEOUT_MS),
         });
         const text = await upstream.text();
         res.status(upstream.status);
@@ -516,6 +521,8 @@ mountProxy('/api/v1/users', USER);
 app.use('/api/v1/files/:fileId/shares', createProxyMiddleware({
     target: SHARING,
     changeOrigin: true,
+    timeout: GATEWAY_PROXY_TIMEOUT_MS,
+    proxyTimeout: GATEWAY_PROXY_TIMEOUT_MS,
     // Preserve full original path (e.g., /api/v1/files/<id>/shares)
     pathRewrite: (_path, req) => req.originalUrl,
     on: {

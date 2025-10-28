@@ -5,7 +5,7 @@
 set -e
 
 # 配置
-REMOTE_HOST="${REMOTE_HOST:-8.134.176.90}"
+REMOTE_HOST="${REMOTE_HOST:-8.134.175.90}"
 REMOTE_USER="${REMOTE_USER:-root}"
 SSH_KEY="${SSH_KEY:-}"
 DOMAIN="mygoavemujica.top"
@@ -232,7 +232,7 @@ set -e
 sudo apt-get install -y certbot python3-certbot-nginx
 
 # 申请证书
-sudo certbot --nginx -d $DOMAIN -m $EMAIL --agree-tos -n
+sudo certbot --nginx -d $DOMAIN -d www.$DOMAIN -m $EMAIL --agree-tos -n
 
 # 重载 Nginx
 sudo systemctl reload nginx
