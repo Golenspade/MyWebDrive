@@ -4,6 +4,22 @@ All notable changes to this repository will be documented in this file.
 
 
 
+## fix/nginx-http2-upstream-syntax - 2025-10-28
+
+### Fixed
+- fix(nginx): 将 upstream 块从 server 级别移动到 http 级别（Nginx 语法要求），避免 `"upstream" directive is not allowed here` 报错
+- fix(deploy): 更新阿里云部署清单与远程部署脚本
+  - 服务器 IP 更正为 8.134.175.90
+  - certbot 命令扩展至同时签发 apex 与 www 子域
+
+### Ops
+- 已在 8.134.175.90 上部署并验证：Nginx `listen 443 ssl http2;`，证书有效（Let's Encrypt），自动续期正常
+
+### Verify
+- `curl -I --http2 https://mygoavemujica.top` 返回 `HTTP/2 200`
+- `curl -I --http2 https://www.mygoavemujica.top` 返回 `HTTP/2 200`
+
+
 
 ## deploy-un-2025-10-19-2238 - 2025-10-19
 

@@ -1,7 +1,7 @@
 # MyWebDrive 阿里云部署操作清单
 
 ## 📋 部署信息
-- **服务器 IP**: 8.134.176.90
+- **服务器 IP**: 8.134.175.90
 - **域名**: mygoavemujica.top
 - **版本**: v0.2.0-search-publish-catalog
 - **部署时间**: 2025-10-24
@@ -15,7 +15,7 @@
 #### 1. 设置环境变量
 ```bash
 export SSH_KEY=~/path/to/your.pem  # 替换为你的 .pem 文件路径
-export REMOTE_HOST=8.134.176.90
+export REMOTE_HOST=8.134.175.90
 export REMOTE_USER=root  # 或 ubuntu
 ```
 
@@ -59,7 +59,7 @@ bash infrastructure/alicloud/remote-deploy.sh
 # 本地执行
 export KEY=~/path/to/your.pem
 chmod 400 "$KEY"
-ssh -i "$KEY" root@8.134.176.90
+ssh -i "$KEY" root@8.134.175.90
 ```
 
 ### 步骤 2: 服务器初始化
@@ -150,8 +150,8 @@ sudo systemctl reload nginx
 sudo apt-get install -y certbot python3-certbot-nginx
 
 # 申请证书（替换邮箱地址）
-sudo certbot --nginx -d mygoavemujica.top \
-  -m your@email.com --agree-tos -n
+sudo certbot --nginx -d mygoavemujica.top -d www.mygoavemujica.top \
+  -m <your-email@example.com> --agree-tos -n
 
 # 重载 Nginx
 sudo systemctl reload nginx
