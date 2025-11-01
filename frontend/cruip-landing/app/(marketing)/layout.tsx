@@ -17,11 +17,12 @@ export default function MarketingLayout({
   useEffect(() => {
     AOS.init({
       once: true,
-      disable: "phone",
       duration: 700,
       easing: "ease-out-cubic",
     });
-  });
+    // Ensure initial in-view elements animate immediately and run only once
+    AOS.refreshHard();
+  }, []);
 
   return (
     <div className="cursor-none">

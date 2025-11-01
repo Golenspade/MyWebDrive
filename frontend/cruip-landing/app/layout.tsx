@@ -42,7 +42,7 @@ export default function RootLayout({
         className={`${notoSansSC.variable} ${zcoolXiaoWei.variable} ${maShanZheng.variable} bg-gray-50 dark:bg-gray-950 font-sans tracking-tight text-gray-900 dark:text-gray-50 antialiased`}
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
-          <div className="flex min-h-screen flex-col overflow-hidden supports-[overflow:clip]:overflow-clip">
+          <div className="flex min-h-screen flex-col">
             {children}
           </div>
         </ThemeProvider>
