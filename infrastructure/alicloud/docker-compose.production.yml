@@ -244,7 +244,7 @@ services:
       FRONTEND_HOST: ${FRONTEND_HOST:-0.0.0.0}
       API_BASE_URL: ${API_BASE_URL:-http://api-gateway:9090}
     command: >
-      sh -c "pnpm start"
+      sh -c "HOSTNAME=0.0.0.0 PORT=\"$FRONTEND_PORT\" node .next/standalone/server.js"
     ports:
       - "127.0.0.1:3100:3100"
     depends_on:

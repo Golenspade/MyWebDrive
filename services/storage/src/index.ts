@@ -115,6 +115,10 @@ setInterval(async () => {
   }
 }, CLEANUP_PERIOD_MS).unref()
 
+// Track finalize jobs to avoid duplicate work
+const FINALIZE_IN_PROGRESS = new Set<string>()
+
+
 // Health & metrics
 app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'storage-service-node' }))
 app.get('/metrics', metricsHandler)
@@ -511,6 +515,8 @@ async function mergeChunks(session: UploadSession, expectedMd5?: string): Promis
         },
       })
     : null
+  // Avoid MaxListenersExceededWarning when piping many times into the same Transform
+  if (hashT) (hashT as any).setMaxListeners?.(0)
 
   // Pipe each chunk sequentially to the same writer to honor order
   for (let i = 0; i < session.totalChunks; i++) {
@@ -580,75 +586,81 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, async (req, 
   if (!session) return res.status(404).json({ error: 'Upload session not found' })
   if (session.ownerId !== (req as any).auth.userId) return res.status(403).json({ error: 'Access denied' })
   if (!STORAGE_SKIP_METADATA && Object.keys(session.uploadedChunks).length !== session.totalChunks) return res.status(400).json({ error: 'Not all chunks uploaded' })
-
   if (session.fileSize > MAX_FILE_SIZE) return res.status(400).json({ error: 'File too large (max 2GB)' })
 
-
-  try {
-    const { expectedMd5 } = (req.body || {}) as { expectedMd5?: string }
-    let finalPath: string
-    let md5: string
-    if (STORAGE_SKIP_METADATA) {
-      // Fast path for dev/demo: skip actual merge to speed up finalize
-      finalPath = `dev://skipped/${session.id}`
-      md5 = 'skip'
-    } else {
-      const merged = await mergeChunks(session, expectedMd5)
-      finalPath = merged.finalPath
-      md5 = merged.md5
-    }
-    session.status = 'completed'
-    session.storagePath = finalPath
-    session.md5Hash = md5
-    session.updatedAt = new Date().toISOString()
-    await persistSession(session)
-    // Notify metadata service: create or update file + version (skippable in dev)
-    if (!STORAGE_SKIP_METADATA) {
-      try {
-        const bearer = String(req.headers['authorization'] || '')
-        const r = await callMetadataServiceWithRetry(
-          `${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`,
-          { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null },
-          bearer,
-        )
-        if (!r.ok) throw new Error(`metadata http ${r.status}`)
-      } catch (e) {
-        // Rollback stored file if metadata creation failed
-        if (USE_MINIO) {
-          try {
-            const { Client } = await import('minio')
-            const [host, portStr] = MINIO_ENDPOINT.split(':')
-            const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
-            await client.removeObject(MINIO_BUCKET, `files/${session.id}`)
-          } catch {}
-        } else {
-          try { await fsp.rm(finalPath, { force: true }) } catch {}
-        }
-        session.status = 'failed'
-        await persistSession(session)
-        return res.status(502).json({ error: 'Failed to create metadata' })
-      }
-    }
-
+  // If already completed, return current info
+  if (session.status === 'completed') {
     return res.json({
       uploadId,
       fileName: session.fileName,
       fileSize: session.fileSize,
-      storagePath: finalPath,
-      md5Hash: md5,
+      storagePath: session.storagePath,
+      md5Hash: session.md5Hash,
       status: 'completed',
       fileId: uploadId,
     })
-  } catch (err: any) {
-    if (err?.code === 'MD5_MISMATCH') {
+  }
+
+  // If a finalize job is already running, return processing
+  if (FINALIZE_IN_PROGRESS.has(uploadId)) {
+    return res.status(202).json({ status: 'processing', uploadId })
+  }
+
+  // Start background finalize job
+  FINALIZE_IN_PROGRESS.add(uploadId)
+  const bearer = String(req.headers['authorization'] || '')
+  const { expectedMd5 } = (req.body || {}) as { expectedMd5?: string }
+
+  setImmediate(async () => {
+    try {
+      let finalPath: string
+      let md5: string
+      if (STORAGE_SKIP_METADATA) {
+        finalPath = `dev://skipped/${session.id}`
+        md5 = 'skip'
+      } else {
+        const merged = await mergeChunks(session, expectedMd5)
+        finalPath = merged.finalPath
+        md5 = merged.md5
+      }
+      session.status = 'completed'
+      session.storagePath = finalPath
+      session.md5Hash = md5
+      session.updatedAt = new Date().toISOString()
+      await persistSession(session)
+      if (!STORAGE_SKIP_METADATA) {
+        try {
+          const r = await callMetadataServiceWithRetry(
+            `${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`,
+            { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null },
+            bearer,
+          )
+          if (!r.ok) throw new Error(`metadata http ${r.status}`)
+        } catch (e) {
+          // Rollback stored file if metadata creation failed
+          if (USE_MINIO) {
+            try {
+              const { Client } = await import('minio')
+              const [host, portStr] = MINIO_ENDPOINT.split(':')
+              const client = new Client({ endPoint: host, port: Number(portStr || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
+              await client.removeObject(MINIO_BUCKET, `files/${session.id}`)
+            } catch {}
+          } else {
+            try { await fsp.rm(finalPath, { force: true }) } catch {}
+          }
+          session.status = 'failed'
+          await persistSession(session)
+        }
+      }
+    } catch (err: any) {
       session.status = 'failed'
       await persistSession(session)
-      return res.status(422).json({ error: 'MD5 checksum mismatch' })
+    } finally {
+      FINALIZE_IN_PROGRESS.delete(uploadId)
     }
-    session.status = 'failed'
-    await persistSession(session)
-    return res.status(500).json({ error: 'Failed to merge file' })
-  }
+  })
+
+  return res.status(202).json({ status: 'processing', uploadId })
 })
 
 // Cancel upload
