@@ -12,6 +12,7 @@ MyWebDrive is a microservices-based cloud storage platform built with Node.js + 
 - PostgreSQL for each service's database with Prisma ORM
 - JWT-based authentication with access/refresh tokens
 - TUS protocol for resumable uploads
+- Async upload finalization for large files (202 status code + polling)
 
 ## Architecture
 
@@ -103,7 +104,7 @@ JWT_SECRET=dev-secret \
 STORAGE_PORT=7084 \
 STORAGE_PATH=./storage \
 METADATA_SERVICE_URL=http://localhost:7083 \
-STORAGE_DATABASE_URL=file:./storage.db \
+STORAGE_DATABASE_URL=postgres://user:pass@localhost:5432/storage \
 REDIS_URL=redis://localhost:6379/0 \
 pnpm dev
 ```
@@ -352,6 +353,37 @@ All admin routes require authentication + admin role (`requireAuth` + `requireAd
 
 ## Special Features
 
+### Async Upload Finalization
+
+For large file uploads, the system implements async finalization to avoid timeout issues:
+
+**Flow**:
+1. Client uploads file chunks via `PATCH /api/v1/storage/uploads/{id}` (with `X-Chunk-Index` header)
+2. After all chunks uploaded, client calls `POST /api/v1/storage/uploads/{id}/finalize`
+3. Storage service returns `202 Accepted` if file is large (starts background merge job)
+4. Client polls `GET /api/v1/storage/uploads/{id}` every 2 seconds to check status
+5. When status becomes `completed`, upload is done
+
+**Key Implementation Details**:
+- Storage service uses `setImmediate` for background processing (non-blocking)
+- In-memory Set `FINALIZE_IN_PROGRESS` tracks active jobs (prevents duplicate merges)
+- Gateway intercepts finalize requests to push admin notifications
+- Frontend polls up to 300 times (10 minutes max)
+- Idempotent: calling finalize on completed session returns current info
+
+**Configuration**:
+```bash
+GATEWAY_PROXY_TIMEOUT_MS=600000        # 10 minutes
+UPLOAD_FINALIZE_TIMEOUT_MS=600000      # 10 minutes
+STORAGE_SKIP_METADATA=false            # Dev-only: skip metadata callback
+```
+
+**Status Values**:
+- `uploading` - chunks being uploaded
+- `processing` - finalize job running (202 returned)
+- `completed` - merge done, file ready
+- `failed` - merge failed
+
 ### Catalog API (Download Directory)
 
 Development setup for asset downloads:
@@ -500,7 +532,7 @@ make alicloud-deploy # Deploy to Aliyun
 **Prisma errors:**
 - Regenerate client: `pnpm --filter ./services/<name> prisma:generate`
 - Push schema: `pnpm --filter ./services/<name> db:push`
-- Check database file exists (for SQLite services)
+- Check database connection: Verify `<SERVICE>_DATABASE_URL` is set correctly
 
 **Frontend can't reach backend:**
 - Verify gateway is running on 9080: `curl http://localhost:9080/health`
