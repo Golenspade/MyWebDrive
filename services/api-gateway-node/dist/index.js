@@ -373,9 +373,18 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, express.json
         res.status(upstream.status);
         res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json');
         try {
-            if (upstream.ok) {
-                const data = JSON.parse(text);
-                await pushNotif({ title: '文件上传完成', description: `${data.fileName} (${data.fileSize} bytes)`, severity: 'success', service: 'storage-service' });
+            let data = null;
+            try {
+                data = JSON.parse(text);
+            }
+            catch { }
+            if (upstream.status === 202) {
+                await pushNotif({ title: '文件合并已开始', description: `uploadId=${req.params.uploadId}`, severity: 'info', service: 'storage-service' });
+            }
+            else if (upstream.ok) {
+                const name = data?.fileName || (req.params.uploadId || '');
+                const size = data?.fileSize;
+                await pushNotif({ title: '文件上传完成', description: size ? `${name} (${size} bytes)` : String(name), severity: 'success', service: 'storage-service' });
             }
             else {
                 await pushNotif({ title: '文件上传失败', description: `status=${upstream.status}`, severity: 'warning', service: 'storage-service' });

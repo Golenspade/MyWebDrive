@@ -17,7 +17,6 @@ export default function HeroHome() {
           <div className="pb-12 text-center md:pb-16">
             <div
               className="mb-6 border-y [border-image:linear-gradient(to_right,transparent,--theme(--color-slate-300/.8),transparent)1]"
-              data-aos="zoom-y-out"
             >
               {(() => {
                 const avatars = [
@@ -28,11 +27,7 @@ export default function HeroHome() {
                   { src: "/images/rana.png", alt: "rana", opacity: "opacity-70" },
                 ];
                 return (
-                  <div className="w-full grid grid-cols-5 items-stretch gap-2 sm:gap-3 md:gap-4 overflow-hidden [--corner:28px]
-                  [mask-image:linear-gradient(black,black),radial-gradient(circle_at_0%_100%,black_calc(var(--corner)+8px),transparent_calc(var(--corner)+16px)),radial-gradient(circle_at_100%_100%,black_calc(var(--corner)+8px),transparent_calc(var(--corner)+16px))]
-                  [-webkit-mask-image:linear-gradient(black,black),radial-gradient(circle_at_0%_100%,black_calc(var(--corner)+8px),transparent_calc(var(--corner)+16px)),radial-gradient(circle_at_100%_100%,black_calc(var(--corner)+8px),transparent_calc(var(--corner)+16px))]
-                  [-webkit-mask-composite:source-over,destination-out,destination-out]
-                  [mask-composite:subtract]">
+                  <div className="w-full grid grid-cols-5 items-stretch gap-2 sm:gap-3 md:gap-4 overflow-hidden rounded-xl">
                     {avatars.map((a, i) => (
                       <div key={i} className="relative h-24 sm:h-28 md:h-32 lg:h-36 overflow-hidden rounded-md">
                         <Image
@@ -88,8 +83,6 @@ export default function HeroHome() {
               <div className="relative before:absolute before:inset-0 before:border-y before:[border-image:linear-gradient(to_right,transparent,--theme(--color-slate-300/.8),transparent)1]">
                 <div
                   className="mx-auto max-w-xs sm:flex sm:max-w-none sm:justify-center"
-                  data-aos="zoom-y-out"
-                  data-aos-delay={450}
                 >
                   <ShimmerButton
                     className="mb-4 w-full sm:mb-0 sm:w-auto shadow-2xl"
@@ -115,8 +108,6 @@ export default function HeroHome() {
           {/* Hero image */}
           <div
             className="mx-auto max-w-3xl"
-            data-aos="zoom-y-out"
-            data-aos-delay={600}
           >
             <div className="relative aspect-video rounded-2xl bg-gray-900 px-5 py-3 shadow-xl before:pointer-events-none before:absolute before:-inset-5 before:border-y before:[border-image:linear-gradient(to_right,transparent,--theme(--color-slate-300/.8),transparent)1] after:absolute after:-inset-5 after:-z-10 after:border-x after:[border-image:linear-gradient(to_bottom,transparent,--theme(--color-slate-300/.8),transparent)1]">
               <div className="relative mb-8 flex items-center justify-between before:block before:h-[9px] before:w-[41px] before:bg-[length:16px_9px] before:[background-image:radial-gradient(circle_at_4.5px_4.5px,var(--color-gray-600)_4.5px,transparent_0)] after:w-[41px]">

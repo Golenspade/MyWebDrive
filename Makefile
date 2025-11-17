@@ -46,12 +46,12 @@ docker-down:
 # 代码格式化 / Lint
 format:
 	@echo "✨ 格式化前端与 Node 代码..."
-	cd frontend && npm run format || true
+	cd frontend/cruip-landing && pnpm format || true
 	@echo "Done"
 
 lint:
 	@echo "🔍 执行前端与 Node 代码检查..."
-	cd frontend && npm run lint || true
+	cd frontend/cruip-landing && pnpm lint || true
 	@echo "Done"
 
 quality-check:

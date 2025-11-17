@@ -21,7 +21,6 @@ pnpm-debug.log*
 packages/*/dist/
 services/*/dist/
 apps/*/dist/
-frontend/dist/
 
 # Framework outputs
 apps/*/.next/

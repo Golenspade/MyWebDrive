@@ -1,36 +1,22 @@
-"use client";
+import "aos/dist/aos.css"
 
-import { useEffect } from "react";
-
-import AOS from "aos";
-import "aos/dist/aos.css";
-
-import Header from "@/components/ui/header";
-import Footer from "@/components/ui/footer";
-import { SmoothCursor } from "@/components/ui/smooth-cursor";
+import Header from "@/components/ui/header"
+import Footer from "@/components/ui/footer"
+import ClientEffects from "@/components/ui/client-effects"
 
 export default function MarketingLayout({
   children,
 }: {
-  children: React.ReactNode;
+  children: React.ReactNode
 }) {
-  useEffect(() => {
-    AOS.init({
-      once: true,
-      disable: "phone",
-      duration: 700,
-      easing: "ease-out-cubic",
-    });
-  });
-
   return (
     <div className="cursor-none">
-      <SmoothCursor />
+      {/* Client-only effects without forcing whole layout to be client */}
+      <ClientEffects />
+
       <Header />
-
       <main className="grow">{children}</main>
-
       <Footer border={true} />
     </div>
-  );
+  )
 }

@@ -293,7 +293,7 @@ curl -s http://localhost:7081/metrics | head
 GATEWAY_PORT=9080 bash ./test_guest_download.sh
 
 # 运行前端测试
-cd frontend && npm test
+cd frontend/cruip-landing && pnpm test
 ```
 
 ## 🔧 开发工具

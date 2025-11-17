@@ -94,6 +94,17 @@ const SplitText: React.FC<SplitTextProps> = ({
       el.textContent = '';
       el.appendChild(frag);
 
+      // 如果元素初始就处在视口内，则直接应用最终态，避免一直保持 from 状态看不见
+      const rect = el.getBoundingClientRect();
+      const vh = window.innerHeight || document.documentElement.clientHeight;
+      const isInView = rect.top < vh && rect.bottom > 0;
+      if (isInView) {
+        gsap.set(nodes, { ...to, clearProps: 'transform' });
+        el._rbAnimated = true;
+        onLetterAnimationComplete?.();
+        return;
+      }
+
       gsap.fromTo(
         nodes,
         { ...from },
