@@ -35,7 +35,9 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
       try {
         const me = await apiClient.get<any>('/users/me')
         setQuota({ used: Number(me.storageUsed||0), total: Number(me.storageQuota||0) })
-      } catch {}
+      } catch {
+        // 忽略配额获取失败，不阻塞上传主流程
+      }
     })()
   }, [])
 
@@ -103,7 +105,11 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
       })
       if (finRes.status === 200) {
         const fin = await finRes.json()
-        try { await apiClient.put(`/files/${id}/draft`, draft) } catch {}
+        try {
+          await apiClient.put(`/files/${id}/draft`, draft)
+        } catch {
+          // 草稿保存失败不影响上传完成，只影响管理端展示
+        }
         setStatus('上传完成')
         onCompleted?.({ fileId: (fin as any)?.fileId || id, fileName: file.name })
       } else {
@@ -121,7 +127,11 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
           if (s?.status === 'failed') throw new Error('合并失败')
         }
         if (!done) throw new Error('合并超时，请稍后在“我的文件”或发布管理中再试')
-        try { await apiClient.put(`/files/${id}/draft`, draft) } catch {}
+        try {
+          await apiClient.put(`/files/${id}/draft`, draft)
+        } catch {
+          // 草稿保存失败不影响上传完成，只影响管理端展示
+        }
         setStatus('上传完成')
         onCompleted?.({ fileId: id, fileName: file.name })
       }

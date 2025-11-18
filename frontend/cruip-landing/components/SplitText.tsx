@@ -39,7 +39,6 @@ const SplitText: React.FC<SplitTextProps> = ({
   onLetterAnimationComplete
 }) => {
   const ref = useRef<HTMLParagraphElement>(null);
-  const animationCompletedRef = useRef(false);
   const [fontsLoaded, setFontsLoaded] = useState<boolean>(false);
 
   useEffect(() => {

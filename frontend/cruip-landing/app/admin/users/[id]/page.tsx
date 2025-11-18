@@ -17,7 +17,7 @@ export default function AdminUserDetailPage(){
   const id = params?.id || ''
   const [basic, setBasic] = useState<any>(null)
   const [uploads, setUploads] = useState<Array<{ id:string; name:string; size:number|null; updatedAt:string }>>([])
-  const [uploadsCursor, setUploadsCursor] = useState<string | null>(null)
+  const [, setUploadsCursor] = useState<string | null>(null)
 
   const [storage, setStorage] = useState<{ storageQuota:number; storageUsed:number }|null>(null)
   const [audits, setAudits] = useState<Array<{ action:string; target?:string|null; createdAt:string; meta?: any }>>([])
@@ -25,14 +25,28 @@ export default function AdminUserDetailPage(){
 
   async function load(){
     if (!id) return
-    try { setBasic(await adminApi.getUser(id)) } catch {}
-    try { setStorage(await usersApi.getStorageById(id)) } catch {}
+    try {
+      setBasic(await adminApi.getUser(id))
+    } catch {
+      // 基本信息加载失败时保持为空，用占位文案展示
+    }
+    try {
+      setStorage(await usersApi.getStorageById(id))
+    } catch {
+      // 用户在 User 服务中还没有存储记录时允许忽略
+    }
     try {
       const r = await filesApi.listByUserAdmin(id, { limit: 20 })
       setUploads(r.items.map(x=>({ id:x.id, name:x.name, size:x.size ?? 0, updatedAt:x.updatedAt })))
       setUploadsCursor(r.nextCursor)
-    } catch {}
-    try { setAudits(await adminAuditApi.list()) } catch {}
+    } catch {
+      // 上传列表失败时保留已有 uploads，避免打断其它区域
+    }
+    try {
+      setAudits(await adminAuditApi.list())
+    } catch {
+      // 审计记录失败时仅影响“最近活动”模块
+    }
   }
 
   useEffect(()=>{ load() },[id])
@@ -51,7 +65,9 @@ export default function AdminUserDetailPage(){
         const map: Record<string, Array<{ createdAt:string; bytes:number }>> = {}
         results.forEach((r, idx)=> { map[first[idx].id] = (r.items||[]).map(x=>({ createdAt: x.createdAt, bytes: x.bytes })) })
         setDownloadsByFile(map)
-      }catch{}
+      }catch{
+        // 下载记录获取失败时忽略，活动时间线会少一些数据
+      }
     })()
   },[uploads])
 

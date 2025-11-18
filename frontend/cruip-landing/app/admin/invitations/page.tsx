@@ -1,8 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -24,8 +23,9 @@ export default function InvitationsPage() {
     try {
       const list = await invitationsApi.list()
       setItems(list)
-    } catch (err: any) {
-      setError(err?.message || '加载失败')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '加载失败'
+      setError(msg || '加载失败')
     } finally {
       setLoading(false)
     }
@@ -39,7 +39,11 @@ export default function InvitationsPage() {
     if (expiresAt) payload.expiresAt = expiresAt
     if (notes) payload.notes = notes
     const inv = await invitationsApi.create(payload)
-    try { await auditApi.create({ action: 'invitation.create', target: inv.code, meta: { usageLimit: inv.usageLimit } }) } catch {}
+    try {
+      await auditApi.create({ action: 'invitation.create', target: inv.code, meta: { usageLimit: inv.usageLimit } })
+    } catch {
+      // 审计写入失败不影响邀请码主流程，忽略错误
+    }
     setItems((prev) => [inv, ...prev])
     setCreateOpen(false)
     setUsageLimit('1')
@@ -49,7 +53,11 @@ export default function InvitationsPage() {
 
   async function revoke(code: string) {
     await invitationsApi.revoke(code)
-    try { await auditApi.create({ action: 'invitation.revoke', target: code }) } catch {}
+    try {
+      await auditApi.create({ action: 'invitation.revoke', target: code })
+    } catch {
+      // 审计写入失败不影响撤销操作
+    }
     setItems((prev) => prev.map((i) => (i.code === code ? { ...i, isActive: false } : i)))
   }
 
@@ -58,7 +66,9 @@ export default function InvitationsPage() {
       const url = new URL('/signup', window.location.origin)
       url.searchParams.set('code', code)
       navigator.clipboard?.writeText(url.toString())
-    } catch {}
+    } catch {
+      // 复制失败直接忽略，可能是浏览器限制
+    }
   }
 
   return (

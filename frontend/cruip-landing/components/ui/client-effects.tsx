@@ -2,6 +2,7 @@
 
 import { useEffect } from "react"
 import AOS from "aos"
+import { SmoothCursor } from "./smooth-cursor"
 
 // Client-only side effects for marketing pages (AOS init, cursor, etc.)
 export default function ClientEffects() {
@@ -16,7 +17,6 @@ export default function ClientEffects() {
 
   // Keep this component minimal; SmoothCursor is optional and fully client-side
   // Importing here avoids forcing the whole layout to be a Client Component
-  const { SmoothCursor } = require("./smooth-cursor")
   return <SmoothCursor />
 }
 

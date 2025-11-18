@@ -1,9 +1,8 @@
 'use client'
 
 import { useState, useEffect, Suspense } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthStore } from '@/lib/stores/auth-store'
-import { useSearchParams } from 'next/navigation'
 
 function SignUpInner() {
   const router = useRouter()

@@ -381,7 +381,9 @@ function assetLink(a: Asset) {
       }
       return u
     }
-  } catch {}
+  } catch {
+    // On URL parsing or other errors, fall back to a safe internal direct download link
+  }
   return `/api/v1/storage/files/${a.id}/download-direct?ttl=600`
 }
 
@@ -393,14 +395,6 @@ function displayAsset(a: Asset) {
     return `${osLabel ?? "通用"}${arch ? ` • ${arch}` : ""} • ${a.filename}`;
   }
   return a.filename;
-}
-
-function genInstallCmd(project: Project, os: OS | "all") {
-  const name = project.slug;
-  if (os === "darwin") return `brew install ${name}`;
-  if (os === "windows") return `winget install ${name}`;
-  if (os === "linux") return `sudo apt install ${name}`;
-  return `brew install ${name}`;
 }
 
 // ----------------------------- 示例数据（可删） -----------------------------

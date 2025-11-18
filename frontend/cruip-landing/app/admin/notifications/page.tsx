@@ -104,7 +104,11 @@ function useNotifications() {
 
   const markRead = async (ids: string[]) => {
     if (!ids.length) return
-    try { await notificationsApi.markRead(ids) } catch {}
+    try {
+      await notificationsApi.markRead(ids)
+    } catch {
+      // 后端标记失败时仍然乐观更新本地状态
+    }
     setData(d => d.map(n => ids.includes(n.id) ? { ...n, unread: false } : n))
   }
   const remove = (ids: string[]) => setData(d => d.filter(n => !ids.includes(n.id)))
@@ -131,18 +135,8 @@ export default function NotificationsPage() {
   const { accessToken } = useAuthStore()
   const [selected, setSelected] = React.useState<Record<string, boolean>>({})
   const [openId, setOpenId] = React.useState<string | null>(null)
-  const PAGE_SIZE = 12
 
   const openItem = data.find((d) => d.id === openId) || null
-
-  const filtered = data.filter((n) => {
-    if (category !== 'all' && n.severity !== category) return false
-    if (unreadOnly && !n.unread) return false
-    if (serviceFilter !== 'all' && n.service !== serviceFilter) return false
-    if (search && !`${n.title} ${n.description ?? ''} ${n.service}`.toLowerCase().includes(search.toLowerCase()))
-      return false
-    return true
-  })
 
   const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize))
   const paged = data
@@ -204,15 +198,20 @@ export default function NotificationsPage() {
             load()
           }
         }
-      } catch {}
+      } catch {
+        // 忽略格式错误的 SSE 快照数据
+      }
     })
     es.addEventListener('notification', (evt: MessageEvent) => {
       try {
-        const n = JSON.parse(String(evt.data)) as NotificationItem
+        // 只要数据格式正确就触发一次刷新
+        JSON.parse(String(evt.data)) as NotificationItem
         // optimistic prepend (client-only)
         // we don't have direct setData, so trigger reload for correctness
         load()
-      } catch {}
+      } catch {
+        // 忽略格式错误的 SSE 通知数据，保底通过定时刷新获取
+      }
     })
     es.onerror = () => {
       es.close()

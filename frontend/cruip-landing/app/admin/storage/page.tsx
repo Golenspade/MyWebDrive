@@ -13,7 +13,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 
 // Admin Storage Panel: show per-user used vs quota with chart
 export default function AdminStoragePage(){
-  const [loading, setLoading] = useState(false)
+  const [, setLoading] = useState(false)
   const [items, setItems] = useState<Array<{ id:string; name:string|null; email:string; role:'user'|'admin'; used:number; quota:number }>>([])
   const [topN, setTopN] = useState<string>('10')  // '5' | '10' | '20' | '100' | 'ALL'
 

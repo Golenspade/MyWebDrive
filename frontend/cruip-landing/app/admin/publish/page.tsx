@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -11,8 +11,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { useToast } from '@/components/ui/use-toast'
 import { apiClient } from '@/lib/api/client'
-
-import UploadPanel from '@/components/upload/upload-panel'
 
 type FileItem = {
   id: string
@@ -124,7 +122,7 @@ export default function AdminPublishPage() {
 
     setLoading(true)
     try {
-      const response = await apiClient.put(`/files/${selectedFile.id}/catalog`, formData)
+      await apiClient.put(`/files/${selectedFile.id}/catalog`, formData)
 
       toast({
         title: '发布成功',

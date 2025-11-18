@@ -47,7 +47,11 @@ export default function AdminUsersPage() {
 
   async function changeRole(id: string, nextRole: 'user' | 'admin') {
     await adminApi.setRole(id, nextRole)
-    try { await auditApi.create({ action: 'user.role.update', target: id, meta: { role: nextRole } }) } catch {}
+    try {
+      await auditApi.create({ action: 'user.role.update', target: id, meta: { role: nextRole } })
+    } catch {
+      // 审计写入失败不影响角色变更主流程
+    }
     setData(prev => ({ ...prev, items: prev.items.map(u => u.id === id ? { ...u, role: nextRole } : u) }))
   }
 
@@ -90,7 +94,11 @@ export default function AdminUsersPage() {
       return Math.max(0, Math.floor((map[quotaUnit] || 1) * sliderVal))
     })()
     await usersApi.setQuotaById(quotaUserId, bytes)
-    try { await auditApi.create({ action: 'user.quota.update', target: quotaUserId, meta: { storageQuota: bytes } }) } catch {}
+    try {
+      await auditApi.create({ action: 'user.quota.update', target: quotaUserId, meta: { storageQuota: bytes } })
+    } catch {
+      // 审计写入失败时仍然以用户服务中的最终配额为准
+    }
     const fresh = await usersApi.getStorageById(quotaUserId)
     setQuotaInfo(fresh)
   }

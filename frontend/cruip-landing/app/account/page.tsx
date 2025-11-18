@@ -10,10 +10,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
-import { userFilesApi, type FileItem } from '@/lib/api/files'
+import { userFilesApi, userFileVersionsApi, type FileItem, type FileVersion } from '@/lib/api/files'
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
-import { userFileVersionsApi, type FileVersion } from '@/lib/api/files'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 
 
@@ -22,7 +21,7 @@ import UploadPanel from '@/components/upload/upload-panel'
 export default function AccountPage() {
   const { ready } = useProtected('user')
   const router = useRouter()
-  const { user, role, accessToken, logout, isAuthenticated, isLoading } = useAuthStore()
+  const { user, role, accessToken, logout } = useAuthStore()
   const [profile, setProfile] = useState(user)
   const [nameInput, setNameInput] = useState(user?.name || '')
   const [myFiles, setMyFiles] = useState<FileItem[]>([])
@@ -66,13 +65,15 @@ export default function AccountPage() {
       const w = window.open('about:blank')
       if (w) { w.location.href = url } else { window.location.href = url }
       setTimeout(()=> URL.revokeObjectURL(url), 60_000)
-    }catch(err){ alert('预览失败') }
+    }catch{
+      alert('预览失败')
+    }
   }
 
 
 
   const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [, setLoading] = useState(false)
 
   useEffect(() => {
     if (!ready) return
@@ -93,7 +94,7 @@ export default function AccountPage() {
     if (!nameInput || nameInput.trim().length < 2) return
     setSaving(true)
     try {
-      const updated = await apiClient.patch('/users/me', { name: nameInput.trim() })
+      await apiClient.patch('/users/me', { name: nameInput.trim() })
       // 简化：直接刷新 me
       const me = await usersApi.me()
       setProfile(me)

@@ -87,7 +87,11 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
-        try { await authApi.logout() } catch {}
+        try {
+          await authApi.logout()
+        } catch {
+          // 忽略登出接口错误，本地状态照常清空
+        }
         set({ user: null, role: null, accessToken: null, refreshToken: null, isAuthenticated: false })
       },
 

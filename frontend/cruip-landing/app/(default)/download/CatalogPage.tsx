@@ -4,7 +4,7 @@ import React, { useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
@@ -158,7 +158,7 @@ function FilterBar(props: {
   channel: Channel; setChannel: (v: Channel)=>void;
   category: Category | "all"; setCategory: (v: Category | "all")=>void;
 }) {
-  const { q, setQ, os, setOs, arch, setArch, channel, setChannel } = props;
+  const { q, os, arch, channel } = props;
   return (
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div className="flex-1 flex items-center gap-2">
