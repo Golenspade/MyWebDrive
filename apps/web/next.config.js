@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  experimental: {
-    appDir: true,
-  },
   async rewrites() {
     const apiBase = process.env.API_BASE_URL || 'http://localhost:9080'
     return {

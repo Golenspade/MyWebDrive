@@ -1,4 +1,6 @@
 import "./css/style.css";
+import type { ReactNode } from "react";
+
 import localFont from "next/font/local";
 
 // Self-hosted fonts
@@ -29,7 +31,7 @@ export const metadata = {
   description: "安全、高效的云端文件存储与分享解决方案，支持多用户权限管理和实时协作。",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="zh-CN" className="scroll-smooth">
       <body className={`${notoSansSC.variable} ${zcoolXiaoWei.variable} ${maShanZheng.variable} bg-gray-50 font-sans tracking-tight text-gray-900 antialiased`}>
