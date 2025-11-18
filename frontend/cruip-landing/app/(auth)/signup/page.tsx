@@ -24,8 +24,9 @@ function SignUpInner() {
       }
       // 仅完成注册与状态更新，导航放在下面的 effect 中统一处理，避免竞态导致 404
       await register({ name, email, password, invitationCode: invitationCode.trim() })
-    } catch (err: any) {
-      setError(err?.message || '注册失败')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null
+      setError(message || '注册失败')
     }
   }
 

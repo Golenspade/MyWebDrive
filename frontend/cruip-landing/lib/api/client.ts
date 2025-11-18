@@ -31,7 +31,7 @@ class ApiClient {
     return this.request<T>(endpoint, { ...options, method: 'GET' })
   }
 
-  async post<T>(endpoint: string, data?: any, options: RequestInit = {}) {
+  async post<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
     return this.request<T>(endpoint, {
       ...options,
       method: 'POST',
@@ -39,7 +39,7 @@ class ApiClient {
     })
   }
 
-  async put<T>(endpoint: string, data?: any, options: RequestInit = {}) {
+  async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
     return this.request<T>(endpoint, {
       ...options,
       method: 'PUT',
@@ -48,7 +48,7 @@ class ApiClient {
   }
 
 
-  async patch<T>(endpoint: string, data?: any, options: RequestInit = {}) {
+  async patch<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
     return this.request<T>(endpoint, {
       ...options,
       method: 'PATCH',
@@ -60,7 +60,7 @@ class ApiClient {
     return this.request<T>(endpoint, { ...options, method: 'DELETE' })
   }
 
-  async postNoRetry<T>(endpoint: string, data?: any, options: RequestInit = {}) {
+  async postNoRetry<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
     return this.request<T>(endpoint, {
       ...options,
       method: 'POST',
@@ -104,13 +104,16 @@ class ApiClient {
     let code = 'UNKNOWN_ERROR'
     let message = response.statusText || 'Request failed'
     try {
-      const body: any = await response.json()
-      if (typeof body?.error === 'string') {
-        code = 'API_ERROR'
-        message = body.error
-      } else if (body?.error && typeof body.error === 'object') {
-        code = body.error.code || code
-        message = body.error.message || message
+      const body = (await response.json()) as unknown
+      if (body && typeof body === 'object') {
+        const err = (body as { error?: string | { code?: string; message?: string } }).error
+        if (typeof err === 'string') {
+          code = 'API_ERROR'
+          message = err
+        } else if (err && typeof err === 'object') {
+          code = err.code || code
+          message = err.message || message
+        }
       }
     } catch {
       // ignore parse failure
