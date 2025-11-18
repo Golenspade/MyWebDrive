@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { adminApi } from '@/lib/api/admin'
@@ -11,13 +11,21 @@ import { Badge } from '@/components/ui/badge'
 import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
-// Admin Storage Panel: show per-user used vs quota with chart
+// Admin Storage Panel: show per-user used vs quota with chart.
+// 后端并没有直接提供“按用户聚合后的存储统计”，所以这里：
+// 1. 先用 adminApi.listUsers 拿到前 100 个用户；
+// 2. 再逐个调用 usersApi.getStorageById(u.id) 拼出 used/quota；
+// 3. 在前端做排序 + Top N 截断，仅用于管理员观察整体水位，
+//    如果未来用户规模增大，这块要改成后端聚合接口。
 export default function AdminStoragePage(){
+  // 目前 loading 只用于防抖/未来扩展，所以不暴露给 UI
   const [, setLoading] = useState(false)
   const [items, setItems] = useState<Array<{ id:string; name:string|null; email:string; role:'user'|'admin'; used:number; quota:number }>>([])
+  // topN 用字符串是为了直接和 Select 组件的 value 对齐
   const [topN, setTopN] = useState<string>('10')  // '5' | '10' | '20' | '100' | 'ALL'
 
-  async function load(){
+  // 拉取前 100 个用户，并补充存储信息（失败时按 0 处理）
+  const load = useCallback(async () => {
     setLoading(true)
     try {
       const list = await adminApi.listUsers({ page:1, pageSize:100 })
@@ -26,6 +34,7 @@ export default function AdminStoragePage(){
           const s = await usersApi.getStorageById(u.id)
           return { id:u.id, name:u.name, email:u.email, role: u.role, used: s.storageUsed||0, quota: s.storageQuota||0 }
         }catch{
+          // 用户在 User 服务里还没有存储记录时，视为 0 / 0，避免打断整体面板
           return { id:u.id, name:u.name, email:u.email, role: u.role, used: 0, quota: 0 }
         }
       }))
@@ -33,16 +42,18 @@ export default function AdminStoragePage(){
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
-  useEffect(()=>{ load() },[])
+  useEffect(()=>{ void load() },[load])
 
+  // 根据已用空间对用户排序，并按 Top N 截断，仅用于前端展示
   const displayItems = useMemo(()=>{
     const sorted = [...items].sort((a,b)=> (b.used||0) - (a.used||0)) // 已用降序
     const n = topN === 'ALL' ? sorted.length : parseInt(topN, 10)
     return sorted.slice(0, Math.max(0, Math.min(sorted.length, n||0)))
   }, [items, topN])
 
+  // 将字节转换为 MB，并带上管理员标记供图表高亮使用
   const chartData = useMemo(()=>displayItems.map(u=>{
     const usedMB = Math.max(0, Math.round((Number(u.used) || 0) / 1024 / 1024))
     const quotaMB = Math.max(0, Math.round((Number(u.quota) || 0) / 1024 / 1024))
@@ -50,6 +61,7 @@ export default function AdminStoragePage(){
     return { name: u.email || u.id, used: usedMB, remain: remainMB, isAdmin: u.role === 'admin' }
   }), [displayItems])
 
+  // 若所有数据都是 0，则显示“暂无数据”占位，避免空图
   const hasData = useMemo(()=> chartData.some(d => (d.used ?? 0) > 0 || (d.remain ?? 0) > 0), [chartData])
 
   return (

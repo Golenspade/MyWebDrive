@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '
 import { invitationsApi, type Invitation } from '@/lib/api/admin'
 import { auditApi } from '@/lib/api/audit'
 
+// 管理端邀请码管理页。
+// 依赖 Auth 后端的邀请制开关，当 REGISTRATION_REQUIRE_INVITE=true 时，用户只能通过邀请码注册。
 export default function InvitationsPage() {
   const [items, setItems] = useState<Invitation[]>([])
   const [loading, setLoading] = useState(false)
@@ -17,6 +19,7 @@ export default function InvitationsPage() {
   const [expiresAt, setExpiresAt] = useState('')
   const [notes, setNotes] = useState('')
 
+  // 初始加载邀请码列表。失败时只在顶部显示错误提示，不阻断整个页面。
   async function load() {
     setLoading(true)
     setError(null)
@@ -33,17 +36,23 @@ export default function InvitationsPage() {
 
   useEffect(() => { load() }, [])
 
+  // 创建一条新的邀请码，并将关键操作记录到审计日志中
   async function createOne() {
+    // usageLimit 从输入框读入，强制收敛在 [1, 100] 区间，避免滥用
     const ul = Math.max(1, Math.min(100, parseInt(usageLimit || '1', 10)))
     const payload: { usageLimit?: number; expiresAt?: string; notes?: string } = { usageLimit: ul }
     if (expiresAt) payload.expiresAt = expiresAt
     if (notes) payload.notes = notes
+
     const inv = await invitationsApi.create(payload)
     try {
+      // 邀请码创建成功后，将 usageLimit 写入审计日志，方便后续追踪调整原因
       await auditApi.create({ action: 'invitation.create', target: inv.code, meta: { usageLimit: inv.usageLimit } })
     } catch {
-      // 审计写入失败不影响邀请码主流程，忽略错误
+      // 审计写入失败不影响邀请码主流程，忽略错误，保证用户仍能正常注册
     }
+
+    // 将新邀请码插入到列表顶部，方便管理员立即复制 / 撤销
     setItems((prev) => [inv, ...prev])
     setCreateOpen(false)
     setUsageLimit('1')

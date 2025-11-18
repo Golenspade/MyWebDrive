@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -86,8 +86,8 @@ export default function AdminPublishPage() {
   const [previewOpen, setPreviewOpen] = useState(false)
   const [previewData, setPreviewData] = useState<CatalogPreview | null>(null)
 
-  // Search files
-  async function searchFiles() {
+  // Search files in uploaded assets for admin to publish.
+  const searchFiles = useCallback(async () => {
     if (!isAuthenticated || role !== 'admin') return
     setLoading(true)
     try {
@@ -103,7 +103,7 @@ export default function AdminPublishPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [isAuthenticated, role, searchQuery, toast])
 
   // Select file for publishing
   function selectFile(file: FileItem) {
@@ -166,7 +166,7 @@ export default function AdminPublishPage() {
       </div>
 
       <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
-        {/* Left: File Selection */}
+        {/* 左侧：从已上传文件中选择要发布到 Catalog 的文件 */}
         <Card>
           <CardHeader>
             <CardTitle className='text-base'>选择文件</CardTitle>
@@ -209,7 +209,7 @@ export default function AdminPublishPage() {
           </CardContent>
         </Card>
 
-        {/* Right: Publish Form */}
+        {/* 右侧：填写 Catalog 元数据并发起发布 + 预览 */}
         <Card>
           <CardHeader>
             <CardTitle className='text-base'>发布信息</CardTitle>
@@ -299,7 +299,7 @@ export default function AdminPublishPage() {
             <div className='grid grid-cols-3 gap-4'>
               <div className='space-y-2'>
                 <Label htmlFor='channel'>通道</Label>
-                <Select value={formData.channel} onValueChange={(v: string) => setFormData({ ...formData, channel: v as CatalogFormData['channel'] })}>
+                <Select value={formData.channel} onValueChange={(v) => setFormData({ ...formData, channel: v as CatalogFormData['channel'] })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -313,7 +313,7 @@ export default function AdminPublishPage() {
 
               <div className='space-y-2'>
                 <Label htmlFor='os'>操作系统</Label>
-                <Select value={formData.os} onValueChange={(v: string) => setFormData({ ...formData, os: v as CatalogFormData['os'] })}>
+                <Select value={formData.os} onValueChange={(v) => setFormData({ ...formData, os: v as CatalogFormData['os'] })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -328,7 +328,7 @@ export default function AdminPublishPage() {
 
               <div className='space-y-2'>
                 <Label htmlFor='arch'>架构</Label>
-                <Select value={formData.arch} onValueChange={(v: string) => setFormData({ ...formData, arch: v as CatalogFormData['arch'] })}>
+                <Select value={formData.arch} onValueChange={(v) => setFormData({ ...formData, arch: v as CatalogFormData['arch'] })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
