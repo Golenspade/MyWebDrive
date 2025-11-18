@@ -35,6 +35,20 @@ type CatalogFormData = {
   public: boolean
   url: string
 }
+type CatalogRelease = {
+  version: string
+  channel: string
+  assets?: unknown[]
+}
+
+type CatalogPreview = {
+  slug: string
+  name?: string
+  description?: string
+  releases?: CatalogRelease[]
+}
+
+
 
 function fmtSize(n: number) {
   if (!n) return '0 B'
@@ -70,7 +84,7 @@ export default function AdminPublishPage() {
   })
 
   const [previewOpen, setPreviewOpen] = useState(false)
-  const [previewData, setPreviewData] = useState<any>(null)
+  const [previewData, setPreviewData] = useState<CatalogPreview | null>(null)
 
   // Search files
   async function searchFiles() {
@@ -80,10 +94,11 @@ export default function AdminPublishPage() {
       const qs = `?q=${encodeURIComponent(searchQuery)}&only=files`
       const response = await apiClient.get<{ items: FileItem[] }>(`/search${qs}`)
       setFiles(response.items || [])
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null
       toast({
         title: '搜索失败',
-        description: err.message || '无法搜索文件',
+        description: message || '无法搜索文件',
       })
     } finally {
       setLoading(false)
@@ -130,13 +145,14 @@ export default function AdminPublishPage() {
       })
 
       // Fetch preview
-      const catalogData = await apiClient.get(`/catalog/${formData.slug}`)
+      const catalogData = await apiClient.get<CatalogPreview>(`/catalog/${formData.slug}`)
       setPreviewData(catalogData)
       setPreviewOpen(true)
-    } catch (err: any) {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null
       toast({
         title: '发布失败',
-        description: err.message || '无法发布项目',
+        description: message || '无法发布项目',
       })
     } finally {
       setLoading(false)
@@ -244,7 +260,7 @@ export default function AdminPublishPage() {
             <div className='grid grid-cols-2 gap-4'>
               <div className='space-y-2'>
                 <Label htmlFor='category'>分类</Label>
-                <Select value={formData.category || undefined} onValueChange={(v: any) => setFormData({ ...formData, category: v })}>
+                <Select value={formData.category || undefined} onValueChange={v => setFormData({ ...formData, category: v })}>
                   <SelectTrigger>
                     <SelectValue placeholder='选择分类' />
                   </SelectTrigger>
@@ -283,7 +299,7 @@ export default function AdminPublishPage() {
             <div className='grid grid-cols-3 gap-4'>
               <div className='space-y-2'>
                 <Label htmlFor='channel'>通道</Label>
-                <Select value={formData.channel} onValueChange={(v: any) => setFormData({ ...formData, channel: v })}>
+                <Select value={formData.channel} onValueChange={(v: string) => setFormData({ ...formData, channel: v as CatalogFormData['channel'] })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -297,7 +313,7 @@ export default function AdminPublishPage() {
 
               <div className='space-y-2'>
                 <Label htmlFor='os'>操作系统</Label>
-                <Select value={formData.os} onValueChange={(v: any) => setFormData({ ...formData, os: v })}>
+                <Select value={formData.os} onValueChange={(v: string) => setFormData({ ...formData, os: v as CatalogFormData['os'] })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -312,7 +328,7 @@ export default function AdminPublishPage() {
 
               <div className='space-y-2'>
                 <Label htmlFor='arch'>架构</Label>
-                <Select value={formData.arch} onValueChange={(v: any) => setFormData({ ...formData, arch: v })}>
+                <Select value={formData.arch} onValueChange={(v: string) => setFormData({ ...formData, arch: v as CatalogFormData['arch'] })}>
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -378,7 +394,7 @@ export default function AdminPublishPage() {
               <div>
                 <div className='text-sm font-medium text-gray-500'>版本</div>
                 <div className='space-y-2 mt-2'>
-                  {previewData.releases?.map((rel: any, idx: number) => (
+                  {previewData.releases?.map((rel: CatalogRelease, idx: number) => (
                     <div key={idx} className='p-3 border rounded-md'>
                       <div className='font-medium'>
                         {rel.version} ({rel.channel})

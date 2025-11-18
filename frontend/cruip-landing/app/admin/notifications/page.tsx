@@ -28,6 +28,8 @@ import { notificationsApi, type AdminNotification } from '@/lib/api/notification
 import { useAuthStore } from '@/lib/stores/auth-store'
 
 type Severity = 'critical' | 'warning' | 'info' | 'success'
+type Category = 'all' | Severity
+
 type NotificationItem = AdminNotification
 
 function sevIcon(sev: Severity) {
@@ -67,13 +69,14 @@ function useNotifications() {
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(12)
   const [total, setTotal] = React.useState(0)
-  const [category, setCategory] = React.useState<'all' | Severity>('all')
+  const [category, setCategory] = React.useState<Category>('all')
   const [search, setSearch] = React.useState('')
   const [unreadOnly, setUnreadOnly] = React.useState(false)
   const [serviceFilter, setServiceFilter] = React.useState<string | 'all'>('all')
   const [range, setRange] = React.useState<DateRange | undefined>(undefined)
+  const dataLengthRef = React.useRef(0)
 
-  const load = async () => {
+  const load = React.useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -92,15 +95,24 @@ function useNotifications() {
       setData(res.items)
       setTotal(res.total)
       setServices(Array.from(new Set(res.items.map(s => s.service).filter(Boolean) as string[])))
-    } catch (err: any) {
-      setError(err?.message || '加载失败')
+      dataLengthRef.current = res.items.length
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null
+      setError(message || '加载失败')
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, pageSize, category, search, unreadOnly, serviceFilter, range?.from, range?.to])
+  React.useEffect(() => {
+    dataLengthRef.current = data.length
+  }, [data.length])
+
+
 
   React.useEffect(() => { setPage(1) }, [category, search, unreadOnly, serviceFilter, range?.from, range?.to])
-  React.useEffect(() => { load() }, [page, pageSize, category, search, unreadOnly, serviceFilter, range?.from, range?.to])
+  React.useEffect(() => {
+    void load()
+  }, [load])
 
   const markRead = async (ids: string[]) => {
     if (!ids.length) return
@@ -193,9 +205,9 @@ export default function NotificationsPage() {
         const arr = JSON.parse(String(evt.data)) as NotificationItem[]
         if (Array.isArray(arr)) {
           // only set if local list is empty to avoid flicker
-          if (data.length === 0) {
+          if (dataLengthRef.current === 0) {
             // not calling setData here because it's internal to hook; trigger reload
-            load()
+            void load()
           }
         }
       } catch {
@@ -218,7 +230,7 @@ export default function NotificationsPage() {
       esRef.current = null
     }
     return () => { es.close(); esRef.current = null }
-  }, [live, accessToken])
+  }, [live, accessToken, load])
 
   return (
     <>
@@ -264,7 +276,7 @@ export default function NotificationsPage() {
             </div>
           </div>
 
-          <Tabs value={category} onValueChange={(v) => setCategory(v as any)}>
+          <Tabs value={category} onValueChange={(v) => setCategory(v as Category)}>
             <TabsList>
               <TabsTrigger value='all'>全部</TabsTrigger>
               <TabsTrigger value='critical'>系统</TabsTrigger>

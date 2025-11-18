@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { overviewApi, type AdminOverview } from '@/lib/api/overview'
 import { Button } from '@/components/ui/button'
@@ -12,20 +12,23 @@ export default function AdminOverviewPage() {
   const [error, setError] = useState<string | null>(null)
   const [range, setRange] = useState<'today' | '7d' | '30d'>('7d')
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const js = await overviewApi.get(range)
       setData(js)
-    } catch (err: any) {
-      setError(err?.message || '加载失败')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null
+      setError(message || '加载失败')
     } finally {
       setLoading(false)
     }
-  }
+  }, [range])
 
-  useEffect(() => { load() }, [range])
+  useEffect(() => {
+    void load()
+  }, [load])
 
   const uploadsSeries = useMemo(() => (data?.last7d.uploads_bytes || []).map(p => ({ name: p.date.slice(5), value: p.value })), [data])
   const downloadsSeries = useMemo(() => (data?.last7d.downloads_bytes || []).map(p => ({ name: p.date.slice(5), value: p.value })), [data])
