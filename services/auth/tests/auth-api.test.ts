@@ -26,8 +26,18 @@ afterAll(async () => {
   await prisma.$disconnect()
 })
 
-// Lazy import to ensure env is set
+// Lazy import to ensure env is set (REGISTRATION_REQUIRE_INVITE=false)
 async function getApp() {
+  const mod = await import('../src/index.js')
+  const app = (mod as any).app || (mod as any).default || (mod as any)
+  return app
+}
+
+// For invitation tests we need REQUIRE_INVITE=true.
+// This helper flips the env flag, resets module cache, and imports a fresh app instance.
+async function getAppWithInviteRequired() {
+  process.env.REGISTRATION_REQUIRE_INVITE = 'true'
+  vi.resetModules()
   const mod = await import('../src/index.js')
   const app = (mod as any).app || (mod as any).default || (mod as any)
   return app
@@ -100,5 +110,130 @@ describe('auth API basic flows', () => {
       .expect(401)
   })
 
+  it('register fails with missing fields', async () => {
+    const app = await getApp()
+
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        email: 'missing-name@example.com',
+        password: 'password123',
+      })
+      .expect(400)
+
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'missing-email',
+        password: 'password123',
+      })
+      .expect(400)
+
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'missing-password',
+        email: 'missing-password@example.com',
+      })
+      .expect(400)
+  })
+
+  it('register fails when email already exists', async () => {
+    const app = await getApp()
+
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'first-user',
+        email: 'duplicate@example.com',
+        password: 'password123',
+      })
+      .expect(201)
+
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'second-user',
+        email: 'duplicate@example.com',
+        password: 'password123',
+      })
+      .expect(409)
+  })
+
+  it('login fails when user does not exist', async () => {
+    const app = await getApp()
+
+    await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: 'does-not-exist@example.com', password: 'password123' })
+      .expect(401)
+  })
+
+  it('login fails with missing fields', async () => {
+    const app = await getApp()
+
+    await request(app)
+      .post('/api/v1/auth/login')
+      .send({ password: 'password123' })
+      .expect(400)
+
+    await request(app)
+      .post('/api/v1/auth/login')
+      .send({ email: 'missing-password@example.com' })
+      .expect(400)
+  })
+
+  it('logout returns 204', async () => {
+    const app = await getApp()
+
+    await request(app)
+      .post('/api/v1/auth/logout')
+      .expect(204)
+  })
+
+  it('register with valid invitation code succeeds and increments usage', async () => {
+    // prepare an active invitation
+    const invite = await prisma.invitationCode.create({
+      data: {
+        code: 'INVITE-OK',
+        issuedBy: 'admin-user',
+        usageLimit: 2,
+        usedCount: 0,
+        isActive: true,
+      },
+    })
+
+    const app = await getAppWithInviteRequired()
+
+    const res = await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'invited-user',
+        email: 'invited@example.com',
+        password: 'password123',
+        invitationCode: invite.code,
+      })
+      .expect(201)
+
+    expect(res.body).toHaveProperty('id')
+
+    const updatedInvite = await prisma.invitationCode.findUnique({ where: { code: invite.code } })
+    expect(updatedInvite).not.toBeNull()
+    expect(updatedInvite!.usedCount).toBe(1)
+  })
+
+  it('register fails with invalid invitation code when invite required', async () => {
+    const app = await getAppWithInviteRequired()
+
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'no-invite-user',
+        email: 'no-invite@example.com',
+        password: 'password123',
+        invitationCode: 'NON-EXISTENT',
+      })
+      .expect(403)
+  })
 })
 
