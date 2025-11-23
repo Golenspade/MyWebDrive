@@ -5,7 +5,7 @@ import { PrismaClient } from '../prisma/client/index.js'
 import { randomUUID } from 'crypto'
 import { getEnv } from '@mywebdrive/common'
 
-const app = express()
+export const app = express()
 app.disable('x-powered-by')
 
 // Config
@@ -1213,9 +1213,11 @@ async function ensureSchema() {
   }
 }
 
-app.listen(PORT, async () => {
-  await ensureSchema()
-  logger.info({ port: PORT }, 'metadata-service-node listening')
-})
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, async () => {
+    await ensureSchema()
+    logger.info({ port: PORT }, 'metadata-service-node listening')
+  })
+}
 
 
