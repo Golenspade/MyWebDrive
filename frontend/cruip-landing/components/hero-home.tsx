@@ -45,7 +45,12 @@ export default function HeroHome() {
             </div>
             {(() => {
               const handleAnimationComplete = () => {
-                console.log('All letters have animated!');
+                // For now we only log to console in development when the hero
+                // text animation completes. Use `console.warn` to respect the
+                // shared ESLint configuration.
+                if (process.env.NODE_ENV !== 'production') {
+                  console.warn('All letters have animated!');
+                }
               };
               return (
                 <SplitText

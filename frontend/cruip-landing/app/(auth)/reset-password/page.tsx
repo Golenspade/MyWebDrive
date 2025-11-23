@@ -3,6 +3,9 @@ export const metadata = {
   description: "Page description",
 };
 
+// This page intentionally kept server-only. If you need shared constants or
+// helper functions, move them to a separate module and import them here to
+// keep Fast Refresh working as expected.
 export default function ResetPassword() {
   return (
     <>

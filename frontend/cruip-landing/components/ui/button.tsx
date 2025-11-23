@@ -44,6 +44,8 @@ function Button({
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
   }) {
+  // Note: this file intentionally only exports React components (Button,
+  // buttonVariants) so that React Fast Refresh can work reliably.
   const Comp = asChild ? Slot : "button"
 
   return (

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useProtected } from '@/lib/hooks/use-protected'
 import { useAuthStore } from '@/lib/stores/auth-store'
@@ -28,16 +28,16 @@ export default function AccountPage() {
   const [filesCursor, setFilesCursor] = useState<string | null>(null)
   const [filesLoading, setFilesLoading] = useState(false)
 
-  async function loadMyFiles(cursor?: string) {
+  const loadMyFiles = useCallback(async (cursor?: string) => {
     setFilesLoading(true)
     try {
       const r = await userFilesApi.listMine({ limit: 20, cursor })
-      setMyFiles(cursor ? [...myFiles, ...r.items] : r.items)
+      setMyFiles(prev => cursor ? [...prev, ...r.items] : r.items)
       setFilesCursor(r.nextCursor)
     } finally {
       setFilesLoading(false)
     }
-  }
+  }, [])
 
   const [verOpenFor, setVerOpenFor] = useState<FileItem|null>(null)
   const [versions, setVersions] = useState<FileVersion[]>([])
@@ -88,7 +88,7 @@ export default function AccountPage() {
         setLoading(false)
       }
     })()
-  }, [ready])
+  }, [ready, loadMyFiles, nameInput])
 
   async function saveName() {
     if (!nameInput || nameInput.trim().length < 2) return

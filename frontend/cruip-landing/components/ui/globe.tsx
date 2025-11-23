@@ -79,6 +79,8 @@ interface WorldProps {
   data: Position[];
 }
 
+// Helper utilities kept here on purpose because this module only exports
+// React components and helper functions used by those components.
 export function hexToRgb(hex: string) {
   const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i;
   hex = hex.replace(shorthandRegex, function (m, r, g, b) {

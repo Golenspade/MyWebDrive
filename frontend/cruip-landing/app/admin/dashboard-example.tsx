@@ -1,7 +1,6 @@
 import { Metadata } from "next"
 
-
-
+// Example standalone dashboard page used during development only.
 export const metadata: Metadata = {
   title: "Dashboard",
   description: "Example dashboard app built using the components.",

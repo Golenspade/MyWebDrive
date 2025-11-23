@@ -27,7 +27,11 @@ const maShanZheng = localFont({
 export const metadata = {
   title: "MyWebDrive - 云端文件存储与分享平台",
   description: "安全、高效的云端文件存储与分享解决方案，支持多用户权限管理和实时协作。",
-};
+} as const;
+
+// Keep this file exporting only metadata + the default RootLayout component.
+// Shared helpers or constants should live in separate modules to keep Fast
+// Refresh working as expected.
 
 import { ThemeProvider } from "@/components/theme-provider";
 
