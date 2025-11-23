@@ -6,7 +6,7 @@ import { PrismaClient } from '../prisma/client/index.js'
 import { randomUUID, randomBytes } from 'crypto'
 import { getEnv } from '@mywebdrive/common'
 
-const app = express()
+export const app = express()
 app.disable('x-powered-by')
 
 // Config
