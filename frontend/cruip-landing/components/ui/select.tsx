@@ -8,11 +8,17 @@ type Item = { value: string; label: string };
 
 function collectItems(children: React.ReactNode): Item[] {
   const items: Item[] = [];
-  React.Children.forEach(children as any, (child: any) => {
-    if (!child) return;
-    if (child.type?.displayName === "SelectItem") {
-      items.push({ value: child.props.value, label: String(child.props.children ?? child.props.value) });
+  React.Children.forEach(children, (child) => {
+    if (!React.isValidElement(child)) return;
+
+    const type = child.type as { displayName?: string };
+    if (type.displayName === "SelectItem") {
+      items.push({
+        value: child.props.value,
+        label: String(child.props.children ?? child.props.value),
+      });
     }
+
     if (child.props?.children) {
       items.push(...collectItems(child.props.children));
     }

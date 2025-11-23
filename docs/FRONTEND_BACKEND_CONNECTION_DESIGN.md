@@ -1027,6 +1027,29 @@ private async handleTokenRefresh(): Promise<void> {
 
 ## 管理员面板
 
+### 路由与功能总览
+
+> 管理员面板的所有页面都要求已登录且 `role = admin`，由 `/app/admin/layout.tsx` 和受保护的路由逻辑统一控制。
+
+| 路径 | 功能 | 主要页面/组件 | 依赖的后端 API |
+|------|------|----------------|-----------------|
+| `/admin/overview` | 后台总览：用户数、文件数、存储用量等汇总 | `app/admin/overview/page.tsx` | Gateway 聚合接口 `/api/v1/admin/overview` |
+| `/admin/users` | 用户列表：搜索、分页、切换角色、打开配额面板 | `app/admin/users/page.tsx` | `adminApi.listUsers`、`adminApi.setRole`、`usersApi.getStorageById`、`usersApi.setQuotaById` |
+| `/admin/users/[id]` | 用户详情：基础信息、最近上传、配额与活动时间线 | `app/admin/users/[id]/page.tsx` | `adminApi.getUser`、`usersApi.getStorageById`、`filesApi.listByUserAdmin`、`adminAuditApi.list`、`storageAdminApi.getDownloadsByFile` |
+| `/admin/storage` | 存储面板：按用户维度展示已用/配额 Top N | `app/admin/storage/page.tsx` | 同上：`adminApi.listUsers` + `usersApi.getStorageById` |
+| `/admin/invitations` | 邀请码管理：创建 / 撤销 / 复制邀请链接 | `app/admin/invitations/page.tsx` | `invitationsApi.list/create/revoke`、`auditApi.create` |
+| `/admin/publish` | Catalog 发布：从上传文件中选择条目并发布到目录 | `app/admin/publish/page.tsx` | `/search`、`catalogApi.publish`、`catalogApi.getBySlug` |
+| `/admin/notifications` | 系统通知：查看最近通知、标记已读 | `app/admin/notifications/page.tsx` | Gateway 通知相关接口 |
+
+### 权限模型与保护方式
+
+- 所有 `/admin/*` 路由都包在统一的 `layout.tsx` 下：
+  - 布局层会读取 auth store 中的 `isAuthenticated` 和 `role`；
+  - 若未登录或 `role !== 'admin'`，会引导到登录页或给出权限不足提示。
+- 页面内部如果需要更细粒度控制（例如按钮只允许管理员点击），统一使用 `useAuthStore` 或自定义的 `useProtectedAdmin` hook 读取当前用户信息。
+- 后端同样会在对应的 API 层做二次校验（网关 + 服务自身），即使前端被绕过也无法访问管理员接口。
+
+> 下面的「邀请码管理页面」代码片段是早期版本的实现示例，目前前端已经重构为更细化的 hooks + 类型约束形式，整体行为（创建/撤销/展示邀请码）保持一致，可作为理解页面结构的参考。
 ### 邀请码管理页面
 
 ```typescript

@@ -1,12 +1,12 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { adminApi } from '@/lib/api/admin'
-import { adminAuditApi } from '@/lib/api/admin-audit'
+import { adminApi, type AdminUser } from '@/lib/api/admin'
+import { adminAuditApi, type AuditLog } from '@/lib/api/admin-audit'
 import { usersApi } from '@/lib/api/users'
 import { filesApi } from '@/lib/api/files'
 import { storageAdminApi } from '@/lib/api/storage-admin'
@@ -15,15 +15,15 @@ import { formatCompactBytes } from '@/lib/utils/format-bytes'
 export default function AdminUserDetailPage(){
   const params = useParams() as { id?: string }
   const id = params?.id || ''
-  const [basic, setBasic] = useState<any>(null)
+  const [basic, setBasic] = useState<AdminUser | null>(null)
   const [uploads, setUploads] = useState<Array<{ id:string; name:string; size:number|null; updatedAt:string }>>([])
   const [, setUploadsCursor] = useState<string | null>(null)
 
   const [storage, setStorage] = useState<{ storageQuota:number; storageUsed:number }|null>(null)
-  const [audits, setAudits] = useState<Array<{ action:string; target?:string|null; createdAt:string; meta?: any }>>([])
+  const [audits, setAudits] = useState<AuditLog[]>([])
   const [downloadsByFile, setDownloadsByFile] = useState<Record<string, Array<{ createdAt:string; bytes:number }>>>({})
 
-  async function load(){
+  const load = useCallback(async () => {
     if (!id) return
     try {
       setBasic(await adminApi.getUser(id))
@@ -47,14 +47,18 @@ export default function AdminUserDetailPage(){
     } catch {
       // 审计记录失败时仅影响“最近活动”模块
     }
-  }
+  }, [id])
 
-  useEffect(()=>{ load() },[id])
+  useEffect(()=>{ void load() },[load])
   useEffect(()=>{
-    const onVis = ()=> { if (document.visibilityState === 'visible') load() }
+    const onVis = () => {
+      if (document.visibilityState === 'visible') {
+        void load()
+      }
+    }
     document.addEventListener('visibilitychange', onVis)
-    return ()=> document.removeEventListener('visibilitychange', onVis)
-  },[id])
+    return () => document.removeEventListener('visibilitychange', onVis)
+  },[load])
   // Fetch recent downloads for up to first 5 files
   useEffect(()=>{
     (async()=>{
