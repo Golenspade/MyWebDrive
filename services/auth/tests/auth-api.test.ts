@@ -1,8 +1,20 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import request from 'supertest'
+import jwt from 'jsonwebtoken'
+import bcrypt from 'bcryptjs'
 import { PrismaClient } from '../prisma/client/index.js'
 
 const prisma = new PrismaClient()
+
+function makeAdminToken(userId = 'admin-user-id') {
+  const secret = process.env.JWT_SECRET || 'test-secret-key'
+  return jwt.sign({ user_id: userId, role: 'admin' }, secret, { expiresIn: 3600 })
+}
+
+function makeUserToken(userId = 'user-id') {
+  const secret = process.env.JWT_SECRET || 'test-secret-key'
+  return jwt.sign({ user_id: userId, role: 'user' }, secret, { expiresIn: 3600 })
+}
 
 // We rely on NODE_ENV=test so index.ts does NOT call app.listen
 beforeAll(async () => {
@@ -192,7 +204,8 @@ describe('auth API basic flows', () => {
   })
 
   it('register with valid invitation code succeeds and increments usage', async () => {
-    // prepare an active invitation
+    // prepare an active invitation, expired yesterday
+    const yesterday = new Date(Date.now() - 24 * 3600 * 1000)
     const invite = await prisma.invitationCode.create({
       data: {
         code: 'INVITE-OK',
@@ -200,6 +213,7 @@ describe('auth API basic flows', () => {
         usageLimit: 2,
         usedCount: 0,
         isActive: true,
+        expiresAt: new Date(Date.now() + 24 * 3600 * 1000),
       },
     })
 
@@ -220,6 +234,56 @@ describe('auth API basic flows', () => {
     const updatedInvite = await prisma.invitationCode.findUnique({ where: { code: invite.code } })
     expect(updatedInvite).not.toBeNull()
     expect(updatedInvite!.usedCount).toBe(1)
+  })
+
+  it('register fails when invite is expired', async () => {
+    const yesterday = new Date(Date.now() - 24 * 3600 * 1000)
+    await prisma.invitationCode.create({
+      data: {
+        code: 'INVITE-EXPIRED',
+        issuedBy: 'admin-user',
+        usageLimit: 2,
+        usedCount: 0,
+        isActive: true,
+        expiresAt: yesterday,
+      },
+    })
+
+    const app = await getAppWithInviteRequired()
+
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'expired-user',
+        email: 'expired@example.com',
+        password: 'password123',
+        invitationCode: 'INVITE-EXPIRED',
+      })
+      .expect(403)
+  })
+
+  it('register fails when invite usage limit is reached', async () => {
+    await prisma.invitationCode.create({
+      data: {
+        code: 'INVITE-LIMIT',
+        issuedBy: 'admin-user',
+        usageLimit: 1,
+        usedCount: 1,
+        isActive: true,
+      },
+    })
+
+    const app = await getAppWithInviteRequired()
+
+    await request(app)
+      .post('/api/v1/auth/register')
+      .send({
+        name: 'limit-user',
+        email: 'limit@example.com',
+        password: 'password123',
+        invitationCode: 'INVITE-LIMIT',
+      })
+      .expect(403)
   })
 
   it('register fails with invalid invitation code when invite required', async () => {
