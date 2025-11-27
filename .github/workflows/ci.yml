@@ -74,8 +74,8 @@ jobs:
           node-version: 20
           cache: 'pnpm'
 
-      - name: Install deps (workspace)
-        run: pnpm -w install --no-frozen-lockfile
+      - name: Install deps (all packages)
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build frontend
         run: pnpm --filter ./frontend/cruip-landing build
