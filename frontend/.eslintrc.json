@@ -22,7 +22,24 @@
   "rules": {
     "react-refresh/only-export-components": [
       "warn",
-      { "allowConstantExport": true }
+      {
+        "allowConstantExport": true,
+        "allowExportNames": [
+          "metadata",
+          "generateMetadata",
+          "generateStaticParams",
+          "revalidate",
+          "fetchCache",
+          "dynamic",
+          "dynamicParams",
+          "preferredRegion",
+          "runtime",
+          "viewport",
+          "buttonVariants",
+          "hexToRgb",
+          "genRandomNumbers"
+        ]
+      }
     ],
     "@typescript-eslint/no-unused-vars": [
       "error",

@@ -1,14 +1,15 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { invitationsApi, type Invitation } from '@/lib/api/admin'
 import { auditApi } from '@/lib/api/audit'
 
+// 管理端邀请码管理页。
+// 依赖 Auth 后端的邀请制开关，当 REGISTRATION_REQUIRE_INVITE=true 时，用户只能通过邀请码注册。
 export default function InvitationsPage() {
   const [items, setItems] = useState<Invitation[]>([])
   const [loading, setLoading] = useState(false)
@@ -18,14 +19,16 @@ export default function InvitationsPage() {
   const [expiresAt, setExpiresAt] = useState('')
   const [notes, setNotes] = useState('')
 
+  // 初始加载邀请码列表。失败时只在顶部显示错误提示，不阻断整个页面。
   async function load() {
     setLoading(true)
     setError(null)
     try {
       const list = await invitationsApi.list()
       setItems(list)
-    } catch (err: any) {
-      setError(err?.message || '加载失败')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : '加载失败'
+      setError(msg || '加载失败')
     } finally {
       setLoading(false)
     }
@@ -33,13 +36,23 @@ export default function InvitationsPage() {
 
   useEffect(() => { load() }, [])
 
+  // 创建一条新的邀请码，并将关键操作记录到审计日志中
   async function createOne() {
+    // usageLimit 从输入框读入，强制收敛在 [1, 100] 区间，避免滥用
     const ul = Math.max(1, Math.min(100, parseInt(usageLimit || '1', 10)))
     const payload: { usageLimit?: number; expiresAt?: string; notes?: string } = { usageLimit: ul }
     if (expiresAt) payload.expiresAt = expiresAt
     if (notes) payload.notes = notes
+
     const inv = await invitationsApi.create(payload)
-    try { await auditApi.create({ action: 'invitation.create', target: inv.code, meta: { usageLimit: inv.usageLimit } }) } catch {}
+    try {
+      // 邀请码创建成功后，将 usageLimit 写入审计日志，方便后续追踪调整原因
+      await auditApi.create({ action: 'invitation.create', target: inv.code, meta: { usageLimit: inv.usageLimit } })
+    } catch {
+      // 审计写入失败不影响邀请码主流程，忽略错误，保证用户仍能正常注册
+    }
+
+    // 将新邀请码插入到列表顶部，方便管理员立即复制 / 撤销
     setItems((prev) => [inv, ...prev])
     setCreateOpen(false)
     setUsageLimit('1')
@@ -49,7 +62,11 @@ export default function InvitationsPage() {
 
   async function revoke(code: string) {
     await invitationsApi.revoke(code)
-    try { await auditApi.create({ action: 'invitation.revoke', target: code }) } catch {}
+    try {
+      await auditApi.create({ action: 'invitation.revoke', target: code })
+    } catch {
+      // 审计写入失败不影响撤销操作
+    }
     setItems((prev) => prev.map((i) => (i.code === code ? { ...i, isActive: false } : i)))
   }
 
@@ -58,7 +75,9 @@ export default function InvitationsPage() {
       const url = new URL('/signup', window.location.origin)
       url.searchParams.set('code', code)
       navigator.clipboard?.writeText(url.toString())
-    } catch {}
+    } catch {
+      // 复制失败直接忽略，可能是浏览器限制
+    }
   }
 
   return (

@@ -8,6 +8,40 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { apiClient } from '@/lib/api/client'
 
+type MeStorage = {
+  storageUsed?: number | null
+  storageQuota?: number | null
+}
+
+type UploadSession = {
+  id: string
+  chunkSize?: number
+  totalChunks?: number
+}
+
+type UploadFinalizeResponse = {
+  fileId?: string
+}
+
+type UploadStatusResponse = {
+  status?: 'uploading' | 'processing' | 'completed' | 'failed'
+}
+
+type DraftCategory = 'base' | 'writing' | 'model' | 'script' | 'bundle' | 'modelAsset' | 'article'
+type DraftOS = 'windows' | 'darwin' | 'linux' | 'any'
+type DraftArch = 'amd64' | 'arm64' | 'any'
+type DraftChannel = 'stable' | 'beta' | 'dev'
+
+type DraftMetadata = {
+  name?: string
+  description?: string
+  category?: DraftCategory
+  license?: string
+  os?: DraftOS
+  arch?: DraftArch
+  channel?: DraftChannel
+}
+
 type UploadPanelProps = {
   onCompleted?: (result: { fileId: string; fileName: string }) => void
   showPreMetadata?: boolean
@@ -23,7 +57,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
   const [uploadId, setUploadId] = useState<string | null>(null)
 
   // Draft metadata UI state (pre-upload fill)
-  const [draft, setDraft] = useState<{ name?: string; description?: string; category?: string; license?: string; os?: 'windows'|'darwin'|'linux'|'any'; arch?: 'amd64'|'arm64'|'any'; channel?: 'stable'|'beta'|'dev' }>({ channel: 'stable', os: 'any', arch: 'any' })
+  const [draft, setDraft] = useState<DraftMetadata>({ channel: 'stable', os: 'any', arch: 'any' })
   const [savingDraft, setSavingDraft] = useState(false)
 
   const token = useAuthStore((s) => s.accessToken)
@@ -33,9 +67,11 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
   useEffect(() => {
     ;(async () => {
       try {
-        const me = await apiClient.get<any>('/users/me')
+        const me = await apiClient.get<MeStorage>('/users/me')
         setQuota({ used: Number(me.storageUsed||0), total: Number(me.storageQuota||0) })
-      } catch {}
+      } catch {
+        // 忽略配额获取失败，不阻塞上传主流程
+      }
     })()
   }, [])
 
@@ -57,7 +93,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
     setStatus('创建上传会话…')
     try {
       // 1) 创建会话（JSON 流程）
-      const session = await apiClient.post<any>('/storage/uploads', {
+      const session = await apiClient.post<UploadSession>('/storage/uploads', {
         fileName: file.name,
         fileSize: file.size,
         mimeType: file.type || 'application/octet-stream',
@@ -102,10 +138,14 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
         body: '{}',
       })
       if (finRes.status === 200) {
-        const fin = await finRes.json()
-        try { await apiClient.put(`/files/${id}/draft`, draft) } catch {}
+        const fin: UploadFinalizeResponse = await finRes.json()
+        try {
+          await apiClient.put(`/files/${id}/draft`, draft)
+        } catch {
+          // 草稿保存失败不影响上传完成，只影响管理端展示
+        }
         setStatus('上传完成')
-        onCompleted?.({ fileId: (fin as any)?.fileId || id, fileName: file.name })
+        onCompleted?.({ fileId: fin.fileId || id, fileName: file.name })
       } else {
         if (!finRes.ok && finRes.status !== 202) {
           const msg = await finRes.text().catch(()=>'')
@@ -116,18 +156,23 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
         let done = false
         for (let i = 0; i < 300; i++) {
           await new Promise(r => setTimeout(r, 2000))
-          const s: any = await apiClient.get(`/storage/uploads/${id}`)
+          const s = await apiClient.get<UploadStatusResponse>(`/storage/uploads/${id}`)
           if (s?.status === 'completed') { done = true; break }
           if (s?.status === 'failed') throw new Error('合并失败')
         }
         if (!done) throw new Error('合并超时，请稍后在“我的文件”或发布管理中再试')
-        try { await apiClient.put(`/files/${id}/draft`, draft) } catch {}
+        try {
+          await apiClient.put(`/files/${id}/draft`, draft)
+        } catch {
+          // 草稿保存失败不影响上传完成，只影响管理端展示
+        }
         setStatus('上传完成')
         onCompleted?.({ fileId: id, fileName: file.name })
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error(err)
-      setStatus(err?.message || '上传失败')
+      const message = err instanceof Error ? err.message : null
+      setStatus(message || '上传失败')
     } finally {
       setUploading(false)
     }
@@ -162,7 +207,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="category">分类</Label>
-                  <Select value={draft.category as any} onValueChange={(v:any)=>setDraft({ ...draft, category: v })}>
+                  <Select value={draft.category ?? undefined} onValueChange={(v) => setDraft({ ...draft, category: v as DraftCategory })}>
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="选择分类" />
                     </SelectTrigger>
@@ -184,7 +229,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                 <div className="space-y-1">
                   <Label>兼容性</Label>
                   <div className="grid grid-cols-3 gap-2">
-                    <Select value={draft.os} onValueChange={(v:any)=>setDraft({ ...draft, os: v })}>
+                    <Select value={draft.os ?? undefined} onValueChange={(v) => setDraft({ ...draft, os: v as DraftOS })}>
                       <SelectTrigger><SelectValue placeholder="OS" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="any">通用</SelectItem>
@@ -193,7 +238,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                         <SelectItem value="linux">Linux</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value={draft.arch} onValueChange={(v:any)=>setDraft({ ...draft, arch: v })}>
+                    <Select value={draft.arch ?? undefined} onValueChange={(v) => setDraft({ ...draft, arch: v as DraftArch })}>
                       <SelectTrigger><SelectValue placeholder="Arch" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="any">通用</SelectItem>
@@ -201,7 +246,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                         <SelectItem value="arm64">ARM64</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value={draft.channel} onValueChange={(v:any)=>setDraft({ ...draft, channel: v })}>
+                    <Select value={draft.channel ?? undefined} onValueChange={(v) => setDraft({ ...draft, channel: v as DraftChannel })}>
                       <SelectTrigger><SelectValue placeholder="渠道" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="stable">Stable</SelectItem>
@@ -223,8 +268,9 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                   try {
                     await apiClient.put(`/files/${uploadId}/draft`, draft)
                     setStatus('草稿信息已保存')
-                  } catch (e:any) {
-                    setStatus(e?.message || '保存失败')
+                  } catch (err) {
+                    const message = err instanceof Error ? err.message : null
+                    setStatus(message || '保存失败')
                   } finally {
                     setSavingDraft(false)
                   }
@@ -243,7 +289,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
           </div>
           <div className="space-y-1">
             <Label htmlFor="category-pre">分类</Label>
-            <Select value={draft.category as any} onValueChange={(v:any)=>setDraft({ ...draft, category: v })}>
+            <Select value={draft.category ?? undefined} onValueChange={(v) => setDraft({ ...draft, category: v as DraftCategory })}>
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="选择分类" />
               </SelectTrigger>
@@ -265,7 +311,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
           <div className="space-y-1">
             <Label>兼容性</Label>
             <div className="grid grid-cols-3 gap-2">
-              <Select value={draft.os} onValueChange={(v:any)=>setDraft({ ...draft, os: v })}>
+              <Select value={draft.os ?? undefined} onValueChange={(v) => setDraft({ ...draft, os: v as DraftOS })}>
                 <SelectTrigger><SelectValue placeholder="OS" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">通用</SelectItem>
@@ -274,7 +320,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                   <SelectItem value="linux">Linux</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={draft.arch} onValueChange={(v:any)=>setDraft({ ...draft, arch: v })}>
+              <Select value={draft.arch ?? undefined} onValueChange={(v) => setDraft({ ...draft, arch: v as DraftArch })}>
                 <SelectTrigger><SelectValue placeholder="Arch" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">通用</SelectItem>
@@ -282,7 +328,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                   <SelectItem value="arm64">ARM64</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={draft.channel} onValueChange={(v:any)=>setDraft({ ...draft, channel: v })}>
+              <Select value={draft.channel ?? undefined} onValueChange={(v) => setDraft({ ...draft, channel: v as DraftChannel })}>
                 <SelectTrigger><SelectValue placeholder="渠道" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="stable">Stable</SelectItem>

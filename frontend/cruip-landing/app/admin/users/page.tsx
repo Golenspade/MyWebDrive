@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { format } from 'date-fns'
 import Link from 'next/link'
 import { Button } from '@/components/ui/button'
@@ -12,17 +12,17 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAuthStore } from '@/lib/stores/auth-store'
-import { adminApi } from '@/lib/api/admin'
+import { adminApi, type UsersResp } from '@/lib/api/admin'
 import { usersApi } from '@/lib/api/users'
 import { auditApi } from '@/lib/api/audit'
 import { parseBytes, toUnit } from '@/lib/utils/parse-bytes'
 
-type AdminUser = { id: string; name: string | null; email: string; role: 'user' | 'admin'; createdAt: string }
-type UsersResp = { items: AdminUser[]; page: number; pageSize: number; total: number }
+type QuotaUnit = 'KB' | 'MB' | 'GB' | 'TB'
 
 export default function AdminUsersPage() {
   const { isAuthenticated, role } = useAuthStore()
   const [query, setQuery] = useState('')
+  const queryRef = useRef('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [loading, setLoading] = useState(false)
@@ -30,24 +30,30 @@ export default function AdminUsersPage() {
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil((data.total || 0) / pageSize)), [data.total, pageSize])
 
-  async function fetchUsers() {
+  const fetchUsers = useCallback(async () => {
     if (!isAuthenticated || role !== 'admin') return
     setLoading(true)
     try {
-      const list = await adminApi.listUsers({ q: query, page, pageSize })
+      const list = await adminApi.listUsers({ q: queryRef.current, page, pageSize })
       setData(list)
     } catch (err) {
       console.error(err)
     } finally {
       setLoading(false)
     }
-  }
+  }, [isAuthenticated, role, page, pageSize])
 
-  useEffect(() => { fetchUsers() }, [isAuthenticated, role, page, pageSize])
+  useEffect(() => {
+    void fetchUsers()
+  }, [fetchUsers])
 
   async function changeRole(id: string, nextRole: 'user' | 'admin') {
     await adminApi.setRole(id, nextRole)
-    try { await auditApi.create({ action: 'user.role.update', target: id, meta: { role: nextRole } }) } catch {}
+    try {
+      await auditApi.create({ action: 'user.role.update', target: id, meta: { role: nextRole } })
+    } catch {
+      // 审计写入失败不影响角色变更主流程
+    }
     setData(prev => ({ ...prev, items: prev.items.map(u => u.id === id ? { ...u, role: nextRole } : u) }))
   }
 
@@ -56,7 +62,7 @@ export default function AdminUsersPage() {
   const [quotaUserId, setQuotaUserId] = useState<string | null>(null)
   const [quotaInput, setQuotaInput] = useState('')
   const [quotaInfo, setQuotaInfo] = useState<{ storageQuota: number; storageUsed: number } | null>(null)
-  const [quotaUnit, setQuotaUnit] = useState<'KB'|'MB'|'GB'|'TB'>('GB')
+  const [quotaUnit, setQuotaUnit] = useState<QuotaUnit>('GB')
   const DEFAULT_TOTAL_BYTES = 40 * 1024 * 1024 * 1024 // 40 GiB
   const [sliderMax, setSliderMax] = useState<number>(toUnit(DEFAULT_TOTAL_BYTES, 'GB'))
   const [sliderVal, setSliderVal] = useState<number>(0)
@@ -69,9 +75,11 @@ export default function AdminUsersPage() {
       setQuotaInfo(js)
       setSliderVal(toUnit(js.storageQuota || 0, quotaUnit))
       setQuotaInput('')
-    } catch (err: any) {
+    } catch (err) {
+      const maybe = err as { status?: number } | null | undefined
+      const status = typeof maybe?.status === 'number' ? maybe.status : undefined
       // 当用户还没有在 User 服务中创建档案时，GET /users/:id/storage 返回 404
-      if (err && typeof err.status === 'number' && err.status === 404) {
+      if (status === 404) {
         const fallback = { storageQuota: 0, storageUsed: 0 }
         setQuotaInfo(fallback)
         setSliderVal(0)
@@ -90,7 +98,11 @@ export default function AdminUsersPage() {
       return Math.max(0, Math.floor((map[quotaUnit] || 1) * sliderVal))
     })()
     await usersApi.setQuotaById(quotaUserId, bytes)
-    try { await auditApi.create({ action: 'user.quota.update', target: quotaUserId, meta: { storageQuota: bytes } }) } catch {}
+    try {
+      await auditApi.create({ action: 'user.quota.update', target: quotaUserId, meta: { storageQuota: bytes } })
+    } catch {
+      // 审计写入失败时仍然以用户服务中的最终配额为准
+    }
     const fresh = await usersApi.getStorageById(quotaUserId)
     setQuotaInfo(fresh)
   }
@@ -110,8 +122,32 @@ export default function AdminUsersPage() {
         </CardHeader>
         <CardContent>
           <div className='flex items-center gap-2 pb-4'>
-            <Input placeholder='搜索邮箱/姓名' value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e)=>{ if (e.key==='Enter') { setPage(1); fetchUsers() } }} />
-            <Button onClick={() => { setPage(1); fetchUsers() }} disabled={loading}>搜索</Button>
+            <Input
+              placeholder='搜索邮箱/姓名'
+              value={query}
+              onChange={(e) => { setQuery(e.target.value); queryRef.current = e.target.value }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  if (page !== 1) {
+                    setPage(1)
+                  } else {
+                    void fetchUsers()
+                  }
+                }
+              }}
+            />
+            <Button
+              onClick={() => {
+                if (page !== 1) {
+                  setPage(1)
+                } else {
+                  void fetchUsers()
+                }
+              }}
+              disabled={loading}
+            >
+              搜索
+            </Button>
           </div>
 
           <div className='rounded-md border'>
@@ -140,7 +176,7 @@ export default function AdminUsersPage() {
                     <TableCell>
                       <div className='flex items-center gap-2'>
                         <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>{u.role}</Badge>
-                        <Select value={u.role} onValueChange={(v)=>changeRole(u.id, v as any)}>
+                        <Select value={u.role} onValueChange={(v) => changeRole(u.id, v as 'user' | 'admin')}>
                           <SelectTrigger className='w-[120px]'><SelectValue placeholder='角色' /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value='user'>user</SelectItem>
@@ -196,7 +232,14 @@ export default function AdminUsersPage() {
               <div className='space-y-2'>
                 <div className='flex items-center gap-2'>
                   <label className='text-sm text-muted-foreground'>单位</label>
-                  <Select value={quotaUnit} onValueChange={(v)=>{ setQuotaUnit(v as any); setSliderVal(0); setSliderMax(toUnit(DEFAULT_TOTAL_BYTES, v as any)) }}>
+                  <Select
+                    value={quotaUnit}
+                    onValueChange={(v) => {
+                      setQuotaUnit(v as QuotaUnit)
+                      setSliderVal(0)
+                      setSliderMax(toUnit(DEFAULT_TOTAL_BYTES, v as QuotaUnit))
+                    }}
+                  >
                     <SelectTrigger className='w-[110px]'><SelectValue placeholder='单位' /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value='KB'>KB</SelectItem>

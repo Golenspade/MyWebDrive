@@ -1,5 +1,7 @@
 "use client";
 
+import type { ComponentPropsWithoutRef } from "react";
+
 import { CalendarIcon, FileTextIcon } from "@radix-ui/react-icons";
 import { BellIcon, Share2Icon } from "lucide-react";
 
@@ -18,7 +20,7 @@ const files = [
   { name: "fadein.json", body: "渐入效果，默认参数：100，参数范围：0-无限大" },
 ];
 
-const features = [
+const features: ComponentPropsWithoutRef<typeof BentoCard>[] = [
   {
     Icon: FileTextIcon,
     name: "多样化的素材来源",
@@ -101,7 +103,7 @@ export default function BentoDemo() {
         <div className="mt-10 sm:mt-12" data-aos="fade-up" data-aos-delay={150}>
           <BentoGrid>
             {features.map((feature, idx) => (
-              <BentoCard key={idx} {...(feature as any)} />
+              <BentoCard key={idx} {...feature} />
             ))}
           </BentoGrid>
         </div>

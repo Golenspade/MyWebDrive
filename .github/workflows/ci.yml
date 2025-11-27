@@ -7,8 +7,10 @@ on:
     branches: [ "**" ]
 
 jobs:
-  node-build-test:
+  # Backend build and test
+  backend:
     runs-on: ubuntu-latest
+    name: Backend (Node.js)
 
     steps:
       - name: Checkout
@@ -28,8 +30,8 @@ jobs:
       - name: Install deps (pnpm workspace)
         run: pnpm -w install --no-frozen-lockfile
 
-      - name: Build all packages/services/apps
-        run: pnpm -r --filter ./packages/** --filter ./services/** --filter ./apps/** build
+      - name: Build all packages/services
+        run: pnpm -r --filter ./packages/** --filter ./services/** build
 
       - name: Prisma generate (all services)
         run: pnpm -r --filter ./services/** prisma:generate || true
@@ -51,3 +53,35 @@ jobs:
 
       - name: Tests (best-effort)
         run: pnpm -r test || true
+
+  # Frontend build and lint
+  frontend:
+    runs-on: ubuntu-latest
+    name: Frontend (Next.js)
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable corepack (pnpm)
+        run: |
+          corepack enable
+          corepack prepare pnpm@9.7.0 --activate
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install deps (all packages)
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm --filter ./frontend/cruip-landing build
+
+      - name: Lint frontend
+        run: pnpm --filter ./frontend/cruip-landing lint || true
+
+      - name: Type check frontend
+        run: pnpm --filter ./frontend/cruip-landing typecheck || true

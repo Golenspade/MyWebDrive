@@ -13,7 +13,8 @@
     "prisma:generate": "prisma generate",
     "migrate:dev": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
-    "migrate:deploy": "prisma migrate deploy"
+    "migrate:deploy": "prisma migrate deploy",
+    "test": "vitest run --coverage"
   },
   "dependencies": {
     "express": "^4.19.2",

@@ -64,26 +64,26 @@ export default function AuthLayout({
                   </span>
                 </div>
                 <div className="font-mono text-sm text-gray-500 transition duration-300 [&_span]:opacity-0">
-                  <span className="animate-[code-1_10s_infinite] text-gray-200">
+                  <span className="animate-[mwd-typewriter-1_10s_infinite] text-gray-200">
                     npm login
                   </span>{" "}
-                  <span className="animate-[code-2_10s_infinite]">
+                  <span className="animate-[mwd-typewriter-2_10s_infinite]">
                     --registry=https://npm.pkg.github.com
                   </span>
                   <br />
-                  <span className="animate-[code-3_10s_infinite]">
+                  <span className="animate-[mwd-typewriter-3_10s_infinite]">
                     --scope=@phanatic
                   </span>{" "}
-                  <span className="animate-[code-4_10s_infinite]">
+                  <span className="animate-[mwd-typewriter-4_10s_infinite]">
                     Successfully logged-in.
                   </span>
                   <br />
                   <br />
-                  <span className="animate-[code-5_10s_infinite] text-gray-200">
+                  <span className="animate-[mwd-typewriter-5_10s_infinite] text-gray-200">
                     npm publish
                   </span>
                   <br />
-                  <span className="animate-[code-6_10s_infinite]">
+                  <span className="animate-[mwd-typewriter-6_10s_infinite]">
                     Package published.
                   </span>
                 </div>

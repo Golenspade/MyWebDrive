@@ -3,13 +3,17 @@
 
 import { apiClient } from './client'
 
+export type AuditMeta = {
+  storageQuota?: number | string
+} | null
+
 export type AuditLog = {
   id: string
   action: string
   actorId?: string | null
   target?: string | null
   createdAt: string
-  meta?: any
+  meta?: AuditMeta
 }
 
 export const adminAuditApi = {

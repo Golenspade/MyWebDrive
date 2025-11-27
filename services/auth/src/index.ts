@@ -6,7 +6,7 @@ import { PrismaClient } from '../prisma/client/index.js'
 import { randomUUID, randomBytes } from 'crypto'
 import { getEnv } from '@mywebdrive/common'
 
-const app = express()
+export const app = express()
 app.disable('x-powered-by')
 
 // Config
@@ -352,6 +352,10 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(status).json({ error: { code: 'INTERNAL_ERROR', message } })
 })
 
-app.listen(PORT, () => {
-  logger.info({ port: PORT }, 'auth-service-node listening')
-})
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    logger.info({ port: PORT }, 'auth-service-node listening')
+  })
+}
+
+export { signAccess, signRefresh }

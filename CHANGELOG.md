@@ -4,6 +4,52 @@ All notable changes to this repository will be documented in this file.
 
 
 
+## chore/prepare-deploy-2025-10-22 - 2025-11-17
+
+### Merged
+- Merged `fix/nginx-http2-upstream-syntax` branch into `chore/prepare-deploy-2025-10-22`
+- Commit: `4760d6a` - Merge fix/nginx-http2-upstream-syntax: async upload finalize + Vite cleanup
+
+### Added
+- **feat(upload)**: 支持异步文件合并轮询机制
+  - Storage Service: 后台任务处理，返回 202 状态码避免大文件超时
+  - Gateway: 支持 202 状态通知（"文件合并已开始"）
+  - Frontend: 轮询机制（每 2 秒检查一次，最多 300 次/10 分钟）
+  - 用户友好的状态消息："正在合并文件..."
+
+### Fixed
+- **fix(storage)**: 修复内存泄漏 - 为 hash Transform 设置 `setMaxListeners(0)`
+- **fix(storage)**: 幂等性保护 - 防止重复合并任务
+- **fix(frontend)**: 优化首页布局 - 使用 marketing layout，恢复 header/footer
+- **fix(frontend)**: 隔离客户端特效 - 新增 `client-effects.tsx` 组件
+- **fix(frontend)**: 优化 AOS 动画 - 减少延迟，提升用户体验
+
+### Removed
+- **chore**: 删除遗留的 Vite 前端文件（84 个文件，-12,895 行代码）
+  - 删除 `frontend/vite.config.ts`, `frontend/src/`, `frontend/dist/`
+  - 删除 `frontend/node_modules/`, `frontend/package-lock.json`
+  - 删除 `infrastructure/docker/Dockerfile.frontend`（未使用）
+  - 更新 Makefile/README 指向 `frontend/cruip-landing`
+  - 清理 `.gitignore` 移除过时条目
+
+### Changed
+- **fix(production)**: 修复 Docker Compose 前端启动命令
+  - 使用 `node .next/standalone/server.js` 替代 `pnpm start`
+
+### Verify
+- ✅ 构建测试通过：`make build`
+- ✅ 代码库清理：净减少 12,808 行代码
+- ✅ 异步上传功能已在 fix/nginx 分支测试通过
+- ✅ 前端构建成功：无 Vite 相关错误
+
+### Impact
+- **代码库更干净**：删除 12,808 行无用代码
+- **功能更强大**：支持异步大文件上传（解决超时问题）
+- **用户体验更好**：轮询反馈 + 前端优化
+- **部署更简单**：无 Vite 混淆，配置更清晰
+
+
+
 ## fix/nginx-http2-upstream-syntax - 2025-10-28
 
 ### Fixed

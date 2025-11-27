@@ -28,6 +28,8 @@ import { notificationsApi, type AdminNotification } from '@/lib/api/notification
 import { useAuthStore } from '@/lib/stores/auth-store'
 
 type Severity = 'critical' | 'warning' | 'info' | 'success'
+type Category = 'all' | Severity
+
 type NotificationItem = AdminNotification
 
 function sevIcon(sev: Severity) {
@@ -67,13 +69,14 @@ function useNotifications() {
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(12)
   const [total, setTotal] = React.useState(0)
-  const [category, setCategory] = React.useState<'all' | Severity>('all')
+  const [category, setCategory] = React.useState<Category>('all')
   const [search, setSearch] = React.useState('')
   const [unreadOnly, setUnreadOnly] = React.useState(false)
   const [serviceFilter, setServiceFilter] = React.useState<string | 'all'>('all')
   const [range, setRange] = React.useState<DateRange | undefined>(undefined)
+  const dataLengthRef = React.useRef(0)
 
-  const load = async () => {
+  const load = React.useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -92,19 +95,32 @@ function useNotifications() {
       setData(res.items)
       setTotal(res.total)
       setServices(Array.from(new Set(res.items.map(s => s.service).filter(Boolean) as string[])))
-    } catch (err: any) {
-      setError(err?.message || '加载失败')
+      dataLengthRef.current = res.items.length
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null
+      setError(message || '加载失败')
     } finally {
       setLoading(false)
     }
-  }
+  }, [page, pageSize, category, search, unreadOnly, serviceFilter, range?.from, range?.to])
+  React.useEffect(() => {
+    dataLengthRef.current = data.length
+  }, [data.length])
+
+
 
   React.useEffect(() => { setPage(1) }, [category, search, unreadOnly, serviceFilter, range?.from, range?.to])
-  React.useEffect(() => { load() }, [page, pageSize, category, search, unreadOnly, serviceFilter, range?.from, range?.to])
+  React.useEffect(() => {
+    void load()
+  }, [load])
 
   const markRead = async (ids: string[]) => {
     if (!ids.length) return
-    try { await notificationsApi.markRead(ids) } catch {}
+    try {
+      await notificationsApi.markRead(ids)
+    } catch {
+      // 后端标记失败时仍然乐观更新本地状态
+    }
     setData(d => d.map(n => ids.includes(n.id) ? { ...n, unread: false } : n))
   }
   const remove = (ids: string[]) => setData(d => d.filter(n => !ids.includes(n.id)))
@@ -131,18 +147,10 @@ export default function NotificationsPage() {
   const { accessToken } = useAuthStore()
   const [selected, setSelected] = React.useState<Record<string, boolean>>({})
   const [openId, setOpenId] = React.useState<string | null>(null)
-  const PAGE_SIZE = 12
+  const dataLengthRef = React.useRef(data.length)
+  React.useEffect(() => { dataLengthRef.current = data.length }, [data.length])
 
   const openItem = data.find((d) => d.id === openId) || null
-
-  const filtered = data.filter((n) => {
-    if (category !== 'all' && n.severity !== category) return false
-    if (unreadOnly && !n.unread) return false
-    if (serviceFilter !== 'all' && n.service !== serviceFilter) return false
-    if (search && !`${n.title} ${n.description ?? ''} ${n.service}`.toLowerCase().includes(search.toLowerCase()))
-      return false
-    return true
-  })
 
   const totalPages = Math.max(1, Math.ceil((total || 0) / pageSize))
   const paged = data
@@ -199,27 +207,32 @@ export default function NotificationsPage() {
         const arr = JSON.parse(String(evt.data)) as NotificationItem[]
         if (Array.isArray(arr)) {
           // only set if local list is empty to avoid flicker
-          if (data.length === 0) {
+          if (dataLengthRef.current === 0) {
             // not calling setData here because it's internal to hook; trigger reload
-            load()
+            void load()
           }
         }
-      } catch {}
+      } catch {
+        // 忽略格式错误的 SSE 快照数据
+      }
     })
     es.addEventListener('notification', (evt: MessageEvent) => {
       try {
-        const n = JSON.parse(String(evt.data)) as NotificationItem
+        // 只要数据格式正确就触发一次刷新
+        JSON.parse(String(evt.data)) as NotificationItem
         // optimistic prepend (client-only)
         // we don't have direct setData, so trigger reload for correctness
         load()
-      } catch {}
+      } catch {
+        // 忽略格式错误的 SSE 通知数据，保底通过定时刷新获取
+      }
     })
     es.onerror = () => {
       es.close()
       esRef.current = null
     }
     return () => { es.close(); esRef.current = null }
-  }, [live, accessToken])
+  }, [live, accessToken, load])
 
   return (
     <>
@@ -265,7 +278,7 @@ export default function NotificationsPage() {
             </div>
           </div>
 
-          <Tabs value={category} onValueChange={(v) => setCategory(v as any)}>
+          <Tabs value={category} onValueChange={(v) => setCategory(v as Category)}>
             <TabsList>
               <TabsTrigger value='all'>全部</TabsTrigger>
               <TabsTrigger value='critical'>系统</TabsTrigger>

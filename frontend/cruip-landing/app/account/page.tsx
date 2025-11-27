@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useProtected } from '@/lib/hooks/use-protected'
 import { useAuthStore } from '@/lib/stores/auth-store'
@@ -10,10 +10,9 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
-import { userFilesApi, type FileItem } from '@/lib/api/files'
+import { userFilesApi, userFileVersionsApi, type FileItem, type FileVersion } from '@/lib/api/files'
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from '@/components/ui/dialog'
-import { userFileVersionsApi, type FileVersion } from '@/lib/api/files'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 
 
 
@@ -22,23 +21,23 @@ import UploadPanel from '@/components/upload/upload-panel'
 export default function AccountPage() {
   const { ready } = useProtected('user')
   const router = useRouter()
-  const { user, role, accessToken, logout, isAuthenticated, isLoading } = useAuthStore()
+  const { user, role, accessToken, logout } = useAuthStore()
   const [profile, setProfile] = useState(user)
   const [nameInput, setNameInput] = useState(user?.name || '')
   const [myFiles, setMyFiles] = useState<FileItem[]>([])
   const [filesCursor, setFilesCursor] = useState<string | null>(null)
   const [filesLoading, setFilesLoading] = useState(false)
 
-  async function loadMyFiles(cursor?: string) {
+  const loadMyFiles = useCallback(async (cursor?: string) => {
     setFilesLoading(true)
     try {
       const r = await userFilesApi.listMine({ limit: 20, cursor })
-      setMyFiles(cursor ? [...myFiles, ...r.items] : r.items)
+      setMyFiles(prev => cursor ? [...prev, ...r.items] : r.items)
       setFilesCursor(r.nextCursor)
     } finally {
       setFilesLoading(false)
     }
-  }
+  }, [])
 
   const [verOpenFor, setVerOpenFor] = useState<FileItem|null>(null)
   const [versions, setVersions] = useState<FileVersion[]>([])
@@ -66,13 +65,15 @@ export default function AccountPage() {
       const w = window.open('about:blank')
       if (w) { w.location.href = url } else { window.location.href = url }
       setTimeout(()=> URL.revokeObjectURL(url), 60_000)
-    }catch(err){ alert('预览失败') }
+    }catch{
+      alert('预览失败')
+    }
   }
 
 
 
   const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(false)
+  const [, setLoading] = useState(false)
 
   useEffect(() => {
     if (!ready) return
@@ -87,13 +88,13 @@ export default function AccountPage() {
         setLoading(false)
       }
     })()
-  }, [ready])
+  }, [ready, loadMyFiles, nameInput])
 
   async function saveName() {
     if (!nameInput || nameInput.trim().length < 2) return
     setSaving(true)
     try {
-      const updated = await apiClient.patch('/users/me', { name: nameInput.trim() })
+      await apiClient.patch('/users/me', { name: nameInput.trim() })
       // 简化：直接刷新 me
       const me = await usersApi.me()
       setProfile(me)

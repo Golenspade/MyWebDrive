@@ -31,8 +31,17 @@ export function GlobeDemo() {
     autoRotateSpeed: 0.5,
   } as const;
 
-  const colors = ["#06b6d4", "#3b82f6", "#6366f1"]; 
-  const sampleArcs = [
+  const colors = ["#06b6d4", "#3b82f6", "#6366f1"];
+  type Arc = {
+    order: number
+    startLat: number
+    startLng: number
+    endLat: number
+    endLng: number
+    arcAlt: number
+    color: string
+  }
+  const sampleArcs: Arc[] = [
     { order: 1, startLat: -19.885592, startLng: -43.951191, endLat: -22.9068, endLng: -43.1729, arcAlt: 0.1, color: colors[0] },
     { order: 1, startLat: 28.6139, startLng: 77.209, endLat: 3.139, endLng: 101.6869, arcAlt: 0.2, color: colors[1] },
     { order: 1, startLat: -19.885592, startLng: -43.951191, endLat: -1.303396, endLng: 36.852443, arcAlt: 0.5, color: colors[2] },
@@ -49,7 +58,7 @@ export function GlobeDemo() {
         </motion.div>
         <div className="absolute w-full bottom-0 inset-x-0 h-40 bg-gradient-to-b pointer-events-none select-none from-transparent dark:to-black to-white z-40" />
         <div className="absolute w-full -bottom-20 h-72 md:h-full z-10">
-          <World data={sampleArcs as any} globeConfig={globeConfig} />
+          <World data={sampleArcs} globeConfig={globeConfig} />
         </div>
       </div>
     </div>

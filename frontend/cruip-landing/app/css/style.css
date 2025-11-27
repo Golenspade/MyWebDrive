@@ -83,147 +83,72 @@
   --text-7xl--line-height: 1;
   --text-7xl--letter-spacing: -0.037em;
 
-  --animate-code-1: code-1;
-  --animate-code-2: code-2;
-  --animate-code-3: code-3;
-  --animate-code-4: code-4;
-  --animate-code-5: code-5;
-  --animate-code-6: code-6;
-  --animate-breath: breath;
-  --animate-float: float;
-  --animate-line: line;
-  --animate-infinite-scroll: infinite-scroll;
+  /* Custom animations - MyGO Studio original design */
+  --animate-code-1: mwd-typewriter-1;
+  --animate-code-2: mwd-typewriter-2;
+  --animate-code-3: mwd-typewriter-3;
+  --animate-code-4: mwd-typewriter-4;
+  --animate-code-5: mwd-typewriter-5;
+  --animate-code-6: mwd-typewriter-6;
+  --animate-breath: mwd-pulse;
+  --animate-float: mwd-float;
+  --animate-line: mwd-scan;
+  --animate-infinite-scroll: mwd-scroll;
 
-  @keyframes code-1 {
-    0% {
-      opacity: 0;
-    }
-    2.5% {
-      opacity: 1;
-    }
-    97.5% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
+  /* Typewriter effect animations - staggered fade-in for code display */
+  @keyframes mwd-typewriter-1 {
+    0%, 100% { opacity: 0; }
+    3%, 96% { opacity: 1; }
   }
-  @keyframes code-2 {
-    16.2% {
-      opacity: 0;
-    }
-    18.75% {
-      opacity: 1;
-    }
-    97.5% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
+  @keyframes mwd-typewriter-2 {
+    0%, 17% { opacity: 0; }
+    20%, 96% { opacity: 1; }
+    100% { opacity: 0; }
   }
-  @keyframes code-3 {
-    32.5% {
-      opacity: 0;
-    }
-    35% {
-      opacity: 1;
-    }
-    97.5% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
+  @keyframes mwd-typewriter-3 {
+    0%, 33% { opacity: 0; }
+    36%, 96% { opacity: 1; }
+    100% { opacity: 0; }
   }
-  @keyframes code-4 {
-    48.75% {
-      opacity: 0;
-    }
-    51.25% {
-      opacity: 1;
-    }
-    97.5% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
+  @keyframes mwd-typewriter-4 {
+    0%, 50% { opacity: 0; }
+    53%, 96% { opacity: 1; }
+    100% { opacity: 0; }
   }
-  @keyframes code-5 {
-    65% {
-      opacity: 0;
-    }
-    72.5% {
-      opacity: 1;
-    }
-    97.5% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
+  @keyframes mwd-typewriter-5 {
+    0%, 66% { opacity: 0; }
+    69%, 96% { opacity: 1; }
+    100% { opacity: 0; }
   }
-  @keyframes code-6 {
-    81.25% {
-      opacity: 0;
-    }
-    83.75% {
-      opacity: 1;
-    }
-    97.5% {
-      opacity: 1;
-    }
-    100% {
-      opacity: 0;
-    }
+  @keyframes mwd-typewriter-6 {
+    0%, 82% { opacity: 0; }
+    85%, 96% { opacity: 1; }
+    100% { opacity: 0; }
   }
-  @keyframes breath {
-    0%,
-    100% {
-      transform: scale(0.95);
-    }
-    50% {
-      transform: scale(1.1);
-    }
+
+  /* Gentle pulsing effect for decorative elements */
+  @keyframes mwd-pulse {
+    0%, 100% { transform: scale(0.96); }
+    50% { transform: scale(1.08); }
   }
-  @keyframes float {
-    0%,
-    100% {
-      transform: translateY(0);
-    }
-    50% {
-      transform: translateY(-5%);
-    }
+
+  /* Floating animation for cards and icons */
+  @keyframes mwd-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-4%); }
   }
-  @keyframes line {
-    0%,
-    100% {
-      left: 0;
-      opacity: 0;
-    }
-    50% {
-      left: 100%;
-      transform: translateX(-100%);
-    }
-    10%,
-    40%,
-    60%,
-    90% {
-      opacity: 0;
-    }
-    25%,
-    75% {
-      opacity: 1;
-    }
+
+  /* Scanning line effect for tech aesthetics */
+  @keyframes mwd-scan {
+    0%, 100% { left: 0; opacity: 0; }
+    25%, 75% { opacity: 1; }
+    50% { left: 100%; transform: translateX(-100%); }
   }
-  @keyframes infinite-scroll {
-    from {
-      transform: translateX(0);
-    }
-    to {
-      transform: translateX(-100%);
-    }
+
+  /* Infinite horizontal scroll for marquee effects */
+  @keyframes mwd-scroll {
+    from { transform: translateX(0); }
+    to { transform: translateX(-100%); }
   }
 }
 

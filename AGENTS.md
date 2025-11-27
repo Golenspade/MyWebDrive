@@ -10,6 +10,8 @@
 
 ## Build, Test, and Development Commands
 - Prereqs: Node 20+ and `pnpm`. Install: `pnpm -w install`.
+- Database: PostgreSQL 14+ (start with `docker compose -f infrastructure/docker-compose.db.yml up -d` or `./manage-services.sh db:start`).
+- Initialize databases: `for svc in auth user metadata storage sharing; do pnpm --filter ./services/$svc db:push; done`.
 - Build TypeScript for all packages/services: `pnpm run build:all` or `make build`.
 - Develop a service locally: `pnpm -C services/auth dev` (replace `auth`).
 - Run backend services: `./manage-services.sh start-backend`.

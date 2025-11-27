@@ -21,7 +21,6 @@ pnpm-debug.log*
 packages/*/dist/
 services/*/dist/
 apps/*/dist/
-frontend/dist/
 
 # Framework outputs
 apps/*/.next/
@@ -57,3 +56,4 @@ assetsReal/
 
 # Local ops secrets (do not commit)
 .ops/
+frontend/_templates/tailwind-landing-page-template

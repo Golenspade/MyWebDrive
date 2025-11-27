@@ -22,8 +22,9 @@ export default function SignIn() {
       const nextRole = useAuthStore.getState().role
       if (nextRole === 'admin') router.push('/admin/overview')
       else router.push('/account')
-    } catch (err: any) {
-      setError(err?.message || '登录失败')
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null
+      setError(message || '登录失败')
     }
   }
 

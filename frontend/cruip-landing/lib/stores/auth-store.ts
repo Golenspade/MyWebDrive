@@ -11,18 +11,26 @@ import { apiClient } from '@/lib/api/client'
 
 type Role = 'user' | 'admin'
 
-function parseJwt(token: string | null): any | null {
+type JwtPayload = {
+  role?: string | null
+}
+
+function parseJwt(token: string | null): JwtPayload | null {
   if (!token) return null
   const parts = token.split('.')
   if (parts.length !== 3) return null
   try {
     const payload = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))
-    return JSON.parse(decodeURIComponent(Array.prototype.map.call(payload, (c: string) => {
+    const decoded = JSON.parse(decodeURIComponent(Array.prototype.map.call(payload, (c: string) => {
       return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
     }).join('')))
+    if (!decoded || typeof decoded !== 'object') return null
+    return decoded as JwtPayload
   } catch {
     try {
-      return JSON.parse(atob(parts[1]))
+      const decoded = JSON.parse(atob(parts[1]))
+      if (!decoded || typeof decoded !== 'object') return null
+      return decoded as JwtPayload
     } catch {
       return null
     }
@@ -87,7 +95,11 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async () => {
-        try { await authApi.logout() } catch {}
+        try {
+          await authApi.logout()
+        } catch {
+          // 忽略登出接口错误，本地状态照常清空
+        }
         set({ user: null, role: null, accessToken: null, refreshToken: null, isAuthenticated: false })
       },
 

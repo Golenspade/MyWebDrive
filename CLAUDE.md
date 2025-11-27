@@ -12,6 +12,7 @@ MyWebDrive is a microservices-based cloud storage platform built with Node.js + 
 - PostgreSQL for each service's database with Prisma ORM
 - JWT-based authentication with access/refresh tokens
 - TUS protocol for resumable uploads
+- Async upload finalization for large files (202 status code + polling)
 
 ## Architecture
 
@@ -103,7 +104,7 @@ JWT_SECRET=dev-secret \
 STORAGE_PORT=7084 \
 STORAGE_PATH=./storage \
 METADATA_SERVICE_URL=http://localhost:7083 \
-STORAGE_DATABASE_URL=file:./storage.db \
+STORAGE_DATABASE_URL=postgres://user:pass@localhost:5432/storage \
 REDIS_URL=redis://localhost:6379/0 \
 pnpm dev
 ```
@@ -266,7 +267,12 @@ Verify metrics: `curl http://localhost:7081/metrics | head`
 
 ### Frontend Architecture
 
-The frontend uses a modern React + Next.js 15 stack with Zustand for state management. Key patterns:
+The frontend uses a modern React + Next.js 15 stack with Zustand for state management.
+There are two Next.js apps:
+- `frontend/cruip-landing`: main marketing/docs/admin frontend, originally derived from the Cruip Simple Light template but heavily customized, with all third-party promotions removed and only attribution kept in README.
+- `apps/web`: an experimental site that now shares the same Next 15 / React 19 stack and is intended for future templateization work (do not reintroduce external branding or promotions here).
+
+Key patterns:
 
 - **API Client**: `lib/api/client.ts` handles automatic token refresh (single-flight), 204 responses, and unified error handling
 - **Auth Store**: `lib/stores/auth-store.ts` manages authentication state with localStorage persistence
@@ -351,6 +357,37 @@ All admin routes require authentication + admin role (`requireAuth` + `requireAd
 **Note**: Gateway forwards `Authorization` header to downstream services and provides fallback to 0 on failure.
 
 ## Special Features
+
+### Async Upload Finalization
+
+For large file uploads, the system implements async finalization to avoid timeout issues:
+
+**Flow**:
+1. Client uploads file chunks via `PATCH /api/v1/storage/uploads/{id}` (with `X-Chunk-Index` header)
+2. After all chunks uploaded, client calls `POST /api/v1/storage/uploads/{id}/finalize`
+3. Storage service returns `202 Accepted` if file is large (starts background merge job)
+4. Client polls `GET /api/v1/storage/uploads/{id}` every 2 seconds to check status
+5. When status becomes `completed`, upload is done
+
+**Key Implementation Details**:
+- Storage service uses `setImmediate` for background processing (non-blocking)
+- In-memory Set `FINALIZE_IN_PROGRESS` tracks active jobs (prevents duplicate merges)
+- Gateway intercepts finalize requests to push admin notifications
+- Frontend polls up to 300 times (10 minutes max)
+- Idempotent: calling finalize on completed session returns current info
+
+**Configuration**:
+```bash
+GATEWAY_PROXY_TIMEOUT_MS=600000        # 10 minutes
+UPLOAD_FINALIZE_TIMEOUT_MS=600000      # 10 minutes
+STORAGE_SKIP_METADATA=false            # Dev-only: skip metadata callback
+```
+
+**Status Values**:
+- `uploading` - chunks being uploaded
+- `processing` - finalize job running (202 returned)
+- `completed` - merge done, file ready
+- `failed` - merge failed
 
 ### Catalog API (Download Directory)
 
@@ -500,7 +537,7 @@ make alicloud-deploy # Deploy to Aliyun
 **Prisma errors:**
 - Regenerate client: `pnpm --filter ./services/<name> prisma:generate`
 - Push schema: `pnpm --filter ./services/<name> db:push`
-- Check database file exists (for SQLite services)
+- Check database connection: Verify `<SERVICE>_DATABASE_URL` is set correctly
 
 **Frontend can't reach backend:**
 - Verify gateway is running on 9080: `curl http://localhost:9080/health`
