@@ -35,10 +35,8 @@ pnpm -C frontend/cruip-landing build
 pnpm -C frontend/cruip-landing start
 ```
 
-## 模板来源与说明
+## 许可证
 
-本前端的早期 UI 布局最初基于 Cruip 提供的 [Simple Light](https://github.com/cruip/tailwind-landing-page-template) Tailwind / Next.js 模板进行改造。原模板在 GPL-3.0 许可下发布，版权归 Cruip 所有。
+本前端代码由 MyGO Studio 原创开发，采用 MIT 许可证发布。
 
-我们在此基础上做了大量修改，以适配 MyWebDrive 的产品结构、中文文案、自托管字体以及文档系统等需求。Cruip 与本项目没有任何官方关联或背书。
-
-本仓库整体的许可证和条款请参考仓库根目录的 `LICENSE` 文件。
+详见仓库根目录的 `LICENSE` 文件。

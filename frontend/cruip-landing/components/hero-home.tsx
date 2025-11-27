@@ -121,17 +121,17 @@ export default function HeroHome() {
                 </span>
               </div>
               <div className="font-mono text-gray-500 [&_span]:opacity-0">
-                <span className="animate-[code-1_10s_infinite] text-gray-200">Game_name: WebGAL;</span>
+                <span className="animate-[mwd-typewriter-1_10s_infinite] text-gray-200">Game_name: WebGAL;</span>
                 <br />
-                <span className="animate-[code-2_10s_infinite]">Game_key: 0f33fdGr;</span>
+                <span className="animate-[mwd-typewriter-2_10s_infinite]">Game_key: 0f33fdGr;</span>
                 <br />
-                <span className="animate-[code-3_10s_infinite]">Title_img: Title.png;</span>
+                <span className="animate-[mwd-typewriter-3_10s_infinite]">Title_img: Title.png;</span>
                 <br />
-                <span className="animate-[code-4_10s_infinite]">Title_bgm: 夏影.mp3;</span>
+                <span className="animate-[mwd-typewriter-4_10s_infinite]">Title_bgm: 夏影.mp3;</span>
                 <br />
-                <span className="animate-[code-5_10s_infinite] text-gray-200">Game_Logo: WebGalEnter.png|bg.png;</span>
+                <span className="animate-[mwd-typewriter-5_10s_infinite] text-gray-200">Game_Logo: WebGalEnter.png|bg.png;</span>
                 <br />
-                <span className="animate-[code-6_10s_infinite]">Enable_Appreciation: true;</span>
+                <span className="animate-[mwd-typewriter-6_10s_infinite]">Enable_Appreciation: true;</span>
               </div>
             </div>
           </div>
