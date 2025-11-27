@@ -86,6 +86,8 @@ setInterval(async () => {
         }
     }
 }, CLEANUP_PERIOD_MS).unref();
+// Track finalize jobs to avoid duplicate work
+const FINALIZE_IN_PROGRESS = new Set();
 // Health & metrics
 app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'storage-service-node' }));
 app.get('/metrics', metricsHandler);
@@ -503,6 +505,9 @@ async function mergeChunks(session, expectedMd5) {
             },
         })
         : null;
+    // Avoid MaxListenersExceededWarning when piping many times into the same Transform
+    if (hashT)
+        hashT.setMaxListeners?.(0);
     // Pipe each chunk sequentially to the same writer to honor order
     for (let i = 0; i < session.totalChunks; i++) {
         const chunkPath = path.join(tempDir, `chunk_${i}`);
@@ -575,31 +580,51 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, async (req, 
         return res.status(400).json({ error: 'Not all chunks uploaded' });
     if (session.fileSize > MAX_FILE_SIZE)
         return res.status(400).json({ error: 'File too large (max 2GB)' });
-    try {
-        const { expectedMd5 } = (req.body || {});
-        let finalPath;
-        let md5;
-        if (STORAGE_SKIP_METADATA) {
-            // Fast path for dev/demo: skip actual merge to speed up finalize
-            finalPath = `dev://skipped/${session.id}`;
-            md5 = 'skip';
-        }
-        else {
-            const merged = await mergeChunks(session, expectedMd5);
-            finalPath = merged.finalPath;
-            md5 = merged.md5;
-        }
-        session.status = 'completed';
-        session.storagePath = finalPath;
-        session.md5Hash = md5;
-        session.updatedAt = new Date().toISOString();
-        await persistSession(session);
-        // Notify metadata service: create or update file + version (skippable in dev)
-        if (!STORAGE_SKIP_METADATA) {
-            try {
-                const bearer = String(req.headers['authorization'] || '');
-                const r = await callMetadataServiceWithRetry(`${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`, { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null }, bearer);
-                if (!r.ok) {
+    // If already completed, return current info
+    if (session.status === 'completed') {
+        return res.json({
+            uploadId,
+            fileName: session.fileName,
+            fileSize: session.fileSize,
+            storagePath: session.storagePath,
+            md5Hash: session.md5Hash,
+            status: 'completed',
+            fileId: uploadId,
+        });
+    }
+    // If a finalize job is already running, return processing
+    if (FINALIZE_IN_PROGRESS.has(uploadId)) {
+        return res.status(202).json({ status: 'processing', uploadId });
+    }
+    // Start background finalize job
+    FINALIZE_IN_PROGRESS.add(uploadId);
+    const bearer = String(req.headers['authorization'] || '');
+    const { expectedMd5 } = (req.body || {});
+    setImmediate(async () => {
+        try {
+            let finalPath;
+            let md5;
+            if (STORAGE_SKIP_METADATA) {
+                finalPath = `dev://skipped/${session.id}`;
+                md5 = 'skip';
+            }
+            else {
+                const merged = await mergeChunks(session, expectedMd5);
+                finalPath = merged.finalPath;
+                md5 = merged.md5;
+            }
+            session.status = 'completed';
+            session.storagePath = finalPath;
+            session.md5Hash = md5;
+            session.updatedAt = new Date().toISOString();
+            await persistSession(session);
+            if (!STORAGE_SKIP_METADATA) {
+                try {
+                    const r = await callMetadataServiceWithRetry(`${METADATA_SERVICE_URL}/api/v1/files/${encodeURIComponent(uploadId)}/versions`, { fileName: session.fileName, size: session.fileSize, mimeType: session.mimeType, storagePath: finalPath, md5Hash: md5, parentId: null }, bearer);
+                    if (!r.ok)
+                        throw new Error(`metadata http ${r.status}`);
+                }
+                catch (e) {
                     // Rollback stored file if metadata creation failed
                     if (USE_MINIO) {
                         try {
@@ -618,31 +643,18 @@ app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, async (req, 
                     }
                     session.status = 'failed';
                     await persistSession(session);
-                    return res.status(502).json({ error: 'Failed to create metadata' });
                 }
             }
-            catch { }
         }
-        return res.json({
-            uploadId,
-            fileName: session.fileName,
-            fileSize: session.fileSize,
-            storagePath: finalPath,
-            md5Hash: md5,
-            status: 'completed',
-            fileId: uploadId,
-        });
-    }
-    catch (err) {
-        if (err?.code === 'MD5_MISMATCH') {
+        catch (err) {
             session.status = 'failed';
             await persistSession(session);
-            return res.status(422).json({ error: 'MD5 checksum mismatch' });
         }
-        session.status = 'failed';
-        await persistSession(session);
-        return res.status(500).json({ error: 'Failed to merge file' });
-    }
+        finally {
+            FINALIZE_IN_PROGRESS.delete(uploadId);
+        }
+    });
+    return res.status(202).json({ status: 'processing', uploadId });
 });
 // Cancel upload
 app.delete('/api/v1/storage/uploads/:uploadId', requireAuth, async (req, res) => {
@@ -668,8 +680,16 @@ app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
         res.on('finish', () => { void release(ip); });
     }
     const fileId = req.params.fileId;
+    // Get original filename from upload session
+    let fileName = fileId;
+    try {
+        const session = await prisma.uploadSession.findUnique({ where: { id: fileId }, select: { fileName: true } });
+        if (session?.fileName)
+            fileName = session.fileName;
+    }
+    catch { }
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Disposition', `attachment; filename="${fileId}"`);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
     if (USE_MINIO) {
         try {
             const { Client } = await import('minio');
@@ -833,7 +853,7 @@ app.get('/api/v1/storage/files/:fileId', requireServiceToken, async (req, res) =
         catch {
             return res.status(404).json({ error: 'File not found' });
         }
-        res.sendFile(p);
+        res.sendFile(path.resolve(p));
     }
 });
 // Error handler

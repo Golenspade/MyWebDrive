@@ -723,7 +723,7 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
         const bearer = String(req.headers['authorization'] || '')
         const r = await fetch(`${USER_SERVICE_URL}/api/v1/users/me/storage`, { headers: { Authorization: bearer }, signal: AbortSignal.timeout(4000) })
         if (!r.ok) return null
-        return r.json()
+        return (await r.json()) as { storageQuota:number; storageUsed:number }
       } catch { return null }
     }
 
@@ -1122,11 +1122,16 @@ app.post('/api/v1/files/batch/delete', requireAuth, async (req, res, next) => {
 app.get('/api/v1/search', requireAuth, async (req, res, next) => {
   try {
     const userId = (req as any).auth.userId as string
+    const role = (req as any).auth.role as string
     const q = String(req.query.q || '').trim()
     const only = String(req.query.only || 'all')
     if (!q) return res.status(400).json({ error: 'Missing q' })
 
-    const where: any = { ownerId: userId, deletedAt: null, name: { contains: q } }
+    // Admin can search all files, regular users can only search their own
+    const where: any = { deletedAt: null, name: { contains: q } }
+    if (role !== 'admin') {
+      where.ownerId = userId
+    }
     if (only === 'files') where.type = 'file'
     if (only === 'folders') where.type = 'folder'
 

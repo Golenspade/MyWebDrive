@@ -39,6 +39,15 @@ class ApiClient {
     })
   }
 
+  async put<T>(endpoint: string, data?: any, options: RequestInit = {}) {
+    return this.request<T>(endpoint, {
+      ...options,
+      method: 'PUT',
+      body: data != null ? JSON.stringify(data) : undefined,
+    })
+  }
+
+
   async patch<T>(endpoint: string, data?: any, options: RequestInit = {}) {
     return this.request<T>(endpoint, {
       ...options,

@@ -91,13 +91,40 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
         setStatus(`已上传 ${i + 1}/${totalChunks} 个分片`)
       }
 
-      // 3) 完成合并
+      // 3) 完成合并（改为异步 finalize + 轮询）
       setStatus('合并文件…')
-      const fin = await apiClient.post<{ fileId: string }>(`/storage/uploads/${id}/finalize`, {})
-      // Save draft metadata for this file id
-      try { await apiClient.put(`/files/${id}/draft`, draft) } catch {}
-      setStatus('上传完成')
-      onCompleted?.({ fileId: fin.fileId || id, fileName: file.name })
+      const finRes = await fetch(`/api/v1/storage/uploads/${id}/finalize`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: '{}',
+      })
+      if (finRes.status === 200) {
+        const fin = await finRes.json()
+        try { await apiClient.put(`/files/${id}/draft`, draft) } catch {}
+        setStatus('上传完成')
+        onCompleted?.({ fileId: (fin as any)?.fileId || id, fileName: file.name })
+      } else {
+        if (!finRes.ok && finRes.status !== 202) {
+          const msg = await finRes.text().catch(()=>'')
+          throw new Error(`合并失败: ${finRes.status} ${msg}`)
+        }
+        setStatus('合并进行中…（请不要关闭页面，可安全切换其他页面）')
+        // 轮询状态：最多 ~10 分钟（300 次 * 2s）
+        let done = false
+        for (let i = 0; i < 300; i++) {
+          await new Promise(r => setTimeout(r, 2000))
+          const s: any = await apiClient.get(`/storage/uploads/${id}`)
+          if (s?.status === 'completed') { done = true; break }
+          if (s?.status === 'failed') throw new Error('合并失败')
+        }
+        if (!done) throw new Error('合并超时，请稍后在“我的文件”或发布管理中再试')
+        try { await apiClient.put(`/files/${id}/draft`, draft) } catch {}
+        setStatus('上传完成')
+        onCompleted?.({ fileId: id, fileName: file.name })
+      }
     } catch (err: any) {
       console.error(err)
       setStatus(err?.message || '上传失败')
@@ -280,7 +307,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
 
       <div className="flex items-center gap-2">
         <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        <Button onClick={startUpload} disabled={!file || uploading || !draft.name || (quota && quota.total > 0 && quota.used >= quota.total)}>开始上传</Button>
+        <Button onClick={startUpload} disabled={!file || uploading || !draft.name || !!(quota && quota.total > 0 && quota.used >= quota.total)}>开始上传</Button>
       </div>
 
     </div>

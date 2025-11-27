@@ -1,3 +1,38 @@
+## 更新日志（计划 - 2025-10-19）
+## 更新日志（2025-10-22）
+- 前端构建修复（Next.js 15）：
+  - signup 页面：使用 Suspense 包裹 useSearchParams，避免 CSR bailout 报错；改为 useEffect 读取查询参数并做空值保护。
+  - 修正示例页 admin/dashboard-example 的外部依赖，避免构建期找不到 '@/registry/*' 与 demo 组件。
+  - date-range-picker 组件：避免与 HTMLDivElement 的 onChange 冲突，收窄 Props 定义。
+  - notifications 详情抽屉：Accordion 改为以 children 传入内容，并补充 id 属性。
+  - publish/storage 页：移除 SelectTrigger 不支持的 id 属性；去除 Toast 的 variant 字段以匹配轻量实现。
+  - upload 面板：统一 Button disabled 的布尔表达式，避免 boolean | null 类型错误。
+  - API 客户端：新增 ApiClient.put 方法，满足发布接口调用。
+- 构建验证：`pnpm -C frontend/cruip-landing build` 成功，所有路由生成正常。
+- 后端验证：
+  - 通过 docker 启动 Postgres（mywd-pg），按 .env 中 schema 分库执行 prisma db push 成功。
+  - 启动所有服务并通过 /health 检查。
+  - 端到端验证：管理员创建邀请码 → 新用户使用邀请码注册 → 登录 → 上传文件 → 创建公开分享 → 游客下载，全部通过。
+
+
+- 面板细化（优先顺序）
+  - 管理后台 /admin/users：
+    - 搜索输入防抖（≈300ms），避免频繁请求
+    - query/page/pageSize 与 URL 同步（可分享链接、刷新不丢状态）
+    - 列表中补充用量/配额徽标（GET /api/v1/users/:id/storage），支持点击开配额对话框
+    - 预留批量操作入口（批量角色变更 / 批量设定配额）
+  - 用户面板 /account：
+    - 文件列表操作：删除 / 重命名；操作后 Toast 成功/失败提示
+    - 上传完成后自动刷新用量；错误重试与失败提示
+    - 版本历史：回滚成功提示、刷新列表与版本视图
+- 路由与鉴权
+  - 受保护页面的 Loading/未授权 统一文案与状态组件（避免空白页“转圈”体验差）
+  - 修复受保护路由重定向回环：在 /signin 与 /signup 时不再重定向，避免“无限转圈”；文件：frontend/cruip-landing/lib/hooks/use-protected.ts（加入 usePathname 判断）
+
+- 运维建议（本地开发）
+  - macOS 文件句柄：临时 ulimit -n 10000；持久化 sudo launchctl limit maxfiles 65536 200000
+
+
 ## 更新日志（2025-10-08-2255）
 - 邀请码：前端注册接口支持 `invitationCode`，修正 `test_invitation_system.sh` 校验逻辑，确保端到端验证可复用。
 - 配置：`docs/env.example` 与 `services/auth/.env.example` 补充邀码相关环境变量注释，README 指引生产启用步骤。

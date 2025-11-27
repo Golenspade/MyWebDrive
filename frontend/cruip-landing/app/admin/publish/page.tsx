@@ -38,6 +38,15 @@ type CatalogFormData = {
   url: string
 }
 
+function fmtSize(n: number) {
+  if (!n) return '0 B'
+  const units = ['B','KB','MB','GB','TB']
+  let i = 0
+  let v = n
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
+  return `${v.toFixed(i === 0 ? 0 : 2)} ${units[i]}`
+}
+
 export default function AdminPublishPage() {
   const { isAuthenticated, role } = useAuthStore()
   const { toast } = useToast()
@@ -77,7 +86,6 @@ export default function AdminPublishPage() {
       toast({
         title: '搜索失败',
         description: err.message || '无法搜索文件',
-        variant: 'destructive',
       })
     } finally {
       setLoading(false)
@@ -102,7 +110,6 @@ export default function AdminPublishPage() {
       toast({
         title: '错误',
         description: '请先选择要发布的文件',
-        variant: 'destructive',
       })
       return
     }
@@ -111,7 +118,6 @@ export default function AdminPublishPage() {
       toast({
         title: '错误',
         description: 'Slug 和 Version 是必填项',
-        variant: 'destructive',
       })
       return
     }
@@ -133,7 +139,6 @@ export default function AdminPublishPage() {
       toast({
         title: '发布失败',
         description: err.message || '无法发布项目',
-        variant: 'destructive',
       })
     } finally {
       setLoading(false)
@@ -182,7 +187,7 @@ export default function AdminPublishPage() {
                 >
                   <div className='text-sm font-medium'>{file.name}</div>
                   <div className='text-xs text-gray-500'>
-                    {(file.size / 1024 / 1024).toFixed(2)} MB
+                    {fmtSize(file.size)}
                   </div>
                 </div>
               ))}
@@ -242,7 +247,7 @@ export default function AdminPublishPage() {
               <div className='space-y-2'>
                 <Label htmlFor='category'>分类</Label>
                 <Select value={formData.category || undefined} onValueChange={(v: any) => setFormData({ ...formData, category: v })}>
-                  <SelectTrigger id='category'>
+                  <SelectTrigger>
                     <SelectValue placeholder='选择分类' />
                   </SelectTrigger>
                   <SelectContent>
@@ -281,7 +286,7 @@ export default function AdminPublishPage() {
               <div className='space-y-2'>
                 <Label htmlFor='channel'>通道</Label>
                 <Select value={formData.channel} onValueChange={(v: any) => setFormData({ ...formData, channel: v })}>
-                  <SelectTrigger id='channel'>
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -295,7 +300,7 @@ export default function AdminPublishPage() {
               <div className='space-y-2'>
                 <Label htmlFor='os'>操作系统</Label>
                 <Select value={formData.os} onValueChange={(v: any) => setFormData({ ...formData, os: v })}>
-                  <SelectTrigger id='os'>
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -310,7 +315,7 @@ export default function AdminPublishPage() {
               <div className='space-y-2'>
                 <Label htmlFor='arch'>架构</Label>
                 <Select value={formData.arch} onValueChange={(v: any) => setFormData({ ...formData, arch: v })}>
-                  <SelectTrigger id='arch'>
+                  <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>

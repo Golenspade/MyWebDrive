@@ -63,7 +63,7 @@ export default function AdminStoragePage(){
             <div className='flex items-center gap-2'>
               <Label htmlFor='topn' className='text-sm text-muted-foreground'>显示 Top N</Label>
               <Select value={topN} onValueChange={setTopN}>
-                <SelectTrigger id='topn' className='h-8 w-[120px]'>
+                <SelectTrigger className='h-8 w-[120px]'>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

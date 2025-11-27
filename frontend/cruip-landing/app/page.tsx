@@ -1,6 +1,12 @@
-import { redirect } from 'next/navigation'
+import MarketingLayout from './(marketing)/layout'
+import MarketingPage, { metadata } from './(marketing)/page'
 
-export default function RootRedirect() {
-  // Redirect root to the admin overview (MVP entry)
-  redirect('/admin/overview')
+export { metadata }
+
+export default function RootMarketingPage() {
+  return (
+    <MarketingLayout>
+      <MarketingPage />
+    </MarketingLayout>
+  )
 }

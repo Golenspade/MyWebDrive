@@ -5,10 +5,8 @@ const withNextra = (_opts) => (cfg) => cfg;
 const nextBase = {
   eslint: { ignoreDuringBuilds: true },
 
-  // FIXME: 注释掉静态导出以支持 rewrites 和 middleware (2025-10-14)
-  // 问题: output: 'export' 与 rewrites/middleware 冲突，导致无法代理API请求
-  // 解决方案: 开发环境注释掉 output，生产环境根据部署方式决定是否启用
-  // output: 'export',
+  // 生产容器运行使用 Next standalone 运行时，避免运行时依赖 pnpm 符号链接
+  output: 'standalone',
 
   images: { unoptimized: true },
 
@@ -28,12 +26,9 @@ const nextBase = {
     }
   },
 
-  // Make root path non-404 when using Nextra v3 (Pages Router)
-  // Redirect '/' -> '/docs' so users don't land on a 404 in dev/prod
+  // Root stays on marketing landing page; no default redirect
   async redirects() {
-    return [
-      { source: '/', destination: '/admin/overview', permanent: false },
-    ]
+    return []
   },
 };
 

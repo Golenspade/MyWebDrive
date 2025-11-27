@@ -1,11 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { useSearchParams } from 'next/navigation'
 
-export default function SignUp() {
+function SignUpInner() {
   const router = useRouter()
   const { register, isLoading, isAuthenticated } = useAuthStore()
   const searchParams = useSearchParams()
@@ -23,25 +23,28 @@ export default function SignUp() {
         setError('请输入有效的邀请码')
         return
       }
+      // 仅完成注册与状态更新，导航放在下面的 effect 中统一处理，避免竞态导致 404
       await register({ name, email, password, invitationCode: invitationCode.trim() })
-      router.push('/admin')
     } catch (err: any) {
       setError(err?.message || '注册失败')
     }
   }
 
-  if (isAuthenticated) {
-    router.replace('/admin')
-    return null
-  }
+  // 使用 effect 监听认证状态，避免在 render 中导航
+  useEffect(() => {
+    if (!isAuthenticated) return
+    const nextRole = useAuthStore.getState().role
+    if (nextRole === 'admin') router.replace('/admin/overview')
+    else router.replace('/account')
+  }, [isAuthenticated, router])
 
   // Prefill invitation code from ?code=
-  if (typeof window !== 'undefined') {
-    const code = searchParams.get('code')
+  useEffect(() => {
+    const code = searchParams?.get('code') ?? (typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('code') : null)
     if (code && !invitationCode) {
       setInvitationCode(code)
     }
-  }
+  }, [searchParams, invitationCode])
 
   return (
     <>
@@ -77,5 +80,14 @@ export default function SignUp() {
         </div>
       </form>
     </>
+  )
+}
+
+
+export default function SignUp() {
+  return (
+    <Suspense>
+      <SignUpInner />
+    </Suspense>
   )
 }

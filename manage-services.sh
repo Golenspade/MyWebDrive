@@ -156,17 +156,49 @@ stop_backend(){
 }
 
 # --- 状态 ---
+http_health(){
+  # $1: url; returns OK/FAIL based on HTTP status (2xx/3xx -> OK)
+  local url="$1"
+  local code="$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "$url" || echo 000)"
+  case "$code" in
+    2*|3*) echo "OK" ;;
+    *) echo "FAIL" ;;
+  esac
+}
+
 show_status(){
   echo "================================ STATUS ================================"
-  printf "%-24s %-8s %-22s\n" "Service" "Port" "Status"
+  printf "%-24s %-8s %-14s %-8s\n" "Service" "Port" "Socket" "Health"
   echo "------------------------------------------------------------------------"
-  printf "%-24s %-8s %-22s\n" "Frontend (cruip)" "$FRONTEND_PORT" "$(check_on_port $FRONTEND_PORT)"
-  printf "%-24s %-8s %-22s\n" "API Gateway" "$GW_PORT" "$(check_on_port $GW_PORT)"
-  printf "%-24s %-8s %-22s\n" "Auth Service" "$AUTH_PORT" "$(check_on_port $AUTH_PORT)"
-  printf "%-24s %-8s %-22s\n" "User Service" "$USER_PORT" "$(check_on_port $USER_PORT)"
-  printf "%-24s %-8s %-22s\n" "Metadata Service" "$META_PORT" "$(check_on_port $META_PORT)"
-  printf "%-24s %-8s %-22s\n" "Storage Service" "$STOR_PORT" "$(check_on_port $STOR_PORT)"
-  printf "%-24s %-8s %-22s\n" "Sharing Service" "$SHAR_PORT" "$(check_on_port $SHAR_PORT)"
+
+  local fe_sock="$(check_on_port $FRONTEND_PORT)"
+  local fe_health="$(http_health "http://$FRONTEND_HOST:$FRONTEND_PORT/")"
+  printf "%-24s %-8s %-14s %-8s\n" "Frontend (cruip)" "$FRONTEND_PORT" "$fe_sock" "$fe_health"
+
+  local gw_sock="$(check_on_port $GW_PORT)"
+  local gw_health="$(http_health "http://localhost:$GW_PORT/health")"
+  printf "%-24s %-8s %-14s %-8s\n" "API Gateway" "$GW_PORT" "$gw_sock" "$gw_health"
+
+  local au_sock="$(check_on_port $AUTH_PORT)"
+  local au_health="$(http_health "http://localhost:$AUTH_PORT/health")"
+  printf "%-24s %-8s %-14s %-8s\n" "Auth Service" "$AUTH_PORT" "$au_sock" "$au_health"
+
+  local us_sock="$(check_on_port $USER_PORT)"
+  local us_health="$(http_health "http://localhost:$USER_PORT/health")"
+  printf "%-24s %-8s %-14s %-8s\n" "User Service" "$USER_PORT" "$us_sock" "$us_health"
+
+  local md_sock="$(check_on_port $META_PORT)"
+  local md_health="$(http_health "http://localhost:$META_PORT/health")"
+  printf "%-24s %-8s %-14s %-8s\n" "Metadata Service" "$META_PORT" "$md_sock" "$md_health"
+
+  local st_sock="$(check_on_port $STOR_PORT)"
+  local st_health="$(http_health "http://localhost:$STOR_PORT/health")"
+  printf "%-24s %-8s %-14s %-8s\n" "Storage Service" "$STOR_PORT" "$st_sock" "$st_health"
+
+  local sh_sock="$(check_on_port $SHAR_PORT)"
+  local sh_health="$(http_health "http://localhost:$SHAR_PORT/health")"
+  printf "%-24s %-8s %-14s %-8s\n" "Sharing Service" "$SHAR_PORT" "$sh_sock" "$sh_health"
+
   echo "========================================================================"
 }
 

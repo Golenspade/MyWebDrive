@@ -129,6 +129,37 @@ app.get('/api/v1/files/admin/by-user/:id', requireAuth, requireAdmin, async (req
         next(err);
     }
 });
+// --- User: List my files (flat, by updatedAt desc) ---
+app.get('/api/v1/files/me', requireAuth, async (req, res, next) => {
+    try {
+        const ownerId = req.auth.userId;
+        const limitParam = Number.parseInt(String(req.query.limit || '20'), 10);
+        const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(100, limitParam)) : 20;
+        const cursorRaw = String(req.query.cursor || '');
+        let offset = 0;
+        if (cursorRaw) {
+            try {
+                const decoded = Buffer.from(cursorRaw, 'base64').toString('utf8');
+                const parsed = Number.parseInt(decoded, 10);
+                if (Number.isFinite(parsed) && parsed >= 0)
+                    offset = parsed;
+            }
+            catch { }
+        }
+        const items = await prisma.file.findMany({
+            where: { ownerId, deletedAt: null, type: 'file' },
+            orderBy: [{ updatedAt: 'desc' }],
+            skip: offset,
+            take: limit,
+            select: { id: true, name: true, size: true, mimeType: true, updatedAt: true, path: true, version: true }
+        });
+        const nextCursor = items.length === limit ? Buffer.from(String(offset + limit), 'utf8').toString('base64') : null;
+        return res.json({ items, nextCursor });
+    }
+    catch (err) {
+        next(err);
+    }
+});
 function baseUrl(req) {
     const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
     const host = req.headers['x-forwarded-host'] || req.headers.host || 'localhost';
@@ -658,6 +689,19 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
         const fileId = req.params.fileId;
         const userId = req.auth.userId;
         const { fileName, size, mimeType, storagePath, md5Hash, parentId } = req.body || {};
+        // Enforce quota before creating/updating version
+        async function getUserStorage() {
+            try {
+                const bearer = String(req.headers['authorization'] || '');
+                const r = await fetch(`${USER_SERVICE_URL}/api/v1/users/me/storage`, { headers: { Authorization: bearer }, signal: AbortSignal.timeout(4000) });
+                if (!r.ok)
+                    return null;
+                return (await r.json());
+            }
+            catch {
+                return null;
+            }
+        }
         if (!fileName || typeof size !== 'number' || !storagePath || !md5Hash)
             return res.status(400).json({ error: 'Invalid request' });
         // Optional parent validation
@@ -672,6 +716,18 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
         let deltaUsed = size;
         if (!existing) {
             const path = parent ? `${parent.path}/${fileName}` : `/${fileName}`;
+            // Quota check before creating file record
+            {
+                const profile = await getUserStorage();
+                if (profile) {
+                    const deltaPos = Math.max(0, deltaUsed);
+                    const projected = Number(profile.storageUsed || 0) + deltaPos;
+                    const quota = Number(profile.storageQuota || 0);
+                    if (quota > 0 && projected > quota) {
+                        return res.status(413).json({ error: 'Quota exceeded', message: `Used ${projected} > quota ${quota}` });
+                    }
+                }
+            }
             await prisma.file.create({
                 data: {
                     id: fileId,
@@ -690,6 +746,18 @@ app.post('/api/v1/files/:fileId/versions', requireAuth, async (req, res, next) =
         else {
             newVersion = (existing.version || 1) + 1;
             deltaUsed = size - Number(existing.size || 0);
+            // Quota check before updating file record
+            {
+                const profile = await getUserStorage();
+                if (profile) {
+                    const deltaPos = Math.max(0, deltaUsed);
+                    const projected = Number(profile.storageUsed || 0) + deltaPos;
+                    const quota = Number(profile.storageQuota || 0);
+                    if (quota > 0 && projected > quota) {
+                        return res.status(413).json({ error: 'Quota exceeded', message: `Used ${projected} > quota ${quota}` });
+                    }
+                }
+            }
             await prisma.file.update({
                 where: { id: fileId },
                 data: {
@@ -1002,11 +1070,16 @@ app.post('/api/v1/files/batch/delete', requireAuth, async (req, res, next) => {
 app.get('/api/v1/search', requireAuth, async (req, res, next) => {
     try {
         const userId = req.auth.userId;
+        const role = req.auth.role;
         const q = String(req.query.q || '').trim();
         const only = String(req.query.only || 'all');
         if (!q)
             return res.status(400).json({ error: 'Missing q' });
-        const where = { ownerId: userId, deletedAt: null, name: { contains: q } };
+        // Admin can search all files, regular users can only search their own
+        const where = { deletedAt: null, name: { contains: q } };
+        if (role !== 'admin') {
+            where.ownerId = userId;
+        }
         if (only === 'files')
             where.type = 'file';
         if (only === 'folders')
