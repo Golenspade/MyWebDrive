@@ -39,7 +39,7 @@ class ApiClient {
     })
   }
 
-  async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
+async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
     return this.request<T>(endpoint, {
       ...options,
       method: 'PUT',

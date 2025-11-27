@@ -381,7 +381,7 @@ function assetLink(a: Asset) {
       }
       return u
     }
-  } catch {
+} catch {
     // On URL parsing or other errors, fall back to a safe internal direct download link
   }
   return `/api/v1/storage/files/${a.id}/download-direct?ttl=600`
