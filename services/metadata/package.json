@@ -33,7 +33,7 @@
     "@types/node": "^20.14.10",
     "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^4.0.13",
-    "prisma": "^5.19.1",
+    "prisma": "^7.0.1",
     "rimraf": "^5.0.5",
     "supertest": "^7.1.4",
     "tsx": "^4.17.0",
