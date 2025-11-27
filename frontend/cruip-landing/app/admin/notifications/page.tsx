@@ -147,6 +147,8 @@ export default function NotificationsPage() {
   const { accessToken } = useAuthStore()
   const [selected, setSelected] = React.useState<Record<string, boolean>>({})
   const [openId, setOpenId] = React.useState<string | null>(null)
+  const dataLengthRef = React.useRef(data.length)
+  React.useEffect(() => { dataLengthRef.current = data.length }, [data.length])
 
   const openItem = data.find((d) => d.id === openId) || null
 

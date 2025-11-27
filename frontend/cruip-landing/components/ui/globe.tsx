@@ -189,7 +189,7 @@ export function Globe({ globeConfig, data }: WorldProps) {
       arr.findIndex((other) => other.lat === point.lat && other.lng === point.lng) === index,
     );
 
-    const features = (countries as CountriesFeatureCollection).features ?? [];
+    const features = ((countries as CountriesFeatureCollection).features ?? []) as object[];
 
     globeRef.current
       .hexPolygonsData(features)
@@ -202,21 +202,21 @@ export function Globe({ globeConfig, data }: WorldProps) {
 
     globeRef.current
       .arcsData(data)
-      .arcStartLat((d: Position) => d.startLat)
-      .arcStartLng((d: Position) => d.startLng)
-      .arcEndLat((d: Position) => d.endLat)
-      .arcEndLng((d: Position) => d.endLng)
-      .arcColor((arc: Position) => arc.color)
-      .arcAltitude((arc: Position) => arc.arcAlt)
+      .arcStartLat((d: object) => (d as Position).startLat)
+      .arcStartLng((d: object) => (d as Position).startLng)
+      .arcEndLat((d: object) => (d as Position).endLat)
+      .arcEndLng((d: object) => (d as Position).endLng)
+      .arcColor((arc: object) => (arc as Position).color)
+      .arcAltitude((arc: object) => (arc as Position).arcAlt)
       .arcStroke(() => [0.32, 0.28, 0.3][Math.round(Math.random() * 2)])
       .arcDashLength(defaultProps.arcLength)
-      .arcDashInitialGap((arc: Position) => arc.order)
+      .arcDashInitialGap((arc: object) => (arc as Position).order)
       .arcDashGap(15)
       .arcDashAnimateTime(() => defaultProps.arcTime);
 
     globeRef.current
       .pointsData(filteredPoints)
-      .pointColor((point: Point) => point.color)
+      .pointColor((point: object) => (point as Point).color)
       .pointsMerge(true)
       .pointAltitude(0.0)
       .pointRadius(2);

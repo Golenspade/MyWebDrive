@@ -207,7 +207,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                 </div>
                 <div className="space-y-1">
                   <Label htmlFor="category">分类</Label>
-                  <Select value={draft.category ?? undefined} onValueChange={(v: DraftCategory)=>setDraft({ ...draft, category: v })}>
+                  <Select value={draft.category ?? undefined} onValueChange={(v) => setDraft({ ...draft, category: v as DraftCategory })}>
                     <SelectTrigger className="w-[200px]">
                       <SelectValue placeholder="选择分类" />
                     </SelectTrigger>
@@ -229,7 +229,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                 <div className="space-y-1">
                   <Label>兼容性</Label>
                   <div className="grid grid-cols-3 gap-2">
-                    <Select value={draft.os ?? undefined} onValueChange={(v: DraftOS)=>setDraft({ ...draft, os: v })}>
+                    <Select value={draft.os ?? undefined} onValueChange={(v) => setDraft({ ...draft, os: v as DraftOS })}>
                       <SelectTrigger><SelectValue placeholder="OS" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="any">通用</SelectItem>
@@ -238,7 +238,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                         <SelectItem value="linux">Linux</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value={draft.arch ?? undefined} onValueChange={(v: DraftArch)=>setDraft({ ...draft, arch: v })}>
+                    <Select value={draft.arch ?? undefined} onValueChange={(v) => setDraft({ ...draft, arch: v as DraftArch })}>
                       <SelectTrigger><SelectValue placeholder="Arch" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="any">通用</SelectItem>
@@ -246,7 +246,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                         <SelectItem value="arm64">ARM64</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value={draft.channel ?? undefined} onValueChange={(v: DraftChannel)=>setDraft({ ...draft, channel: v })}>
+                    <Select value={draft.channel ?? undefined} onValueChange={(v) => setDraft({ ...draft, channel: v as DraftChannel })}>
                       <SelectTrigger><SelectValue placeholder="渠道" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="stable">Stable</SelectItem>
@@ -289,7 +289,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
           </div>
           <div className="space-y-1">
             <Label htmlFor="category-pre">分类</Label>
-            <Select value={draft.category ?? undefined} onValueChange={(v: DraftCategory)=>setDraft({ ...draft, category: v })}>
+            <Select value={draft.category ?? undefined} onValueChange={(v) => setDraft({ ...draft, category: v as DraftCategory })}>
               <SelectTrigger className="w-[200px]">
                 <SelectValue placeholder="选择分类" />
               </SelectTrigger>
@@ -311,7 +311,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
           <div className="space-y-1">
             <Label>兼容性</Label>
             <div className="grid grid-cols-3 gap-2">
-              <Select value={draft.os ?? undefined} onValueChange={(v: DraftOS)=>setDraft({ ...draft, os: v })}>
+              <Select value={draft.os ?? undefined} onValueChange={(v) => setDraft({ ...draft, os: v as DraftOS })}>
                 <SelectTrigger><SelectValue placeholder="OS" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">通用</SelectItem>
@@ -320,7 +320,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                   <SelectItem value="linux">Linux</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={draft.arch ?? undefined} onValueChange={(v: DraftArch)=>setDraft({ ...draft, arch: v })}>
+              <Select value={draft.arch ?? undefined} onValueChange={(v) => setDraft({ ...draft, arch: v as DraftArch })}>
                 <SelectTrigger><SelectValue placeholder="Arch" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="any">通用</SelectItem>
@@ -328,7 +328,7 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
                   <SelectItem value="arm64">ARM64</SelectItem>
                 </SelectContent>
               </Select>
-              <Select value={draft.channel ?? undefined} onValueChange={(v: DraftChannel)=>setDraft({ ...draft, channel: v })}>
+              <Select value={draft.channel ?? undefined} onValueChange={(v) => setDraft({ ...draft, channel: v as DraftChannel })}>
                 <SelectTrigger><SelectValue placeholder="渠道" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="stable">Stable</SelectItem>

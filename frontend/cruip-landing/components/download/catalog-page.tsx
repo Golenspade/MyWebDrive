@@ -74,7 +74,7 @@ export default function AppCatalogPage() {
           <FilterBar q={q} setQ={setQ} os={os} setOs={setOs} arch={arch} setArch={setArch} channel={channel} setChannel={setChannel} category={category} setCategory={setCategory} />
           <Separator className="my-6" />
 
-          <Tabs defaultValue="all" value={category} onValueChange={(v: Category | "all")=>setCategory(v)} className="mb-6">
+          <Tabs defaultValue="all" value={category} onValueChange={(v) => setCategory(v as Category | "all")} className="mb-6">
             <TabsList className="flex flex-wrap gap-2">
               {(["all","base","writing","model","script","bundle","modelAsset","article"] as const).map(c => (
                 <TabsTrigger key={c} value={c} className="capitalize">{c === "all" ? "全部" : LABELS.category[c]}</TabsTrigger>
@@ -191,7 +191,7 @@ function FilterBar(props: {
         <Button variant="outline" size="icon" className="shrink-0"><Settings2 className="size-4"/></Button>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <Select value={os} onValueChange={(v: OS | "all")=>props.setOs(v)}>
+        <Select value={os} onValueChange={(v) => props.setOs(v as OS | "all")}>
           <SelectTrigger className="w-[140px]"><SelectValue placeholder="操作系统"/></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">全部 OS</SelectItem>
@@ -200,7 +200,7 @@ function FilterBar(props: {
             <SelectItem value="linux">Linux</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={arch} onValueChange={(v: Arch | "all")=>props.setArch(v)}>
+        <Select value={arch} onValueChange={(v) => props.setArch(v as Arch | "all")}>
           <SelectTrigger className="w-[140px]"><SelectValue placeholder="架构"/></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">全部架构</SelectItem>
@@ -208,7 +208,7 @@ function FilterBar(props: {
             <SelectItem value="arm64">arm64</SelectItem>
           </SelectContent>
         </Select>
-        <Select value={channel} onValueChange={(v: Channel)=>props.setChannel(v)}>
+        <Select value={channel} onValueChange={(v) => props.setChannel(v as Channel)}>
           <SelectTrigger className="w-[140px]"><SelectValue placeholder="通道"/></SelectTrigger>
           <SelectContent>
             <SelectItem value="stable">stable</SelectItem>

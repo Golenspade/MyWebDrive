@@ -176,7 +176,7 @@ export default function AdminUsersPage() {
                     <TableCell>
                       <div className='flex items-center gap-2'>
                         <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>{u.role}</Badge>
-                        <Select value={u.role} onValueChange={(v: 'user' | 'admin') => changeRole(u.id, v)}>
+                        <Select value={u.role} onValueChange={(v) => changeRole(u.id, v as 'user' | 'admin')}>
                           <SelectTrigger className='w-[120px]'><SelectValue placeholder='角色' /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value='user'>user</SelectItem>
@@ -234,10 +234,10 @@ export default function AdminUsersPage() {
                   <label className='text-sm text-muted-foreground'>单位</label>
                   <Select
                     value={quotaUnit}
-                    onValueChange={(v: QuotaUnit) => {
-                      setQuotaUnit(v)
+                    onValueChange={(v) => {
+                      setQuotaUnit(v as QuotaUnit)
                       setSliderVal(0)
-                      setSliderMax(toUnit(DEFAULT_TOTAL_BYTES, v))
+                      setSliderMax(toUnit(DEFAULT_TOTAL_BYTES, v as QuotaUnit))
                     }}
                   >
                     <SelectTrigger className='w-[110px]'><SelectValue placeholder='单位' /></SelectTrigger>

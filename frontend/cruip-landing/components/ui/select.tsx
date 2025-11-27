@@ -6,21 +6,24 @@ import { cn } from "@/lib/utils";
 
 type Item = { value: string; label: string };
 
+type SelectItemProps = { value: string; children?: React.ReactNode };
+
 function collectItems(children: React.ReactNode): Item[] {
   const items: Item[] = [];
   React.Children.forEach(children, (child) => {
     if (!React.isValidElement(child)) return;
 
     const type = child.type as { displayName?: string };
+    const props = child.props as SelectItemProps;
     if (type.displayName === "SelectItem") {
       items.push({
-        value: child.props.value,
-        label: String(child.props.children ?? child.props.value),
+        value: props.value,
+        label: String(props.children ?? props.value),
       });
     }
 
-    if (child.props?.children) {
-      items.push(...collectItems(child.props.children));
+    if (props?.children) {
+      items.push(...collectItems(props.children));
     }
   });
   return items;
