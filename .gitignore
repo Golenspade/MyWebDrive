@@ -56,3 +56,4 @@ assetsReal/
 
 # Local ops secrets (do not commit)
 .ops/
+frontend/_templates/tailwind-landing-page-template
