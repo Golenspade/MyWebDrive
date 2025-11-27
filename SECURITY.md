@@ -13,7 +13,7 @@ We take security seriously. If you discover a security vulnerability, please rep
 ### How to Report
 
 1. **Do NOT** create a public GitHub issue for security vulnerabilities
-2. Email the security team at [INSERT SECURITY EMAIL]
+2. Email the security team at 154531132+Golenspade@users.noreply.github.com
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
