@@ -214,8 +214,8 @@ importers:
         specifier: ^4.1.12
         version: 4.1.12
       zustand:
-        specifier: ^4.5.2
-        version: 4.5.7(@types/react@19.0.8)(react@19.0.0)
+        specifier: ^5.0.8
+        version: 5.0.8(@types/react@19.0.8)(react@19.0.0)(use-sync-external-store@1.5.0(react@19.0.0))
     devDependencies:
       '@tailwindcss/forms':
         specifier: ^0.5.10
@@ -4496,6 +4496,7 @@ packages:
 
   mathjax-full@3.2.2:
     resolution: {integrity: sha512-+LfG9Fik+OuI8SLwsiR02IVdjcnRCy5MufYLi0C3TdMT56L/pjB0alMVGgoWJF8pN9Rc7FESycZB9BMNWIid5w==}
+    deprecated: Version 4 replaces this package with the scoped package @mathjax/src
 
   mdast-util-find-and-replace@3.0.2:
     resolution: {integrity: sha512-Tmd1Vg/m3Xz43afeNxDIhWRtFZgM2VLyaf4vSTYwudTyeuTneoL3qtWMA5jeLyz/O1vDJmmV4QuScFCA2tBPwg==}
