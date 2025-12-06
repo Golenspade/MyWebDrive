@@ -23,6 +23,7 @@ All notable changes to this repository will be documented in this file.
 - **fix(frontend)**: 优化首页布局 - 使用 marketing layout，恢复 header/footer
 - **fix(frontend)**: 隔离客户端特效 - 新增 `client-effects.tsx` 组件
 - **fix(frontend)**: 优化 AOS 动画 - 减少延迟，提升用户体验
+- **security(auth/metadata/storage)**: 启动时强制非默认 `JWT_SECRET` 且要求数据库 URL；为登录/注册/owner 登录添加简单速率限制；限制单用户并发上传会话数防滥用
 
 ### Removed
 - **chore**: 删除遗留的 Vite 前端文件（84 个文件，-12,895 行代码）

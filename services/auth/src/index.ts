@@ -4,13 +4,23 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { PrismaClient } from '../prisma/client/index.js'
 import { randomUUID, randomBytes } from 'crypto'
-import { getEnv } from '@mywebdrive/common'
 
 export const app = express()
 app.disable('x-powered-by')
 
 // Config
-const JWT_SECRET = getEnv('JWT_SECRET', 'dev-secret')
+const IS_TEST = process.env.NODE_ENV === 'test'
+const RAW_DB_URL = process.env.AUTH_DATABASE_URL
+if (!RAW_DB_URL && !IS_TEST) {
+  throw new Error('AUTH_DATABASE_URL must be set')
+}
+
+const RAW_JWT_SECRET = process.env.JWT_SECRET
+const JWT_SECRET = (() => {
+  if (RAW_JWT_SECRET && RAW_JWT_SECRET !== 'dev-secret') return RAW_JWT_SECRET
+  if (IS_TEST) return RAW_JWT_SECRET || 'dev-secret'
+  throw new Error('JWT_SECRET must be set to a non-default value')
+})()
 const ACCESS_TOKEN_TTL = parseInt(process.env.ACCESS_TOKEN_TTL || '900', 10) // 15m
 const REFRESH_TOKEN_TTL = parseInt(process.env.REFRESH_TOKEN_TTL || '604800', 10) // 7d
 const REQUIRE_INVITE = (process.env.REGISTRATION_REQUIRE_INVITE || 'false').toLowerCase() === 'true'
@@ -25,6 +35,27 @@ const OWNER_COOKIE_SECURE = (process.env.COOKIE_SECURE || 'false').toLowerCase()
 
 // DB
 const prisma = new PrismaClient()
+
+// Simple in-memory rate limiter for sensitive endpoints (best-effort, per-process)
+type Counter = { count: number; resetAt: number }
+const RATE_WINDOW_MS = 60_000
+const RATE_LIMIT = 20
+const rateMap: Map<string, Counter> = new Map()
+function rateLimit(key: string): boolean {
+  const now = Date.now()
+  const entry = rateMap.get(key)
+  if (!entry || entry.resetAt < now) {
+    rateMap.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS })
+    return false
+  }
+  if (entry.count >= RATE_LIMIT) return true
+  entry.count += 1
+  return false
+}
+
+function getIp(req: express.Request) {
+  return (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown'
+}
 
 // Middleware
 app.use(express.json())
@@ -78,6 +109,7 @@ function requireAdmin(req: express.Request, res: express.Response, next: express
 
 // Register
 app.post('/api/v1/auth/register', async (req, res, next) => {
+  if (rateLimit(`register:${getIp(req)}`)) return res.status(429).json({ error: 'Too many requests' })
   try {
     const { name, email, password, invitationCode } = req.body || {}
     if (!name || !email || !password) return res.status(400).json({ error: 'Invalid request' })
@@ -129,6 +161,7 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
 
 // Login
 app.post('/api/v1/auth/login', async (req, res, next) => {
+  if (rateLimit(`login:${getIp(req)}`)) return res.status(429).json({ error: 'Too many requests' })
   try {
     const { email, password } = req.body || {}
     if (!email || !password) return res.status(400).json({ error: 'Invalid request' })
@@ -149,6 +182,7 @@ app.post('/api/v1/auth/login', async (req, res, next) => {
 
 // Owner login (sets HttpOnly owner cookie) and logout
 app.post('/api/v1/auth/owner-login', async (req, res) => {
+  if (rateLimit(`owner-login:${getIp(req)}`)) return res.status(429).json({ error: 'Too many requests' })
   try {
     const { code } = req.body || {}
     if (!code) return res.status(400).json({ error: 'Invalid request' })

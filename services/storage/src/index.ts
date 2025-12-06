@@ -5,14 +5,19 @@ import { createWriteStream, existsSync, createReadStream } from 'fs'
 import { promises as fsp } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
-import { getEnv } from '@mywebdrive/common'
 import { Worker } from 'worker_threads'
 
 const app = express()
 app.disable('x-powered-by')
 
 // Config
-const JWT_SECRET = getEnv('JWT_SECRET', 'dev-secret')
+const IS_TEST = process.env.NODE_ENV === 'test'
+const RAW_JWT_SECRET = process.env.JWT_SECRET
+const JWT_SECRET = (() => {
+  if (RAW_JWT_SECRET && RAW_JWT_SECRET !== 'dev-secret') return RAW_JWT_SECRET
+  if (IS_TEST) return RAW_JWT_SECRET || 'dev-secret'
+  throw new Error('JWT_SECRET must be set to a non-default value')
+})()
 const PORT = parseInt(process.env.STORAGE_PORT || '7084', 10)
 const STORAGE_PATH = process.env.STORAGE_PATH || path.resolve('storage')
 const USE_MINIO = (process.env.USE_MINIO || 'false').toLowerCase() === 'true'
@@ -22,7 +27,12 @@ const MINIO_SECRET_KEY = process.env.MINIO_SECRET_KEY || ''
 const MINIO_USE_SSL = (process.env.MINIO_USE_SSL || 'false').toLowerCase() === 'true'
 const MINIO_BUCKET = process.env.MINIO_BUCKET || 'mywebdrive'
 const METADATA_SERVICE_URL = process.env.METADATA_SERVICE_URL || 'http://localhost:7083'
-const STORAGE_DB_URL = process.env.STORAGE_DATABASE_URL || 'file:./storage.db'
+const STORAGE_DB_URL = (() => {
+  const url = process.env.STORAGE_DATABASE_URL
+  if (url) return url
+  if (IS_TEST) return 'file:./storage.db'
+  throw new Error('STORAGE_DATABASE_URL must be set')
+})()
 
 // Dev toggle: skip metadata callback during finalize (for local demo)
 const STORAGE_SKIP_METADATA = (process.env.STORAGE_SKIP_METADATA || 'false').toLowerCase() === 'true'
@@ -35,6 +45,7 @@ const redis = new Redis(REDIS_URL)
 
 // Limits
 const MAX_FILE_SIZE = 2 * 1024 * 1024 * 1024 // 2GB
+const MAX_ACTIVE_SESSIONS_PER_USER = 20
 
 // DB (Prisma)
 import { PrismaClient } from '../prisma/client/index.js'
@@ -294,6 +305,11 @@ function parseTusMetadataHeader(h?: string) {
 }
 
 app.post('/api/v1/storage/uploads', requireAuth, async (req, res) => {
+  const ownerId = (req as any).auth.userId as string
+  const activeSessions = Array.from(SESSIONS.values()).filter((s) => s.ownerId === ownerId && s.status === 'uploading').length
+  if (activeSessions >= MAX_ACTIVE_SESSIONS_PER_USER) {
+    return res.status(429).json({ error: 'Too many active uploads' })
+  }
   // Support both JSON body (Node flow) and TUS-style headers
   const uploadLenHdr = req.headers['upload-length']
   const uploadMetaHdr = req.headers['upload-metadata'] as string | undefined
