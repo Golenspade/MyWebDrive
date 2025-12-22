@@ -23,7 +23,7 @@
     "@mywebdrive/observability": "workspace:*",
     "@prisma/client": "^5.19.1",
     "express": "^4.19.2",
-    "jsonwebtoken": "^9.0.2",
+    "jsonwebtoken": "^9.0.3",
     "prom-client": "^15.1.3"
   },
   "devDependencies": {
@@ -32,12 +32,12 @@
     "@types/morgan": "^1.9.9",
     "@types/node": "^20.14.10",
     "@types/supertest": "^6.0.3",
-    "@vitest/coverage-v8": "^4.0.13",
+    "@vitest/coverage-v8": "^4.0.16",
     "prisma": "^5.19.1",
     "rimraf": "^5.0.5",
     "supertest": "^7.1.4",
-    "tsx": "^4.17.0",
-    "typescript": "^5.4.0",
-    "vitest": "^4.0.13"
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
   }
 }
