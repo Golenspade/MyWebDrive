@@ -12,6 +12,7 @@ import rateLimit from 'express-rate-limit'
 import { RedisStore } from 'rate-limit-redis'
 import { Redis } from 'ioredis'
 import { createTerminus } from '@godaddy/terminus'
+import { ConsecutiveBreaker, ExponentialBackoff, TimeoutStrategy, handleAll, retry, circuitBreaker, timeout, wrap, type IPolicy } from 'cockatiel'
 
 // Read downstream services from env (align with existing Go services)
 const AUTH = getEnv('AUTH_SERVICE_URL', 'http://localhost:8081')
@@ -47,6 +48,46 @@ const corsOptions: cors.CorsOptions = {
   origin: CORS_ALLOWED_ORIGINS
     ? CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
     : true, // dev: allow all origins
+}
+
+// --- Resilience policies (cockatiel) for service-to-service calls ---
+// Retry: 2 attempts with exponential backoff (100ms, 200ms)
+const retryPolicy = retry(handleAll, {
+  maxAttempts: 2,
+  backoff: new ExponentialBackoff({ initialDelay: 100, maxDelay: 1000 }),
+})
+
+// Circuit breaker: open after 3 consecutive failures, half-open after 10s
+const circuitBreakerPolicy = circuitBreaker(handleAll, {
+  halfOpenAfter: 10_000, // 10 seconds
+  breaker: new ConsecutiveBreaker(3),
+})
+
+// Timeout: 5 seconds for health checks, 10 seconds for data calls, 10 minutes for uploads
+const healthTimeoutPolicy = timeout(5_000, { strategy: TimeoutStrategy.Aggressive, abortOnReturn: true })
+const dataTimeoutPolicy = timeout(10_000, { strategy: TimeoutStrategy.Aggressive, abortOnReturn: true })
+const uploadTimeoutPolicy = timeout(600_000, { strategy: TimeoutStrategy.Aggressive, abortOnReturn: true }) // 10 minutes for finalize
+
+// Combined policies: timeout -> retry -> circuit breaker
+const healthPolicy = wrap(healthTimeoutPolicy, retryPolicy, circuitBreakerPolicy)
+const dataPolicy = wrap(dataTimeoutPolicy, retryPolicy, circuitBreakerPolicy)
+const uploadPolicy = wrap(uploadTimeoutPolicy, retryPolicy, circuitBreakerPolicy)
+
+// Helper: resilient fetch for service-to-service calls
+async function resilientFetch(
+  url: string,
+  options: RequestInit = {},
+  policy: IPolicy = dataPolicy
+): Promise<Response> {
+  return policy.execute(async (context) => {
+    const { signal } = context
+    const resp = await fetch(url, { ...options, signal })
+    if (!resp.ok && resp.status >= 500) {
+      // Treat 5xx as retriable errors
+      throw new Error(`Service error: ${resp.status}`)
+    }
+    return resp
+  })
 }
 
 const app = express()
@@ -418,9 +459,9 @@ function mountProxy(basePath: string, target: string) {
 app.post('/api/v1/auth/invitations', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
   try {
     const token = parseBearerToken(req)
-    const upstream = await fetch(`${AUTH}${(req as any).originalUrl}`, {
+    const upstream = await resilientFetch(`${AUTH}${(req as any).originalUrl}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(10000),
+      body: JSON.stringify(req.body || {}),
     })
     const text = await upstream.text()
     res.status(upstream.status)
@@ -438,9 +479,9 @@ app.post('/api/v1/auth/invitations', requireAuth, requireAdmin, express.json(), 
 // Intercept user registration to push notification (with strict rate limiting)
 app.post('/api/v1/auth/register', authLimiter, express.json(), async (req, res, next) => {
   try {
-    const upstream = await fetch(`${AUTH}${(req as any).originalUrl}`, {
+    const upstream = await resilientFetch(`${AUTH}${(req as any).originalUrl}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(10000),
+      body: JSON.stringify(req.body || {}),
     })
     const text = await upstream.text()
     res.status(upstream.status)
@@ -455,14 +496,14 @@ app.post('/api/v1/auth/register', authLimiter, express.json(), async (req, res, 
   } catch (err) { next(err) }
 })
 
-// Intercept storage finalize to push upload notifications
+// Intercept storage finalize to push upload notifications (use uploadPolicy for long timeout)
 app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, express.json(), async (req, res, next) => {
   try {
     const token = parseBearerToken(req)
-    const upstream = await fetch(`${STORAGE}${(req as any).originalUrl}`, {
+    const upstream = await resilientFetch(`${STORAGE}${(req as any).originalUrl}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(UPLOAD_FINALIZE_TIMEOUT_MS),
-    })
+      body: JSON.stringify(req.body || {}),
+    }, uploadPolicy)
     const text = await upstream.text()
     res.status(upstream.status)
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
@@ -502,18 +543,18 @@ app.get('/api/v1/admin/users', requireAuth, requireAdmin, async (req, res, next)
     if (q) url.searchParams.set('query', q)
     url.searchParams.set('page', page)
     url.searchParams.set('pageSize', pageSize)
-    const base = await fetch(url.toString(), { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(8000) })
+    const base = await resilientFetch(url.toString(), { headers: { Authorization: authHeader } })
     if (!base.ok) {
       res.status(base.status)
       res.setHeader('Content-Type', base.headers.get('content-type') || 'application/json')
       return res.end(await base.text())
     }
     const js = await base.json() as { items: Array<{ id:string; name:string|null; email:string; role:string; createdAt:string }>; page:number; pageSize:number; total:number }
-    // Overlay names from user service profile (batch in parallel, best-effort)
+    // Overlay names from user service profile (batch in parallel, best-effort with resilience)
     const items = js.items
     const enriched = await Promise.all(items.map(async (u) => {
       try {
-        const r = await fetch(`${USER}/api/v1/users/${u.id}/storage`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(4000) })
+        const r = await resilientFetch(`${USER}/api/v1/users/${u.id}/storage`, { headers: { Authorization: authHeader } })
         if (r.ok) {
           const prof = await r.json() as any
           return { ...u, name: (prof?.name ?? u.name) }
@@ -532,10 +573,9 @@ app.get('/api/v1/files/:fileId/preview', requireAuth, async (req, res, next) => 
   try {
     const fileId = req.params.fileId
     const authHeader = String(req.headers['authorization'] || '')
-    // Verify ownership and get metadata (mimeType, name)
-    const meta = await fetch(`${METADATA}/api/v1/files/${encodeURIComponent(fileId)}`, {
+    // Verify ownership and get metadata (mimeType, name) - with resilience
+    const meta = await resilientFetch(`${METADATA}/api/v1/files/${encodeURIComponent(fileId)}`, {
       headers: { Authorization: authHeader },
-      signal: AbortSignal.timeout(6000)
     })
     if (!meta.ok) {
       res.status(meta.status)
@@ -543,7 +583,7 @@ app.get('/api/v1/files/:fileId/preview', requireAuth, async (req, res, next) => 
       return res.end(await meta.text())
     }
     const info: any = await meta.json()
-    // Fetch storage stream
+    // Fetch storage stream (no resilientFetch - streaming needs direct fetch)
     const stor = await fetch(`${STORAGE}/api/v1/storage/files/${encodeURIComponent(fileId)}/download`, { signal: AbortSignal.timeout(60_000) })
     if (!stor.ok || !stor.body) {
       res.status(stor.status || 502)
@@ -686,10 +726,46 @@ mountProxy('/api/v1/catalog', METADATA)
 mountProxy('/api/v1/storage', STORAGE)
 mountProxy('/api/v1/shares', SHARING)
 
-// Health check functions for terminus
-async function onHealthCheck(): Promise<void> {
-  // Liveness: just check if event loop is responsive
-  // For readiness, we could check downstream services, but that adds latency
+// --- Health check functions for terminus (liveness vs readiness) ---
+
+// Liveness: is the process alive? (don't check external deps - causes cascading failures)
+async function onLivenessCheck(): Promise<void> {
+  // Just respond - if event loop is blocked, this won't respond
+}
+
+// Readiness: can we handle requests? (check critical dependencies)
+async function onReadinessCheck(): Promise<void> {
+  const errors: string[] = []
+
+  // Check Redis if configured (used for rate limiting)
+  if (redisClient) {
+    try {
+      await redisClient.ping()
+    } catch (err) {
+      errors.push(`Redis: ${(err as Error).message}`)
+    }
+  }
+
+  // Check Prisma/DB if initialized (used for notifications/audit)
+  if (prisma) {
+    try {
+      await prisma.$queryRaw`SELECT 1`
+    } catch (err) {
+      errors.push(`Database: ${(err as Error).message}`)
+    }
+  }
+
+  // Check at least one downstream service is reachable
+  try {
+    const resp = await fetch(`${AUTH}/health`, { signal: AbortSignal.timeout(2000) })
+    if (!resp.ok) errors.push('Auth service: not healthy')
+  } catch (err) {
+    errors.push(`Auth service: ${(err as Error).message}`)
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Readiness check failed: ${errors.join('; ')}`)
+  }
 }
 
 async function onSignal(): Promise<void> {
@@ -715,10 +791,10 @@ const server = http.createServer(app)
 
 createTerminus(server, {
   healthChecks: {
-    '/health': onHealthCheck,
-    '/api/v1/health': onHealthCheck,
-    '/healthz': onHealthCheck, // Kubernetes liveness
-    '/ready': onHealthCheck,   // Kubernetes readiness
+    '/health': onLivenessCheck,         // Simple health (backwards compat)
+    '/api/v1/health': onLivenessCheck,  // API-prefixed health
+    '/healthz': onLivenessCheck,        // Kubernetes liveness probe
+    '/ready': onReadinessCheck,         // Kubernetes readiness probe (checks deps)
   },
   onSignal,
   onShutdown,
