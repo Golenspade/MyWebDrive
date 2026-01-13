@@ -50,10 +50,15 @@ services/storage/storage/
 # Large local assets (not tracked)
 assetsReal/
 
+# Deployment artifacts (large tar files)
+deploy/
+
 # Internal augmentation artifacts (ignore if re-created)
 .augment_*.txt
 *.augment.log
 
 # Local ops secrets (do not commit)
 .ops/
+*.pem
+*.key
 frontend/_templates/tailwind-landing-page-template

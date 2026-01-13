@@ -5,7 +5,8 @@ import React from "react";
 
 // Prefer PNG logos (视觉呈现更贴近最终稿)，无法加载时回退到 SVG
 function Logo({ name, width, height, alt }: { name: string; width: number; height: number; alt: string }) {
-  const [format, setFormat] = React.useState<"png" | "svg">("png");
+  const preferred = name === "logo-07" || name === "logo-08" ? "svg" : "png";
+  const [format, setFormat] = React.useState<"png" | "svg">(preferred);
   const src = `/images/${name}.${format}`;
   return (
     <Image

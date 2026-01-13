@@ -74,6 +74,9 @@ app.use('/assets', express.static(ASSETS_DIR))
 app.get('/health', (_req, res) => {
   res.json({ status: 'healthy', service: 'api-gateway-node' })
 })
+app.get('/api/v1/health', (_req, res) => {
+  res.json({ status: 'healthy', service: 'api-gateway-node' })
+})
 app.get('/metrics', metricsHandler)
 
 // Aggregated admin health (aligns with Go gateway intent)

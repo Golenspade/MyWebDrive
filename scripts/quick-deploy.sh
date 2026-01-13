@@ -36,6 +36,9 @@ rsync -avz --delete \
     --exclude 'data' \
     --exclude '.env' \
     --exclude 'infrastructure/alicloud/.env' \
+    --exclude '.ops' \
+    --exclude '*.pem' \
+    --exclude '*.key' \
     -e "ssh -p $SERVER_PORT" \
     ./ "$SERVER_USER@$SERVER_IP:$REMOTE_DIR/"
 

@@ -2,6 +2,12 @@
 
 本项目在开发阶段使用 `frontend/cruip-landing`（Next.js，端口 3100）与 API 网关（Node，端口 9080）。为保证前端与后端在本地联调时顺畅，CORS 策略按以下方式统一：
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## 开发环境（推荐设置）
 
 - Node API 网关（services/api-gateway-node）默认返回宽松 CORS：

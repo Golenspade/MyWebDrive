@@ -1,5 +1,11 @@
 # 运维 FAQ（Node 版）
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## 日志（pino）
 - 格式：JSON，字段包含 `time`、`level`、`msg`、`service`、`instance`、`req.id` 等。
 - 级别：通过 `LOG_LEVEL` 控制（默认 `info`）。建议生产 `info`/`warn`，排障临时切到 `debug`。

@@ -2,6 +2,12 @@
 
 基于微服务架构的云存储（网盘）服务。后端已全面迁移到 Node.js（Monorepo + pnpm），前端使用 Next.js（`frontend/cruip-landing`）。
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## 🚀 特性
 
 - **微服务架构**: 模块化设计，易于扩展和维护

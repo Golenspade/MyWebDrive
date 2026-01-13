@@ -6,6 +6,12 @@
 | ------- | ------------------ |
 | 1.x.x   | :white_check_mark: |
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## Reporting a Vulnerability
 
 We take security seriously. If you discover a security vulnerability, please report it responsibly.

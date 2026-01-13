@@ -70,6 +70,27 @@
 3. 可以测试边界情况（特殊字符、过期链接等）
 4. 建议更新文档中的端口信息
 
+---
+
+## ✅ 2026-01-13 线上验证记录
+
+**验证时间**: 2026-01-13 15:35 (UTC+8)
+**验证人**: fankex + assistant
+**环境**: 生产 ECS（Docker Compose + Cloudflare）
+
+### 验证项
+- 首页访问、HTTP/2、API 健康检查通过
+- 登录/注册流程通过
+- `/account` 页面无 500
+
+### 测试账号（请妥善保管）
+- **管理员**: afcaibingfeng@gmail.com / 3BtmNSwbEWij3iK2ovGtiw==
+- **普通用户**: afcaibingfeng+user@gmail.com / 4D0tsRBSTC1GpfSMeusutA==
+- **测试用户二**: afcaibingfeng+test2@gmail.com / ND2Ictp26mOPPk8l4aGO0Q==
+- **测试用户三**: afcaibingfeng+test3@gmail.com / TCIBtBuDet/BTb5WVZwupQ==
+
+> 备注：当前邮箱服务未配置，重置密码与邮件验证码流程未验证。
+
 ## 🚀 部署就绪
 
 当前分支已完成：

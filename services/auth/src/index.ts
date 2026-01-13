@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken'
 import { PrismaClient } from '../prisma/client/index.js'
 import { randomUUID, randomBytes } from 'crypto'
 
-export const app = express()
+export const app: express.Express = express()
 app.disable('x-powered-by')
 
 // Config
