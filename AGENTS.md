@@ -144,6 +144,12 @@ Formatting:
 - Use structured logging for unexpected errors (see `logger.error({ err, status }, ...)`).
 - Only swallow errors intentionally for best-effort operations (and keep it narrow).
 
+### Security (v0.3.1+)
+- All services use `helmet` for security headers
+- Gateway uses `express-rate-limit` + Redis for distributed rate limiting
+- Gateway uses `@godaddy/terminus` for graceful shutdown
+- Health endpoints: `/healthz`, `/ready` (Kubernetes compatible)
+
 ### Logging / Observability
 - Use `@mywebdrive/observability` helpers:
   - `createLogger({ service: '...' })`
@@ -157,6 +163,14 @@ Formatting:
   - `requireEnvs([...])`
 - Don’t hardcode secrets.
 - Several services enforce non-default `JWT_SECRET` outside `NODE_ENV=test`.
+
+Key Environment Variables:
+```bash
+# Rate Limiting & Security (Gateway)
+REDIS_URL=redis://localhost:6379/0      # Distributed rate limiting
+TRUST_PROXY=1                           # Proxy hops to trust
+CORS_ALLOWED_ORIGINS=...                # Production whitelist
+```
 
 ## Testing Style (Vitest)
 - Tests commonly set env before importing the app:

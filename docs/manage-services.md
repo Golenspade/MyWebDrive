@@ -25,6 +25,13 @@ Run single services
   - Gateway: pnpm -C services/api-gateway-node dev
   - Frontend: pnpm --dir frontend/cruip-landing dev
 
+Health Endpoints (terminus-based)
+- `/health` - Basic health check
+- `/healthz` - Kubernetes liveness probe
+- `/ready` - Kubernetes readiness probe
+- `/api/v1/health` - API-prefixed health check
+- All endpoints return `{"status":"ok"}` when healthy.
+
 Environment templates
 - Print recommended env: ./manage-services.sh env:print [all|auth|storage]
 - Write example file: ./manage-services.sh env:write [.env.example]

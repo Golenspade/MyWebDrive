@@ -237,6 +237,11 @@ METADATA_DATABASE_URL=postgres://user:pass@localhost:5432/metadata
 STORAGE_DATABASE_URL=postgres://user:pass@localhost:5432/storage
 SHARING_DATABASE_URL=postgres://user:pass@localhost:5432/sharing
 GATEWAY_DATABASE_URL=postgres://user:pass@localhost:5432/gateway
+
+# Rate Limiting & Security (Gateway)
+REDIS_URL=redis://localhost:6379/0      # Distributed rate limiting
+TRUST_PROXY=1                           # Proxy hops to trust (1 = Nginx)
+CORS_ALLOWED_ORIGINS=https://...        # Production CORS whitelist
 ```
 
 Generate template: `./manage-services.sh env:write .env.example`
@@ -406,6 +411,16 @@ Development setup for asset downloads:
 6. Graylist: Only returns items with `catalog:public=true` tag
 
 For production, replace `catalog:url` with CDN/OSS URLs.
+
+## Security Features (v0.3.1+)
+
+- **Helmet**: All 6 services return security headers (HSTS, X-Frame-Options, etc.)
+- **Rate Limiting**: Gateway enforces per-IP/per-user limits via express-rate-limit + Redis
+  - Global: 200 req/min
+  - Auth: 10 req/min (login/register/refresh)
+  - Share: 20 req/min
+- **Graceful Shutdown**: Gateway uses @godaddy/terminus for SIGTERM handling
+- **Health Endpoints**: `/healthz` (liveness), `/ready` (readiness) for Kubernetes
 
 ### CORS Configuration
 

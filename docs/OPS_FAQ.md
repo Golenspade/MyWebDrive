@@ -62,6 +62,20 @@
 - 请求链路难以排查：
   - 在入口（前端/网关）设置 `x-request-id` 并贯穿；以该值在所有服务日志中检索
 
+## 安全功能 FAQ
+
+**Q: How do I enable distributed rate limiting?**
+A: Set `REDIS_URL=redis://your-redis:6379/0` in the environment. Without Redis, rate limiting uses in-memory storage (single instance only).
+
+**Q: How do I configure CORS for production?**
+A: Set `CORS_ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com` (comma-separated list).
+
+**Q: What are the rate limits?**
+A: Global: 200 req/min per IP. Auth endpoints: 10 req/min. Share creation: 20 req/min per user.
+
+**Q: How does graceful shutdown work?**
+A: Gateway uses @godaddy/terminus. On SIGTERM, it stops accepting connections, waits up to 30s for in-flight requests, then shuts down.
+
 ## 关联文档
 - `docs/_archive/MIGRATION_TO_NODE.md`：迁移计划与端口对照（已归档）
 - `README.md`：启动与结构说明

@@ -65,6 +65,41 @@ When deploying MyWebDrive:
    - Keep dependencies updated
    - Monitor security advisories
 
+## Security Features (v0.3.1+)
+
+### Rate Limiting
+- **Global**: 200 requests/minute per IP (or userId if authenticated)
+- **Auth endpoints** (`/login`, `/register`, `/refresh`): 10 requests/minute per IP
+- **Share creation**: 20 requests/minute per user
+- Distributed via Redis (cross-instance); falls back to in-memory if Redis unavailable
+
+### Security Headers (Helmet)
+All services return security headers:
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains` (HSTS)
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: SAMEORIGIN`
+- `X-DNS-Prefetch-Control: off`
+- `Referrer-Policy: no-referrer`
+- `X-XSS-Protection: 0` (disabled intentionally; modern browser filters have bugs)
+
+### Graceful Shutdown
+- Gateway uses `@godaddy/terminus` for graceful shutdown on SIGTERM
+- 30-second timeout for in-flight requests
+- Kubernetes-compatible endpoints: `/healthz` (liveness), `/ready` (readiness)
+
+### Environment Variables for Production
+
+```bash
+# Required for distributed rate limiting
+REDIS_URL=redis://your-redis:6379/0
+
+# CORS whitelist (replace * with actual domains)
+CORS_ALLOWED_ORIGINS=https://mygoavemujica.top,https://www.mygoavemujica.top
+
+# Proxy trust (1 = trust single Nginx hop)
+TRUST_PROXY=1
+```
+
 ## Known Security Considerations
 
 - Default development configuration uses permissive CORS (`*`)
