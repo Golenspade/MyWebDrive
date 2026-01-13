@@ -1,10 +1,12 @@
 import express from 'express'
+import helmet from 'helmet'
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability'
 import jwt from 'jsonwebtoken'
 import { PrismaClient } from '../prisma/client/index.js'
 import { getEnv } from '@mywebdrive/common'
 
 const app = express()
+app.use(helmet({ contentSecurityPolicy: false }))
 app.disable('x-powered-by')
 
 // Config

@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -8,6 +9,7 @@ import { getEnv } from '@mywebdrive/common';
 import { Readable } from 'stream';
 const app = express();
 app.disable('x-powered-by');
+app.use(helmet({ contentSecurityPolicy: false }));
 // Config
 const JWT_SECRET = getEnv('JWT_SECRET', 'dev-secret');
 const PORT = parseInt(process.env.SHARING_PORT || '7085', 10);

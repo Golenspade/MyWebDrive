@@ -1,4 +1,5 @@
 import express from 'express'
+import helmet from 'helmet'
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability'
 import jwt from 'jsonwebtoken'
 import { createWriteStream, existsSync, createReadStream } from 'fs'
@@ -8,6 +9,7 @@ import { randomUUID } from 'crypto'
 import { Worker } from 'worker_threads'
 
 const app = express()
+app.use(helmet({ contentSecurityPolicy: false }))
 app.disable('x-powered-by')
 
 // Config

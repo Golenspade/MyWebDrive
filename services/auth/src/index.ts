@@ -1,4 +1,5 @@
 import express from 'express'
+import helmet from 'helmet'
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
@@ -6,6 +7,7 @@ import { PrismaClient } from '../prisma/client/index.js'
 import { randomUUID, randomBytes } from 'crypto'
 
 export const app: express.Express = express()
+app.use(helmet({ contentSecurityPolicy: false }))
 app.disable('x-powered-by')
 
 // Config

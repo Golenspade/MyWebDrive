@@ -23,6 +23,7 @@
     "@mywebdrive/observability": "workspace:*",
     "@prisma/client": "^5.19.1",
     "express": "^4.19.2",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "prom-client": "^15.1.3"
   },
