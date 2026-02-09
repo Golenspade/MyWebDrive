@@ -14,6 +14,6 @@
     "dev": "pnpm -C frontend/cruip-landing dev"
   },
   "devDependencies": {
-    "eslint-plugin-react-refresh": "^0.4.24"
+    "eslint-plugin-react-refresh": "^0.5.0"
   }
 }
