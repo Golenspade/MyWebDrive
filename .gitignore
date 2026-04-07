@@ -62,3 +62,9 @@ deploy/
 *.pem
 *.key
 frontend/_templates/tailwind-landing-page-template
+
+# Local MCP / agent tooling
+.chunkhound.json
+.chunkhound/
+.serena/
+opencode.json
