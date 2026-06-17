@@ -21,7 +21,7 @@
 ## 先决条件
 - 已启动后端（网关默认 9080）：
   - `./manage-services.sh start-backend` 或 `./manage-services.sh restart`
-- 已有管理员账号：email=admin@local，password=admin123456（数据库 seed）
+- 已有管理员账号：email=<REDACTED_ADMIN_EMAIL>，password=<REDACTED_ADMIN_PASSWORD>（数据库 seed）
 - 工具：`curl`、`node`、`dd`
 
 ## 运行

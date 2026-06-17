@@ -92,8 +92,8 @@ bash ./test-search-services.sh
 
 **操作**：
 - 运行 Auth Service 的 seed 脚本
-- 创建管理员账户：`admin@local` / `admin123456`
-- 生成邀请码：`INV-ANPXQNH0`
+- 创建管理员账户：`<REDACTED_ADMIN_EMAIL>` / `<REDACTED_ADMIN_PASSWORD>`
+- 生成邀请码：`<REDACTED_INVITE_CODE>`
 
 **命令**：
 ```bash
@@ -124,7 +124,7 @@ done
 # 登录
 curl -X POST http://localhost:9090/api/v1/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@local","password":"admin123456"}'
+  -d '{"email":"<REDACTED_ADMIN_EMAIL>","password":"<REDACTED_ADMIN_PASSWORD>"}'
 
 # 搜索
 curl "http://localhost:9090/api/v1/search?q=test&only=files" \

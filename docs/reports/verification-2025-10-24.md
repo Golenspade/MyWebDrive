@@ -60,8 +60,8 @@
 
 ## 🎓 验证账户信息
 
-- **管理员**: admin@local / admin123456
-- **邀请码**: INV-ANPXQNH0
+- **管理员**: <REDACTED_ADMIN_CREDENTIALS>
+- **邀请码**: <REDACTED_INVITE_CODE>
 
 ## 📝 后续建议
 
@@ -84,10 +84,10 @@
 - `/account` 页面无 500
 
 ### 测试账号（请妥善保管）
-- **管理员**: afcaibingfeng@gmail.com / 3BtmNSwbEWij3iK2ovGtiw==
-- **普通用户**: afcaibingfeng+user@gmail.com / 4D0tsRBSTC1GpfSMeusutA==
-- **测试用户二**: afcaibingfeng+test2@gmail.com / ND2Ictp26mOPPk8l4aGO0Q==
-- **测试用户三**: afcaibingfeng+test3@gmail.com / TCIBtBuDet/BTb5WVZwupQ==
+- **管理员**: <REDACTED_ACCOUNT>
+- **普通用户**: <REDACTED_ACCOUNT>
+- **测试用户二**: <REDACTED_ACCOUNT>
+- **测试用户三**: <REDACTED_ACCOUNT>
 
 > 备注：当前邮箱服务未配置，重置密码与邮件验证码流程未验证。
 
