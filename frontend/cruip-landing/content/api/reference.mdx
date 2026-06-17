@@ -298,27 +298,57 @@ DELETE /api/v1/folders/:folderId
 ### 上传文件
 
 ```http
-POST /api/v1/files
+POST /api/v1/storage/uploads
 ```
 
-**请求体 (multipart/form-data)**
-```
-file: [文件数据]
-folderId: folder_123
+**请求体 (application/json)**
+```json
+{
+  "fileName": "example.txt",
+  "fileSize": 1024,
+  "mimeType": "text/plain"
+}
 ```
 
 **响应**
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "file_123",
-    "name": "example.txt",
-    "size": 1024,
-    "mimeType": "text/plain",
-    "folderId": "folder_123",
-    "createdAt": "2025-09-30T12:00:00Z"
-  }
+  "id": "upload_123",
+  "fileName": "example.txt",
+  "fileSize": 1024,
+  "mimeType": "text/plain",
+  "chunkSize": 5242880,
+  "totalChunks": 1,
+  "status": "uploading"
+}
+```
+
+### 上传分片
+
+```http
+PATCH /api/v1/storage/uploads/:uploadId
+```
+
+**请求头**
+```text
+Content-Type: application/octet-stream
+X-Chunk-Index: 0
+Authorization: Bearer <token>
+```
+
+**请求体**: 当前分片的二进制内容
+
+### 完成上传
+
+```http
+POST /api/v1/storage/uploads/:uploadId/finalize
+```
+
+**响应**
+```json
+{
+  "status": "processing",
+  "uploadId": "upload_123"
 }
 ```
 
@@ -338,7 +368,7 @@ GET /api/v1/files/:fileId
     "size": 1024,
     "mimeType": "text/plain",
     "folderId": "folder_123",
-    "downloadUrl": "/api/v1/files/file_123/download",
+    "downloadUrl": "/api/v1/storage/files/file_123/download",
     "createdAt": "2025-09-30T12:00:00Z",
     "updatedAt": "2025-09-30T12:00:00Z"
   }
@@ -348,7 +378,7 @@ GET /api/v1/files/:fileId
 ### 下载文件
 
 ```http
-GET /api/v1/files/:fileId/download
+GET /api/v1/storage/files/:fileId/download
 ```
 
 **响应**: 文件二进制数据
@@ -509,4 +539,3 @@ GET /api/v1/catalog/:slug
 ---
 
 查看完整的 [OpenAPI 规范文档](https://github.com/Golenspade/MyWebDrive/blob/main/docs/openapi.yaml) 了解更多详情。
-

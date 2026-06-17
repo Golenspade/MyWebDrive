@@ -18,6 +18,8 @@ pnpm-debug.log*
 
 # Build outputs / caches
 **/.tsbuildinfo
+.ruff_cache/
+.pnpm-store/
 packages/*/dist/
 services/*/dist/
 apps/*/dist/
@@ -39,16 +41,27 @@ coverage/
 # OS / editors
 .DS_Store
 .idea/
+.claude/
 .vscode/
+.tmp_*.mjs
+"infrastructure/
 
 
 
 
 # Runtime storage payloads (do not track)
 services/storage/storage/
+data/*.db
+*.sqlite
+*.sqlite3
+demo-screenshots/
+archive/local-runtime-*/
 
 # Large local assets (not tracked)
 assetsReal/
+
+# Deployment artifacts (large tar files)
+deploy/
 
 # Internal augmentation artifacts (ignore if re-created)
 .augment_*.txt
@@ -56,4 +69,12 @@ assetsReal/
 
 # Local ops secrets (do not commit)
 .ops/
+*.pem
+*.key
 frontend/_templates/tailwind-landing-page-template
+
+# Local MCP / agent tooling
+.chunkhound.json
+.chunkhound/
+.serena/
+opencode.json

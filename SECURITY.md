@@ -6,6 +6,12 @@
 | ------- | ------------------ |
 | 1.x.x   | :white_check_mark: |
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## Reporting a Vulnerability
 
 We take security seriously. If you discover a security vulnerability, please report it responsibly.
@@ -58,6 +64,41 @@ When deploying MyWebDrive:
 4. **Updates**
    - Keep dependencies updated
    - Monitor security advisories
+
+## Security Features (v0.3.1+)
+
+### Rate Limiting
+- **Global**: 200 requests/minute per IP (or userId if authenticated)
+- **Auth endpoints** (`/login`, `/register`, `/refresh`): 10 requests/minute per IP
+- **Share creation**: 20 requests/minute per user
+- Distributed via Redis (cross-instance); falls back to in-memory if Redis unavailable
+
+### Security Headers (Helmet)
+All services return security headers:
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains` (HSTS)
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: SAMEORIGIN`
+- `X-DNS-Prefetch-Control: off`
+- `Referrer-Policy: no-referrer`
+- `X-XSS-Protection: 0` (disabled intentionally; modern browser filters have bugs)
+
+### Graceful Shutdown
+- Gateway uses `@godaddy/terminus` for graceful shutdown on SIGTERM
+- 30-second timeout for in-flight requests
+- Kubernetes-compatible endpoints: `/healthz` (liveness), `/ready` (readiness)
+
+### Environment Variables for Production
+
+```bash
+# Required for distributed rate limiting
+REDIS_URL=redis://your-redis:6379/0
+
+# CORS whitelist (replace * with actual domains)
+CORS_ALLOWED_ORIGINS=https://mygoavemujica.top,https://www.mygoavemujica.top
+
+# Proxy trust (1 = trust single Nginx hop)
+TRUST_PROXY=1
+```
 
 ## Known Security Considerations
 

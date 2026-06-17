@@ -2,6 +2,12 @@
 
 This repository ships with a helper script to simplify common tasks when developing MyWebDrive locally.
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 Quick start
 - One-time: ./manage-services.sh setup
 - Install deps: ./manage-services.sh install
@@ -18,6 +24,13 @@ Run single services
   - Storage: pnpm -C services/storage dev
   - Gateway: pnpm -C services/api-gateway-node dev
   - Frontend: pnpm --dir frontend/cruip-landing dev
+
+Health Endpoints (terminus-based)
+- `/health` - Basic health check
+- `/healthz` - Kubernetes liveness probe
+- `/ready` - Kubernetes readiness probe
+- `/api/v1/health` - API-prefixed health check
+- All endpoints return `{"status":"ok"}` when healthy.
 
 Environment templates
 - Print recommended env: ./manage-services.sh env:print [all|auth|storage]

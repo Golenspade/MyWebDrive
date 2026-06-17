@@ -4,6 +4,12 @@
 
 本文档总结了发布管理系统的完整实施情况，包括后端接口、前端页面、测试脚本和文档。
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## 实施清单
 
 ### ✅ 后端实现 (Metadata Service)

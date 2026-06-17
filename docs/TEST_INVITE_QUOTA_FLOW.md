@@ -1,5 +1,11 @@
 # 邀请码 + 配额 + 上传/下载 E2E 测试脚本
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 本脚本覆盖如下流程：
 1. 管理员创建邀请码
 2. 新用户使用邀请码注册并登录
@@ -15,7 +21,7 @@
 ## 先决条件
 - 已启动后端（网关默认 9080）：
   - `./manage-services.sh start-backend` 或 `./manage-services.sh restart`
-- 已有管理员账号：email=admin@local，password=admin123456（数据库 seed）
+- 已有管理员账号：email=<REDACTED_ADMIN_EMAIL>，password=<REDACTED_ADMIN_PASSWORD>（数据库 seed）
 - 工具：`curl`、`node`、`dd`
 
 ## 运行

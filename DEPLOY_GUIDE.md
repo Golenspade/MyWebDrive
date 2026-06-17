@@ -2,6 +2,12 @@
 
 本指南将帮助你直接从本地电脑一键部署到阿里云服务器。
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## 前提条件
 
 1. **本地环境**：
@@ -70,6 +76,11 @@ JWT_SECRET=$(openssl rand -hex 32)
 # 配置MinIO（如果不使用阿里云OSS）
 MINIO_ACCESS_KEY=your-access-key
 MINIO_SECRET_KEY=your-secret-key
+
+# Security & Rate Limiting (v0.3.1+)
+REDIS_URL=redis://your-redis:6379/0                    # Required for distributed rate limiting
+CORS_ALLOWED_ORIGINS=https://mygoavemujica.top         # Production CORS whitelist
+TRUST_PROXY=1                                           # Trust Nginx proxy hop
 ```
 
 保存后重启服务：
@@ -247,6 +258,10 @@ curl http://你的服务器IP:7082/health  # User
 curl http://你的服务器IP:7083/health  # Metadata
 curl http://你的服务器IP:7084/health  # Storage
 curl http://你的服务器IP:7085/health  # Sharing
+
+# Kubernetes健康检查端点 (v0.3.1+)
+curl http://你的服务器IP:9080/healthz  # Liveness probe
+curl http://你的服务器IP:9080/ready    # Readiness probe
 ```
 
 ## 查看日志

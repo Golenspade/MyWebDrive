@@ -1,10 +1,16 @@
 # MyWebDrive 阿里云部署操作清单
 
 ## 📋 部署信息
-- **服务器 IP**: 8.134.175.90
+- **服务器 IP**: <REDACTED_SERVER_IP>
 - **域名**: mygoavemujica.top
 - **版本**: v0.2.0-search-publish-catalog
 - **部署时间**: 2025-10-24
+
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
 
 ---
 
@@ -15,7 +21,7 @@
 #### 1. 设置环境变量
 ```bash
 export SSH_KEY=~/path/to/your.pem  # 替换为你的 .pem 文件路径
-export REMOTE_HOST=8.134.175.90
+export REMOTE_HOST=<REDACTED_SERVER_IP>
 export REMOTE_USER=root  # 或 ubuntu
 ```
 
@@ -59,7 +65,7 @@ bash infrastructure/alicloud/remote-deploy.sh
 # 本地执行
 export KEY=~/path/to/your.pem
 chmod 400 "$KEY"
-ssh -i "$KEY" root@8.134.175.90
+ssh -i "$KEY" root@<REDACTED_SERVER_IP>
 ```
 
 ### 步骤 2: 服务器初始化
@@ -224,7 +230,7 @@ sudo ss -ltnp | grep -E ':(80|443|3100|9090|7091|7092|7093|7094|7095|5432|6379)'
 
 - [ ] 访问 https://mygoavemujica.top 正常
 - [ ] 首页自动跳转到 `/download`
-- [ ] 管理员登录正常（admin@local / admin123456）
+- [ ] 管理员登录正常（<REDACTED_ADMIN_CREDENTIALS>）
 - [ ] 文件上传功能正常
 - [ ] 搜索功能正常
 - [ ] 发布功能正常
@@ -413,8 +419,8 @@ sudo tail -f /var/log/nginx/mywebdrive-access.log
 部署完成后，访问 **https://mygoavemujica.top** 验证系统是否正常运行！
 
 **默认管理员账户**:
-- 邮箱: admin@local
-- 密码: admin123456
+- 邮箱: <REDACTED_ADMIN_EMAIL>
+- 密码: <REDACTED_ADMIN_PASSWORD>
 
 ⚠️ **重要**: 首次登录后立即修改管理员密码！
 

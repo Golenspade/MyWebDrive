@@ -4,6 +4,12 @@
 
 发布管理系统允许管理员将已上传的文件发布到公开目录（Catalog），实现文件到软件发布的完整流程。
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## 架构设计
 
 ### 核心流程

@@ -1,9 +1,11 @@
 import express from 'express';
+import helmet from 'helmet';
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '../prisma/client/index.js';
 import { getEnv } from '@mywebdrive/common';
 const app = express();
+app.use(helmet({ contentSecurityPolicy: false }));
 app.disable('x-powered-by');
 // Config
 const JWT_SECRET = getEnv('JWT_SECRET', 'dev-secret');
@@ -168,7 +170,7 @@ app.get('/api/v1/users/:id/storage', requireAuth, requireAdmin, async (req, res,
         const user = await prisma.user.findUnique({ where: { id } });
         if (!user)
             return res.status(404).json({ error: 'User not found' });
-        return res.json({ id: user.id, storageQuota: Number(user.storageQuota), storageUsed: Number(user.storageUsed) });
+        return res.json({ id: user.id, name: user.name, storageQuota: Number(user.storageQuota), storageUsed: Number(user.storageUsed) });
     }
     catch (err) {
         next(err);

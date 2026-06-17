@@ -1,10 +1,17 @@
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { getEnv } from '@mywebdrive/common';
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability';
 import jwt from 'jsonwebtoken';
 import { fileURLToPath } from 'url';
+import helmet from 'helmet';
+import cors from 'cors';
+import rateLimit from 'express-rate-limit';
+import { RedisStore } from 'rate-limit-redis';
+import { Redis } from 'ioredis';
+import { createTerminus } from '@godaddy/terminus';
 // Read downstream services from env (align with existing Go services)
 const AUTH = getEnv('AUTH_SERVICE_URL', 'http://localhost:8081');
 const USER = getEnv('USER_SERVICE_URL', 'http://localhost:8082');
@@ -17,20 +24,97 @@ const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 // Long operations timeouts (tuned for large uploads/finalize)
 const GATEWAY_PROXY_TIMEOUT_MS = parseInt(process.env.GATEWAY_PROXY_TIMEOUT_MS || '600000', 10); // 10 minutes
 const UPLOAD_FINALIZE_TIMEOUT_MS = parseInt(process.env.UPLOAD_FINALIZE_TIMEOUT_MS || '600000', 10);
+// Redis for distributed rate limiting (optional - falls back to in-memory)
+const REDIS_URL = getEnv('REDIS_URL', '');
+let redisClient = null;
+if (REDIS_URL) {
+    redisClient = new Redis(REDIS_URL);
+    redisClient.on('error', (err) => {
+        console.error('[gateway] Redis rate-limit client error:', err.message);
+    });
+}
+// CORS configuration: production whitelist vs dev open
+const CORS_ALLOWED_ORIGINS = getEnv('CORS_ALLOWED_ORIGINS', '');
+const corsOptions = {
+    credentials: true,
+    methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Request-ID'],
+    origin: CORS_ALLOWED_ORIGINS
+        ? CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
+        : true, // dev: allow all origins
+};
 const app = express();
 app.disable('x-powered-by');
+// Trust proxy configuration (CRITICAL for rate limiting behind Nginx/LB)
+// Options: 1 = trust single proxy hop, 'loopback' = trust localhost, or specific IPs
+// See https://expressjs.com/en/guide/behind-proxies.html
+const TRUST_PROXY = getEnv('TRUST_PROXY', '1');
+app.set('trust proxy', TRUST_PROXY === 'true' ? true : TRUST_PROXY === 'false' ? false : parseInt(TRUST_PROXY, 10) || TRUST_PROXY);
+// Helmet security headers (API-optimized: no CSP needed for JSON APIs)
+app.use(helmet({
+    contentSecurityPolicy: false, // Not needed for pure API gateway
+    crossOriginEmbedderPolicy: false, // May interfere with file downloads
+    crossOriginOpenerPolicy: false,
+}));
+// CORS middleware (replaces manual headers)
+app.use(cors(corsOptions));
+// Rate limiters with Redis store (distributed) or in-memory fallback
+function createRedisStore(prefix) {
+    if (!redisClient)
+        return undefined;
+    const client = redisClient;
+    return new RedisStore({
+        // Use ioredis's call method for sendCommand
+        // See: https://github.com/express-rate-limit/rate-limit-redis#usage
+        sendCommand: async (...args) => client.call(args[0], ...args.slice(1)),
+        prefix: `rl:${prefix}:`,
+    });
+}
+// Global rate limiter: 200 req/min per IP
+const globalLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 200,
+    standardHeaders: true,
+    legacyHeaders: false,
+    store: createRedisStore('global'),
+    keyGenerator: (req) => {
+        // For authenticated requests, prefer userId to avoid NAT false positives
+        const userId = req.auth?.userId;
+        return userId || req.ip || 'unknown';
+    },
+    handler: (_req, res) => {
+        res.status(429).json({ error: 'Too many requests', retryAfter: 60 });
+    },
+});
+// Strict limiter for auth endpoints: 10 req/min per IP
+const authLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 10,
+    standardHeaders: true,
+    legacyHeaders: false,
+    store: createRedisStore('auth'),
+    keyGenerator: (req) => req.ip || 'unknown',
+    handler: (_req, res) => {
+        res.status(429).json({ error: 'Too many authentication attempts', retryAfter: 60 });
+    },
+});
+// Strict limiter for share creation: 20 req/min per user
+const shareLimiter = rateLimit({
+    windowMs: 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    store: createRedisStore('share'),
+    keyGenerator: (req) => req.auth?.userId || req.ip || 'unknown',
+    handler: (_req, res) => {
+        res.status(429).json({ error: 'Too many share operations', retryAfter: 60 });
+    },
+});
 // Logger & request logging
 const logger = createLogger({ service: 'api-gateway-node' });
 app.use(createHttpLogger(logger));
-// Lightweight CORS for dev
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS,HEAD');
-    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Request-ID');
-    if (req.method === 'OPTIONS')
-        return res.sendStatus(204);
-    next();
-});
+// Apply global rate limiter (after logging, before routes)
+app.use(globalLimiter);
 // Prometheus metrics (unified)
 const { register, metricsMiddleware, metricsHandler } = createMetrics('api-gateway-node');
 // Simple UV aggregator (per-day unique ip+ua)
@@ -63,10 +147,7 @@ const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '../../../');
 const ASSETS_DIR = path.resolve(REPO_ROOT, 'assetsReal');
 app.use('/assets', express.static(ASSETS_DIR));
-// Health check
-app.get('/health', (_req, res) => {
-    res.json({ status: 'healthy', service: 'api-gateway-node' });
-});
+// Note: /health and /api/v1/health are handled by terminus (see bottom of file)
 app.get('/metrics', metricsHandler);
 // Aggregated admin health (aligns with Go gateway intent)
 app.get('/api/v1/admin/health', requireAuth, requireAdmin, async (_req, res, next) => {
@@ -338,8 +419,8 @@ app.post('/api/v1/auth/invitations', requireAuth, requireAdmin, express.json(), 
         next(err);
     }
 });
-// Intercept user registration to push notification
-app.post('/api/v1/auth/register', express.json(), async (req, res, next) => {
+// Intercept user registration to push notification (with strict rate limiting)
+app.post('/api/v1/auth/register', authLimiter, express.json(), async (req, res, next) => {
     try {
         const upstream = await fetch(`${AUTH}${req.originalUrl}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -523,10 +604,15 @@ app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, express.json(), 
         next(err);
     }
 });
+// Apply auth rate limiting to login endpoint before proxy
+app.post('/api/v1/auth/login', authLimiter, (_req, _res, next) => next());
+app.post('/api/v1/auth/refresh', authLimiter, (_req, _res, next) => next());
 // Route mapping aligned with current API contract
 mountProxy('/api/v1/auth', AUTH);
 mountProxy('/api/v1/users', USER);
 // Important: route share-creation/list under files to sharing before metadata catch-all
+// Apply share rate limiting to POST (create share) requests
+app.post('/api/v1/files/:fileId/shares', shareLimiter, (_req, _res, next) => next());
 app.use('/api/v1/files/:fileId/shares', createProxyMiddleware({
     target: SHARING,
     changeOrigin: true,
@@ -585,9 +671,50 @@ mountProxy('/api/v1/search', METADATA);
 mountProxy('/api/v1/catalog', METADATA);
 mountProxy('/api/v1/storage', STORAGE);
 mountProxy('/api/v1/shares', SHARING);
-app.listen(PORT, () => {
-    // eslint-disable-next-line no-console
-    logger.info({ port: PORT }, 'gateway-node listening');
+// Health check functions for terminus
+async function onHealthCheck() {
+    // Liveness: just check if event loop is responsive
+    // For readiness, we could check downstream services, but that adds latency
+}
+async function onSignal() {
+    logger.info('SIGTERM received, starting graceful shutdown');
+    // Close Redis connection if exists
+    if (redisClient) {
+        await redisClient.quit();
+        logger.info('Redis connection closed');
+    }
+    // Close Prisma connection if exists
+    if (prisma) {
+        await prisma.$disconnect();
+        logger.info('Prisma connection closed');
+    }
+}
+async function onShutdown() {
+    logger.info('Cleanup finished, server is shutting down');
+}
+// Create HTTP server and wrap with terminus for graceful shutdown
+const server = http.createServer(app);
+createTerminus(server, {
+    healthChecks: {
+        '/health': onHealthCheck,
+        '/api/v1/health': onHealthCheck,
+        '/healthz': onHealthCheck, // Kubernetes liveness
+        '/ready': onHealthCheck, // Kubernetes readiness
+    },
+    onSignal,
+    onShutdown,
+    timeout: 30000, // 30 seconds to finish in-flight requests
+    logger: (msg, err) => {
+        if (err) {
+            logger.error({ err }, msg);
+        }
+        else {
+            logger.info(msg);
+        }
+    },
+});
+server.listen(PORT, () => {
+    logger.info({ port: PORT }, 'gateway-node listening with graceful shutdown support');
 });
 // Unified JSON error handler
 // eslint-disable-next-line @typescript-eslint/no-unused-vars

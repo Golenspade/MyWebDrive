@@ -90,7 +90,7 @@ curl http://localhost:3100
 
 - **前端**: http://localhost:3100
 - **API**: http://localhost:9090
-- **管理员账户**: admin@local / admin123456
+- **管理员账户**: <REDACTED_ADMIN_CREDENTIALS>
 
 ⚠️ **重要**: 首次登录后立即修改管理员密码！
 

@@ -2,6 +2,12 @@
 
 本方案在不引入新表的前提下，基于 Metadata 服务现有 File + FileTag 实体，通过 `catalog:*` 约定标签实现“项目/版本/资产”的聚合目录，并支持“灰度开关”。
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## 能力概览
 - 只读目录 API（Metadata 服务）
   - GET `/api/v1/catalog`：返回公开项目清单

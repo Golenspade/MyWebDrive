@@ -154,6 +154,9 @@ push_code_to_server() {
         --exclude '.env' \
         --exclude 'logs' \
         --exclude 'data' \
+        --exclude '.ops' \
+        --exclude '*.pem' \
+        --exclude '*.key' \
         -e "ssh -i $SSH_KEY -p $SERVER_PORT -o StrictHostKeyChecking=no" \
         ./ "$SERVER_USER@$SERVER_IP:$REMOTE_DIR/"
     

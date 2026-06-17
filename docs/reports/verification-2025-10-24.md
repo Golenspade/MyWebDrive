@@ -60,8 +60,8 @@
 
 ## 🎓 验证账户信息
 
-- **管理员**: admin@local / admin123456
-- **邀请码**: INV-ANPXQNH0
+- **管理员**: <REDACTED_ADMIN_CREDENTIALS>
+- **邀请码**: <REDACTED_INVITE_CODE>
 
 ## 📝 后续建议
 
@@ -69,6 +69,27 @@
 2. 可以考虑进行性能测试（大文件、并发上传等）
 3. 可以测试边界情况（特殊字符、过期链接等）
 4. 建议更新文档中的端口信息
+
+---
+
+## ✅ 2026-01-13 线上验证记录
+
+**验证时间**: 2026-01-13 15:35 (UTC+8)
+**验证人**: fankex + assistant
+**环境**: 生产 ECS（Docker Compose + Cloudflare）
+
+### 验证项
+- 首页访问、HTTP/2、API 健康检查通过
+- 登录/注册流程通过
+- `/account` 页面无 500
+
+### 测试账号（请妥善保管）
+- **管理员**: <REDACTED_ACCOUNT>
+- **普通用户**: <REDACTED_ACCOUNT>
+- **测试用户二**: <REDACTED_ACCOUNT>
+- **测试用户三**: <REDACTED_ACCOUNT>
+
+> 备注：当前邮箱服务未配置，重置密码与邮件验证码流程未验证。
 
 ## 🚀 部署就绪
 

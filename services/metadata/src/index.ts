@@ -1,17 +1,29 @@
 import express from 'express'
+import helmet from 'helmet'
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability'
 import jwt from 'jsonwebtoken'
 import { PrismaClient } from '../prisma/client/index.js'
 import { randomUUID } from 'crypto'
-import { getEnv } from '@mywebdrive/common'
 
-export const app = express()
+export const app: express.Express = express()
 app.disable('x-powered-by')
+app.use(helmet({ contentSecurityPolicy: false }))
 
 // Config
-const JWT_SECRET = getEnv('JWT_SECRET', 'dev-secret')
+const IS_TEST = process.env.NODE_ENV === 'test'
 const PORT = parseInt(process.env.METADATA_PORT || '7083', 10)
-const DATABASE_URL = process.env.METADATA_DATABASE_URL || 'file:./metadata.db'
+const RAW_JWT_SECRET = process.env.JWT_SECRET
+const JWT_SECRET = (() => {
+  if (RAW_JWT_SECRET && RAW_JWT_SECRET !== 'dev-secret') return RAW_JWT_SECRET
+  if (IS_TEST) return RAW_JWT_SECRET || 'dev-secret'
+  throw new Error('JWT_SECRET must be set to a non-default value')
+})()
+const DATABASE_URL = (() => {
+  const url = process.env.METADATA_DATABASE_URL
+  if (url) return url
+  if (IS_TEST) return 'postgresql://postgres:postgres@127.0.0.1:5432/metadata?schema=public'
+  throw new Error('METADATA_DATABASE_URL must be set')
+})()
 
 // DB
 const USER_SERVICE_URL = process.env.USER_SERVICE_URL || 'http://localhost:8082'
@@ -1219,5 +1231,3 @@ if (process.env.NODE_ENV !== 'test') {
     logger.info({ port: PORT }, 'metadata-service-node listening')
   })
 }
-
-

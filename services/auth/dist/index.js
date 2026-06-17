@@ -1,14 +1,27 @@
 import express from 'express';
+import helmet from 'helmet';
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '../prisma/client/index.js';
 import { randomUUID, randomBytes } from 'crypto';
-import { getEnv } from '@mywebdrive/common';
-const app = express();
+export const app = express();
+app.use(helmet({ contentSecurityPolicy: false }));
 app.disable('x-powered-by');
 // Config
-const JWT_SECRET = getEnv('JWT_SECRET', 'dev-secret');
+const IS_TEST = process.env.NODE_ENV === 'test';
+const RAW_DB_URL = process.env.AUTH_DATABASE_URL;
+if (!RAW_DB_URL && !IS_TEST) {
+    throw new Error('AUTH_DATABASE_URL must be set');
+}
+const RAW_JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = (() => {
+    if (RAW_JWT_SECRET && RAW_JWT_SECRET !== 'dev-secret')
+        return RAW_JWT_SECRET;
+    if (IS_TEST)
+        return RAW_JWT_SECRET || 'dev-secret';
+    throw new Error('JWT_SECRET must be set to a non-default value');
+})();
 const ACCESS_TOKEN_TTL = parseInt(process.env.ACCESS_TOKEN_TTL || '900', 10); // 15m
 const REFRESH_TOKEN_TTL = parseInt(process.env.REFRESH_TOKEN_TTL || '604800', 10); // 7d
 const REQUIRE_INVITE = (process.env.REGISTRATION_REQUIRE_INVITE || 'false').toLowerCase() === 'true';
@@ -20,6 +33,24 @@ const OWNER_COOKIE_TTL_SEC = parseInt(process.env.OWNER_COOKIE_TTL_SEC || '86400
 const OWNER_COOKIE_SECURE = (process.env.COOKIE_SECURE || 'false').toLowerCase() === 'true';
 // DB
 const prisma = new PrismaClient();
+const RATE_WINDOW_MS = 60_000;
+const RATE_LIMIT = 20;
+const rateMap = new Map();
+function rateLimit(key) {
+    const now = Date.now();
+    const entry = rateMap.get(key);
+    if (!entry || entry.resetAt < now) {
+        rateMap.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+        return false;
+    }
+    if (entry.count >= RATE_LIMIT)
+        return true;
+    entry.count += 1;
+    return false;
+}
+function getIp(req) {
+    return req.headers['x-forwarded-for']?.split(',')[0]?.trim() || req.ip || 'unknown';
+}
 // Middleware
 app.use(express.json());
 const logger = createLogger({ service: 'auth-service-node' });
@@ -73,6 +104,8 @@ function requireAdmin(req, res, next) {
 }
 // Register
 app.post('/api/v1/auth/register', async (req, res, next) => {
+    if (rateLimit(`register:${getIp(req)}`))
+        return res.status(429).json({ error: 'Too many requests' });
     try {
         const { name, email, password, invitationCode } = req.body || {};
         if (!name || !email || !password)
@@ -124,6 +157,8 @@ app.post('/api/v1/auth/register', async (req, res, next) => {
 });
 // Login
 app.post('/api/v1/auth/login', async (req, res, next) => {
+    if (rateLimit(`login:${getIp(req)}`))
+        return res.status(429).json({ error: 'Too many requests' });
     try {
         const { email, password } = req.body || {};
         if (!email || !password)
@@ -144,6 +179,8 @@ app.post('/api/v1/auth/login', async (req, res, next) => {
 });
 // Owner login (sets HttpOnly owner cookie) and logout
 app.post('/api/v1/auth/owner-login', async (req, res) => {
+    if (rateLimit(`owner-login:${getIp(req)}`))
+        return res.status(429).json({ error: 'Too many requests' });
     try {
         const { code } = req.body || {};
         if (!code)
@@ -344,7 +381,10 @@ app.use((err, _req, res, _next) => {
     logger.error({ err, status }, 'unhandled error');
     res.status(status).json({ error: { code: 'INTERNAL_ERROR', message } });
 });
-app.listen(PORT, () => {
-    logger.info({ port: PORT }, 'auth-service-node listening');
-});
+if (process.env.NODE_ENV !== 'test') {
+    app.listen(PORT, () => {
+        logger.info({ port: PORT }, 'auth-service-node listening');
+    });
+}
+export { signAccess, signRefresh };
 //# sourceMappingURL=index.js.map

@@ -2,6 +2,12 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## Project Overview
 
 MyWebDrive is a microservices-based cloud storage platform built with Node.js + TypeScript using a pnpm monorepo architecture. The backend has been fully migrated from Go to Node.js, with Next.js 15 serving the frontend.
@@ -231,6 +237,11 @@ METADATA_DATABASE_URL=postgres://user:pass@localhost:5432/metadata
 STORAGE_DATABASE_URL=postgres://user:pass@localhost:5432/storage
 SHARING_DATABASE_URL=postgres://user:pass@localhost:5432/sharing
 GATEWAY_DATABASE_URL=postgres://user:pass@localhost:5432/gateway
+
+# Rate Limiting & Security (Gateway)
+REDIS_URL=redis://localhost:6379/0      # Distributed rate limiting
+TRUST_PROXY=1                           # Proxy hops to trust (1 = Nginx)
+CORS_ALLOWED_ORIGINS=https://...        # Production CORS whitelist
 ```
 
 Generate template: `./manage-services.sh env:write .env.example`
@@ -400,6 +411,16 @@ Development setup for asset downloads:
 6. Graylist: Only returns items with `catalog:public=true` tag
 
 For production, replace `catalog:url` with CDN/OSS URLs.
+
+## Security Features (v0.3.1+)
+
+- **Helmet**: All 6 services return security headers (HSTS, X-Frame-Options, etc.)
+- **Rate Limiting**: Gateway enforces per-IP/per-user limits via express-rate-limit + Redis
+  - Global: 200 req/min
+  - Auth: 10 req/min (login/register/refresh)
+  - Share: 20 req/min
+- **Graceful Shutdown**: Gateway uses @godaddy/terminus for SIGTERM handling
+- **Health Endpoints**: `/healthz` (liveness), `/ready` (readiness) for Kubernetes
 
 ### CORS Configuration
 

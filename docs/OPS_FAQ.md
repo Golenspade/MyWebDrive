@@ -1,5 +1,11 @@
 # 运维 FAQ（Node 版）
 
+## 最新状态（2026-01-13）
+- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
+- 部署方式：ECS Docker Compose（镜像离线导入）
+- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
+- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+
 ## 日志（pino）
 - 格式：JSON，字段包含 `time`、`level`、`msg`、`service`、`instance`、`req.id` 等。
 - 级别：通过 `LOG_LEVEL` 控制（默认 `info`）。建议生产 `info`/`warn`，排障临时切到 `debug`。
@@ -55,6 +61,20 @@
   - 调整 `LOG_LEVEL`（`debug`/`info`/`warn`/`error`）
 - 请求链路难以排查：
   - 在入口（前端/网关）设置 `x-request-id` 并贯穿；以该值在所有服务日志中检索
+
+## 安全功能 FAQ
+
+**Q: How do I enable distributed rate limiting?**
+A: Set `REDIS_URL=redis://your-redis:6379/0` in the environment. Without Redis, rate limiting uses in-memory storage (single instance only).
+
+**Q: How do I configure CORS for production?**
+A: Set `CORS_ALLOWED_ORIGINS=https://your-domain.com,https://www.your-domain.com` (comma-separated list).
+
+**Q: What are the rate limits?**
+A: Global: 200 req/min per IP. Auth endpoints: 10 req/min. Share creation: 20 req/min per user.
+
+**Q: How does graceful shutdown work?**
+A: Gateway uses @godaddy/terminus. On SIGTERM, it stops accepting connections, waits up to 30s for in-flight requests, then shuts down.
 
 ## 关联文档
 - `docs/_archive/MIGRATION_TO_NODE.md`：迁移计划与端口对照（已归档）

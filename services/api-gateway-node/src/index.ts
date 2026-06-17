@@ -1,10 +1,18 @@
 import express from 'express'
+import http from 'http'
 import path from 'path'
 import { createProxyMiddleware } from 'http-proxy-middleware'
 import { getEnv } from '@mywebdrive/common'
 import { createLogger, createHttpLogger, createMetrics } from '@mywebdrive/observability'
 import jwt from 'jsonwebtoken'
 import { fileURLToPath } from 'url'
+import helmet from 'helmet'
+import cors from 'cors'
+import rateLimit from 'express-rate-limit'
+import { RedisStore } from 'rate-limit-redis'
+import { Redis } from 'ioredis'
+import { createTerminus } from '@godaddy/terminus'
+import { ConsecutiveBreaker, ExponentialBackoff, TimeoutStrategy, handleAll, retry, circuitBreaker, timeout, wrap, type IPolicy } from 'cockatiel'
 
 // Read downstream services from env (align with existing Go services)
 const AUTH = getEnv('AUTH_SERVICE_URL', 'http://localhost:8081')
@@ -17,26 +25,151 @@ const SHARING = getEnv('SHARING_SERVICE_URL', 'http://localhost:8085')
 const PORT = parseInt(process.env.GATEWAY_PORT || '9080', 10)
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret'
 
-
 // Long operations timeouts (tuned for large uploads/finalize)
 const GATEWAY_PROXY_TIMEOUT_MS = parseInt(process.env.GATEWAY_PROXY_TIMEOUT_MS || '600000', 10) // 10 minutes
 const UPLOAD_FINALIZE_TIMEOUT_MS = parseInt(process.env.UPLOAD_FINALIZE_TIMEOUT_MS || '600000', 10)
 
+// Redis for distributed rate limiting (optional - falls back to in-memory)
+const REDIS_URL = getEnv('REDIS_URL', '')
+let redisClient: Redis | null = null
+if (REDIS_URL) {
+  redisClient = new Redis(REDIS_URL)
+  redisClient.on('error', (err: Error) => {
+    console.error('[gateway] Redis rate-limit client error:', err.message)
+  })
+}
+
+// CORS configuration: production whitelist vs dev open
+const CORS_ALLOWED_ORIGINS = getEnv('CORS_ALLOWED_ORIGINS', '')
+const corsOptions: cors.CorsOptions = {
+  credentials: true,
+  methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Request-ID'],
+  origin: CORS_ALLOWED_ORIGINS
+    ? CORS_ALLOWED_ORIGINS.split(',').map(o => o.trim())
+    : true, // dev: allow all origins
+}
+
+// --- Resilience policies (cockatiel) for service-to-service calls ---
+// Retry: 2 attempts with exponential backoff (100ms, 200ms)
+const retryPolicy = retry(handleAll, {
+  maxAttempts: 2,
+  backoff: new ExponentialBackoff({ initialDelay: 100, maxDelay: 1000 }),
+})
+
+// Circuit breaker: open after 3 consecutive failures, half-open after 10s
+const circuitBreakerPolicy = circuitBreaker(handleAll, {
+  halfOpenAfter: 10_000, // 10 seconds
+  breaker: new ConsecutiveBreaker(3),
+})
+
+// Timeout: 5 seconds for health checks, 10 seconds for data calls, 10 minutes for uploads
+const healthTimeoutPolicy = timeout(5_000, { strategy: TimeoutStrategy.Aggressive, abortOnReturn: true })
+const dataTimeoutPolicy = timeout(10_000, { strategy: TimeoutStrategy.Aggressive, abortOnReturn: true })
+const uploadTimeoutPolicy = timeout(600_000, { strategy: TimeoutStrategy.Aggressive, abortOnReturn: true }) // 10 minutes for finalize
+
+// Combined policies: timeout -> retry -> circuit breaker
+const healthPolicy = wrap(healthTimeoutPolicy, retryPolicy, circuitBreakerPolicy)
+const dataPolicy = wrap(dataTimeoutPolicy, retryPolicy, circuitBreakerPolicy)
+const uploadPolicy = wrap(uploadTimeoutPolicy, retryPolicy, circuitBreakerPolicy)
+
+// Helper: resilient fetch for service-to-service calls
+async function resilientFetch(
+  url: string,
+  options: RequestInit = {},
+  policy: IPolicy = dataPolicy
+): Promise<Response> {
+  return policy.execute(async (context) => {
+    const { signal } = context
+    const resp = await fetch(url, { ...options, signal })
+    if (!resp.ok && resp.status >= 500) {
+      // Treat 5xx as retriable errors
+      throw new Error(`Service error: ${resp.status}`)
+    }
+    return resp
+  })
+}
+
 const app = express()
 app.disable('x-powered-by')
+
+// Trust proxy configuration (CRITICAL for rate limiting behind Nginx/LB)
+// Options: 1 = trust single proxy hop, 'loopback' = trust localhost, or specific IPs
+// See https://expressjs.com/en/guide/behind-proxies.html
+const TRUST_PROXY = getEnv('TRUST_PROXY', '1')
+app.set('trust proxy', TRUST_PROXY === 'true' ? true : TRUST_PROXY === 'false' ? false : parseInt(TRUST_PROXY, 10) || TRUST_PROXY)
+
+// Helmet security headers (API-optimized: no CSP needed for JSON APIs)
+app.use(helmet({
+  contentSecurityPolicy: false, // Not needed for pure API gateway
+  crossOriginEmbedderPolicy: false, // May interfere with file downloads
+  crossOriginOpenerPolicy: false,
+}))
+
+// CORS middleware (replaces manual headers)
+app.use(cors(corsOptions))
+
+// Rate limiters with Redis store (distributed) or in-memory fallback
+function createRedisStore(prefix: string): RedisStore | undefined {
+  if (!redisClient) return undefined
+  const client = redisClient
+  return new RedisStore({
+    // Use ioredis's call method for sendCommand
+    // See: https://github.com/express-rate-limit/rate-limit-redis#usage
+    sendCommand: async (...args: string[]) => client.call(args[0], ...args.slice(1)) as Promise<number>,
+    prefix: `rl:${prefix}:`,
+  })
+}
+
+// Global rate limiter: 200 req/min per IP
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createRedisStore('global'),
+  keyGenerator: (req) => {
+    // For authenticated requests, prefer userId to avoid NAT false positives
+    const userId = (req as any).auth?.userId
+    return userId || req.ip || 'unknown'
+  },
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'Too many requests', retryAfter: 60 })
+  },
+})
+
+// Strict limiter for auth endpoints: 10 req/min per IP
+const authLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createRedisStore('auth'),
+  keyGenerator: (req) => req.ip || 'unknown',
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'Too many authentication attempts', retryAfter: 60 })
+  },
+})
+
+// Strict limiter for share creation: 20 req/min per user
+const shareLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: createRedisStore('share'),
+  keyGenerator: (req) => (req as any).auth?.userId || req.ip || 'unknown',
+  handler: (_req, res) => {
+    res.status(429).json({ error: 'Too many share operations', retryAfter: 60 })
+  },
+})
 
 // Logger & request logging
 const logger = createLogger({ service: 'api-gateway-node' })
 app.use(createHttpLogger(logger))
 
-// Lightweight CORS for dev
-app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*')
-  res.header('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS,HEAD')
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Request-ID')
-  if (req.method === 'OPTIONS') return res.sendStatus(204)
-  next()
-})
+// Apply global rate limiter (after logging, before routes)
+app.use(globalLimiter)
 
 // Prometheus metrics (unified)
 const { register, metricsMiddleware, metricsHandler } = createMetrics('api-gateway-node')
@@ -70,10 +203,7 @@ const REPO_ROOT = path.resolve(__dirname, '../../../')
 const ASSETS_DIR = path.resolve(REPO_ROOT, 'assetsReal')
 app.use('/assets', express.static(ASSETS_DIR))
 
-// Health check
-app.get('/health', (_req, res) => {
-  res.json({ status: 'healthy', service: 'api-gateway-node' })
-})
+// Note: /health and /api/v1/health are handled by terminus (see bottom of file)
 app.get('/metrics', metricsHandler)
 
 // Aggregated admin health (aligns with Go gateway intent)
@@ -329,9 +459,9 @@ function mountProxy(basePath: string, target: string) {
 app.post('/api/v1/auth/invitations', requireAuth, requireAdmin, express.json(), async (req, res, next) => {
   try {
     const token = parseBearerToken(req)
-    const upstream = await fetch(`${AUTH}${(req as any).originalUrl}`, {
+    const upstream = await resilientFetch(`${AUTH}${(req as any).originalUrl}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(10000),
+      body: JSON.stringify(req.body || {}),
     })
     const text = await upstream.text()
     res.status(upstream.status)
@@ -346,12 +476,12 @@ app.post('/api/v1/auth/invitations', requireAuth, requireAdmin, express.json(), 
   } catch (err) { next(err) }
 })
 
-// Intercept user registration to push notification
-app.post('/api/v1/auth/register', express.json(), async (req, res, next) => {
+// Intercept user registration to push notification (with strict rate limiting)
+app.post('/api/v1/auth/register', authLimiter, express.json(), async (req, res, next) => {
   try {
-    const upstream = await fetch(`${AUTH}${(req as any).originalUrl}`, {
+    const upstream = await resilientFetch(`${AUTH}${(req as any).originalUrl}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(10000),
+      body: JSON.stringify(req.body || {}),
     })
     const text = await upstream.text()
     res.status(upstream.status)
@@ -366,14 +496,14 @@ app.post('/api/v1/auth/register', express.json(), async (req, res, next) => {
   } catch (err) { next(err) }
 })
 
-// Intercept storage finalize to push upload notifications
+// Intercept storage finalize to push upload notifications (use uploadPolicy for long timeout)
 app.post('/api/v1/storage/uploads/:uploadId/finalize', requireAuth, express.json(), async (req, res, next) => {
   try {
     const token = parseBearerToken(req)
-    const upstream = await fetch(`${STORAGE}${(req as any).originalUrl}`, {
+    const upstream = await resilientFetch(`${STORAGE}${(req as any).originalUrl}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify(req.body || {}), signal: AbortSignal.timeout(UPLOAD_FINALIZE_TIMEOUT_MS),
-    })
+      body: JSON.stringify(req.body || {}),
+    }, uploadPolicy)
     const text = await upstream.text()
     res.status(upstream.status)
     res.setHeader('Content-Type', upstream.headers.get('content-type') || 'application/json')
@@ -413,18 +543,18 @@ app.get('/api/v1/admin/users', requireAuth, requireAdmin, async (req, res, next)
     if (q) url.searchParams.set('query', q)
     url.searchParams.set('page', page)
     url.searchParams.set('pageSize', pageSize)
-    const base = await fetch(url.toString(), { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(8000) })
+    const base = await resilientFetch(url.toString(), { headers: { Authorization: authHeader } })
     if (!base.ok) {
       res.status(base.status)
       res.setHeader('Content-Type', base.headers.get('content-type') || 'application/json')
       return res.end(await base.text())
     }
     const js = await base.json() as { items: Array<{ id:string; name:string|null; email:string; role:string; createdAt:string }>; page:number; pageSize:number; total:number }
-    // Overlay names from user service profile (batch in parallel, best-effort)
+    // Overlay names from user service profile (batch in parallel, best-effort with resilience)
     const items = js.items
     const enriched = await Promise.all(items.map(async (u) => {
       try {
-        const r = await fetch(`${USER}/api/v1/users/${u.id}/storage`, { headers: { Authorization: authHeader }, signal: AbortSignal.timeout(4000) })
+        const r = await resilientFetch(`${USER}/api/v1/users/${u.id}/storage`, { headers: { Authorization: authHeader } })
         if (r.ok) {
           const prof = await r.json() as any
           return { ...u, name: (prof?.name ?? u.name) }
@@ -443,10 +573,9 @@ app.get('/api/v1/files/:fileId/preview', requireAuth, async (req, res, next) => 
   try {
     const fileId = req.params.fileId
     const authHeader = String(req.headers['authorization'] || '')
-    // Verify ownership and get metadata (mimeType, name)
-    const meta = await fetch(`${METADATA}/api/v1/files/${encodeURIComponent(fileId)}`, {
+    // Verify ownership and get metadata (mimeType, name) - with resilience
+    const meta = await resilientFetch(`${METADATA}/api/v1/files/${encodeURIComponent(fileId)}`, {
       headers: { Authorization: authHeader },
-      signal: AbortSignal.timeout(6000)
     })
     if (!meta.ok) {
       res.status(meta.status)
@@ -454,7 +583,7 @@ app.get('/api/v1/files/:fileId/preview', requireAuth, async (req, res, next) => 
       return res.end(await meta.text())
     }
     const info: any = await meta.json()
-    // Fetch storage stream
+    // Fetch storage stream (no resilientFetch - streaming needs direct fetch)
     const stor = await fetch(`${STORAGE}/api/v1/storage/files/${encodeURIComponent(fileId)}/download`, { signal: AbortSignal.timeout(60_000) })
     if (!stor.ok || !stor.body) {
       res.status(stor.status || 502)
@@ -518,10 +647,16 @@ app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, express.json(), 
   }
 })
 
+// Apply auth rate limiting to login endpoint before proxy
+app.post('/api/v1/auth/login', authLimiter, (_req, _res, next) => next())
+app.post('/api/v1/auth/refresh', authLimiter, (_req, _res, next) => next())
+
 // Route mapping aligned with current API contract
 mountProxy('/api/v1/auth', AUTH)
 mountProxy('/api/v1/users', USER)
 // Important: route share-creation/list under files to sharing before metadata catch-all
+// Apply share rate limiting to POST (create share) requests
+app.post('/api/v1/files/:fileId/shares', shareLimiter, (_req, _res, next) => next())
 app.use(
   '/api/v1/files/:fileId/shares',
   createProxyMiddleware({
@@ -591,9 +726,90 @@ mountProxy('/api/v1/catalog', METADATA)
 mountProxy('/api/v1/storage', STORAGE)
 mountProxy('/api/v1/shares', SHARING)
 
-app.listen(PORT, () => {
-  // eslint-disable-next-line no-console
-  logger.info({ port: PORT }, 'gateway-node listening')
+// --- Health check functions for terminus (liveness vs readiness) ---
+
+// Liveness: is the process alive? (don't check external deps - causes cascading failures)
+async function onLivenessCheck(): Promise<void> {
+  // Just respond - if event loop is blocked, this won't respond
+}
+
+// Readiness: can we handle requests? (check critical dependencies)
+async function onReadinessCheck(): Promise<void> {
+  const errors: string[] = []
+
+  // Check Redis if configured (used for rate limiting)
+  if (redisClient) {
+    try {
+      await redisClient.ping()
+    } catch (err) {
+      errors.push(`Redis: ${(err as Error).message}`)
+    }
+  }
+
+  // Check Prisma/DB if initialized (used for notifications/audit)
+  if (prisma) {
+    try {
+      await prisma.$queryRaw`SELECT 1`
+    } catch (err) {
+      errors.push(`Database: ${(err as Error).message}`)
+    }
+  }
+
+  // Check at least one downstream service is reachable
+  try {
+    const resp = await fetch(`${AUTH}/health`, { signal: AbortSignal.timeout(2000) })
+    if (!resp.ok) errors.push('Auth service: not healthy')
+  } catch (err) {
+    errors.push(`Auth service: ${(err as Error).message}`)
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`Readiness check failed: ${errors.join('; ')}`)
+  }
+}
+
+async function onSignal(): Promise<void> {
+  logger.info('SIGTERM received, starting graceful shutdown')
+  // Close Redis connection if exists
+  if (redisClient) {
+    await redisClient.quit()
+    logger.info('Redis connection closed')
+  }
+  // Close Prisma connection if exists
+  if (prisma) {
+    await prisma.$disconnect()
+    logger.info('Prisma connection closed')
+  }
+}
+
+async function onShutdown(): Promise<void> {
+  logger.info('Cleanup finished, server is shutting down')
+}
+
+// Create HTTP server and wrap with terminus for graceful shutdown
+const server = http.createServer(app)
+
+createTerminus(server, {
+  healthChecks: {
+    '/health': onLivenessCheck,         // Simple health (backwards compat)
+    '/api/v1/health': onLivenessCheck,  // API-prefixed health
+    '/healthz': onLivenessCheck,        // Kubernetes liveness probe
+    '/ready': onReadinessCheck,         // Kubernetes readiness probe (checks deps)
+  },
+  onSignal,
+  onShutdown,
+  timeout: 30000, // 30 seconds to finish in-flight requests
+  logger: (msg, err) => {
+    if (err) {
+      logger.error({ err }, msg)
+    } else {
+      logger.info(msg)
+    }
+  },
+})
+
+server.listen(PORT, () => {
+  logger.info({ port: PORT }, 'gateway-node listening with graceful shutdown support')
 })
 
 // Unified JSON error handler
