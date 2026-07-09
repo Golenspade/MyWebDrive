@@ -245,7 +245,11 @@ services:
       FRONTEND_HOST: ${FRONTEND_HOST:-0.0.0.0}
       API_BASE_URL: ${API_BASE_URL:-http://api-gateway:9090}
     command: >
-      sh -c "HOSTNAME=0.0.0.0 PORT=\"$FRONTEND_PORT\" node .next/standalone/server.js"
+      sh -c "set -e;
+      ln -sfn \"$$(readlink -f node_modules/next)\" .next/standalone/node_modules/next;
+      ln -sfn \"$$(readlink -f node_modules/react)\" .next/standalone/node_modules/react;
+      cd .next/standalone;
+      HOSTNAME=0.0.0.0 PORT=\"$$FRONTEND_PORT\" node server.js"
     ports:
       - "127.0.0.1:3100:3100"
     depends_on:
