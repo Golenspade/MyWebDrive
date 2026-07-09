@@ -246,8 +246,11 @@ services:
       API_BASE_URL: ${API_BASE_URL:-http://api-gateway:9090}
     command: >
       sh -c "set -e;
+      rm -rf .next/standalone/.next/static .next/standalone/public;
       ln -sfn \"$$(readlink -f node_modules/next)\" .next/standalone/node_modules/next;
       ln -sfn \"$$(readlink -f node_modules/react)\" .next/standalone/node_modules/react;
+      ln -s \"$$(readlink -f .next/static)\" .next/standalone/.next/static;
+      if [ -d public ]; then ln -s \"$$(readlink -f public)\" .next/standalone/public; fi;
       cd .next/standalone;
       HOSTNAME=0.0.0.0 PORT=\"$$FRONTEND_PORT\" node server.js"
     ports:
