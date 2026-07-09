@@ -1,7 +1,9 @@
+import { ResetPasswordForm } from './reset-password-form'
+
 export const metadata = {
-  title: "Reset Password - Simple",
-  description: "Page description",
-};
+  title: 'Reset Password - MyWebDrive',
+  description: '重置您的密码',
+}
 
 // This page intentionally kept server-only. If you need shared constants or
 // helper functions, move them to a separate module and import them here to
@@ -9,35 +11,13 @@ export const metadata = {
 export default function ResetPassword() {
   return (
     <>
-      <div className="mb-10">
-        <h1 className="text-4xl font-bold">Reset password</h1>
+      <div className='mb-8'>
+        <h1 className='font-nothing-head text-2xl font-semibold text-nothing-display'>
+          重置密码
+        </h1>
       </div>
 
-      {/* Form */}
-      <form>
-        <div className="space-y-4">
-          <div>
-            <label
-              className="mb-1 block text-sm font-medium text-gray-700"
-              htmlFor="email"
-            >
-              Email
-            </label>
-            <input
-              id="email"
-              className="form-input w-full py-2"
-              type="email"
-              placeholder="corybarker@email.com"
-              required
-            />
-          </div>
-        </div>
-        <div className="mt-6">
-          <button className="btn w-full bg-linear-to-t from-blue-600 to-blue-500 bg-[length:100%_100%] bg-[bottom] text-white shadow-sm hover:bg-[length:100%_150%]">
-            Reset Password
-          </button>
-        </div>
-      </form>
+      <ResetPasswordForm />
     </>
-  );
+  )
 }

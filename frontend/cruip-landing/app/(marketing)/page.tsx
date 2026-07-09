@@ -7,25 +7,14 @@ export const metadata = {
 // If you need to share helpers, move them into a separate module instead of
 // adding extra exports here.
 import Hero from "@/components/hero-home";
-import BusinessCategories from "@/components/business-categories";
-
+import FeaturesGrid from "@/components/features-grid";
 import Cta from "@/components/cta";
-
-import BentoDemo from "@/components/bento-demo";
-import { GlobeDemo } from "@/components/globe-demo";
-import MarqueeDemo from "@/components/marquee-demo";
 
 export default function Home() {
   return (
     <>
       <Hero />
-      <BusinessCategories />
-      <GlobeDemo />
-
-      <BentoDemo />
-      {/* LogosStrip removed per request */}
-
-      <MarqueeDemo />
+      <FeaturesGrid />
       <Cta />
     </>
   );

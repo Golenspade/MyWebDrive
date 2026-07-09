@@ -20,6 +20,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@
 export default function AdminStoragePage(){
   // 目前 loading 只用于防抖/未来扩展，所以不暴露给 UI
   const [, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [items, setItems] = useState<Array<{ id:string; name:string|null; email:string; role:'user'|'admin'; used:number; quota:number }>>([])
   // topN 用字符串是为了直接和 Select 组件的 value 对齐
   const [topN, setTopN] = useState<string>('10')  // '5' | '10' | '20' | '100' | 'ALL'
@@ -27,6 +28,7 @@ export default function AdminStoragePage(){
   // 拉取前 100 个用户，并补充存储信息（失败时按 0 处理）
   const load = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
       const list = await adminApi.listUsers({ page:1, pageSize:100 })
       const enriched = await Promise.all(list.items.map(async (u)=>{
@@ -39,6 +41,10 @@ export default function AdminStoragePage(){
         }
       }))
       setItems(enriched)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : null
+      setError(message || '加载失败')
+      setItems([])
     } finally {
       setLoading(false)
     }
@@ -67,6 +73,11 @@ export default function AdminStoragePage(){
   return (
     <div className='p-6 space-y-6'>
       <h1 className='text-2xl font-bold'>存储面板</h1>
+      {error && (
+        <div className='rounded-[var(--nothing-r-sm)] border-l-2 border-nothing-error bg-nothing-error/10 p-3 text-sm text-nothing-error'>
+          {error}
+        </div>
+      )}
 
       <Card>
         <CardHeader>
@@ -149,4 +160,3 @@ export default function AdminStoragePage(){
     </div>
   )
 }
-

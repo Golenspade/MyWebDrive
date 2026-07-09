@@ -2,19 +2,17 @@
 
 import { ReactNode } from 'react'
 import { useProtectedAdmin } from '@/lib/hooks/use-protected'
-import SiteFooter from '@/components/site-footer'
 import { AdminMenubar } from './components/admin-menubar'
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { ready } = useProtectedAdmin()
   if (!ready) return null
   return (
-    <div className='min-h-screen flex flex-col'>
+    <div className='appwrap flex min-h-screen flex-col' data-theme='dark'>
       <AdminMenubar />
-      <div className='flex-1'>
+      <main className='flex-1'>
         {children}
-      </div>
-      <SiteFooter />
+      </main>
     </div>
   )
 }

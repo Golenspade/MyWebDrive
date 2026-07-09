@@ -16,6 +16,7 @@ import { adminApi, type UsersResp } from '@/lib/api/admin'
 import { usersApi } from '@/lib/api/users'
 import { auditApi } from '@/lib/api/audit'
 import { parseBytes, toUnit } from '@/lib/utils/parse-bytes'
+import { SegmentedBar } from '../components/segmented-bar'
 
 type QuotaUnit = 'KB' | 'MB' | 'GB' | 'TB'
 
@@ -108,9 +109,9 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className='p-6 space-y-6'>
-      <div className='flex items-center justify-between'>
-        <h1 className='text-2xl font-bold'>用户管理</h1>
+    <div className='p-6 space-y-6 max-w-[92.5rem] mx-auto'>
+      <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
+        <h1 className='font-nothing-head text-2xl font-semibold text-nothing-display'>用户管理</h1>
         <div className='flex items-center gap-2'>
           <Button onClick={fetchUsers} disabled={loading}>刷新</Button>
         </div>
@@ -150,11 +151,11 @@ export default function AdminUsersPage() {
             </Button>
           </div>
 
-          <div className='rounded-md border'>
+          <div className='rounded-[var(--nothing-r-md)] border border-nothing-line-2 overflow-hidden'>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead className='w-[320px]'>ID</TableHead>
+                  <TableHead className='w-80'>ID</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>姓名</TableHead>
                   <TableHead>角色</TableHead>
@@ -167,7 +168,7 @@ export default function AdminUsersPage() {
                   <TableRow key={u.id}>
                     <TableCell>
                       <div className='flex items-center gap-2'>
-                        <span className='font-mono text-xs break-all'>{u.id}</span>
+                        <span className='font-nothing-mono text-xs break-all text-nothing-primary'>{u.id}</span>
                         <Button size='sm' variant='outline' onClick={()=>navigator.clipboard?.writeText(u.id)}>复制</Button>
                       </div>
                     </TableCell>
@@ -175,9 +176,9 @@ export default function AdminUsersPage() {
                     <TableCell>{u.name || '-'}</TableCell>
                     <TableCell>
                       <div className='flex items-center gap-2'>
-                        <Badge variant={u.role === 'admin' ? 'default' : 'secondary'}>{u.role}</Badge>
-                        <Select value={u.role} onValueChange={(v) => changeRole(u.id, v as 'user' | 'admin')}>
-                          <SelectTrigger className='w-[120px]'><SelectValue placeholder='角色' /></SelectTrigger>
+                        <Badge variant={u.role === 'admin' ? 'default' : 'outline'}>{u.role.toUpperCase()}</Badge>
+                        <Select value={u.role} onValueChange={(v)=>changeRole(u.id, v as 'user' | 'admin')}>
+                          <SelectTrigger className='w-32'><SelectValue placeholder='角色' /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value='user'>user</SelectItem>
                             <SelectItem value='admin'>admin</SelectItem>
@@ -185,7 +186,7 @@ export default function AdminUsersPage() {
                         </Select>
                       </div>
                     </TableCell>
-                    <TableCell>{format(new Date(u.createdAt), 'yyyy-MM-dd HH:mm')}</TableCell>
+                    <TableCell className='font-nothing-mono text-xs text-nothing-secondary'>{format(new Date(u.createdAt), 'yyyy-MM-dd HH:mm')}</TableCell>
                     <TableCell className='text-right'>
                       <div className='flex justify-end gap-2'>
                         <Button variant='outline' asChild><Link href={`/admin/users/${u.id}`}>详情</Link></Button>
@@ -198,14 +199,14 @@ export default function AdminUsersPage() {
             </Table>
           </div>
 
-          <div className='flex items-center justify-between mt-4'>
-            <div className='text-sm text-muted-foreground'>共 {data.total} 个用户</div>
+          <div className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4'>
+            <div className='text-sm text-nothing-secondary'>共 {data.total} 个用户</div>
             <div className='flex items-center gap-2'>
               <Button variant='outline' disabled={page<=1} onClick={()=>setPage(p=>Math.max(1,p-1))}>上一页</Button>
-              <div className='text-sm'>第 {page} / {totalPages} 页</div>
+              <div className='text-sm text-nothing-secondary'>第 {page} / {totalPages} 页</div>
               <Button variant='outline' disabled={page>=totalPages} onClick={()=>setPage(p=>Math.min(totalPages,p+1))}>下一页</Button>
               <Select value={String(pageSize)} onValueChange={(v)=>{ setPageSize(Number(v)); setPage(1) }}>
-                <SelectTrigger className='w-[110px]'><SelectValue placeholder='每页' /></SelectTrigger>
+                <SelectTrigger className='w-28'><SelectValue placeholder='每页' /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value='10'>每页 10</SelectItem>
                   <SelectItem value='20'>每页 20</SelectItem>
@@ -225,22 +226,30 @@ export default function AdminUsersPage() {
             <DialogTitle>存储配额</DialogTitle>
           </DialogHeader>
           {quotaInfo ? (
-            <div className='space-y-4'>
-              <div className='text-sm text-muted-foreground'>已用 {formatCompactBytes(quotaInfo.storageUsed)} / 配额 {formatCompactBytes(quotaInfo.storageQuota)}</div>
+            <div className='space-y-5'>
+              <div className='flex items-center justify-between text-sm'>
+                <span className='text-nothing-secondary'>已用 / 配额</span>
+                <span className='font-nothing-mono text-xs text-nothing-primary'>
+                  {formatCompactBytes(quotaInfo.storageUsed)} / {formatCompactBytes(quotaInfo.storageQuota)}
+                </span>
+              </div>
+
+              <SegmentedBar used={quotaInfo.storageUsed} limit={quotaInfo.storageQuota} />
 
               {/* Slider mode */}
-              <div className='space-y-2'>
-                <div className='flex items-center gap-2'>
-                  <label className='text-sm text-muted-foreground'>单位</label>
+              <div className='space-y-3'>
+                <div className='flex flex-wrap items-center gap-2'>
+                  <label className='text-sm text-nothing-secondary'>单位</label>
                   <Select
                     value={quotaUnit}
-                    onValueChange={(v) => {
-                      setQuotaUnit(v as QuotaUnit)
+                    onValueChange={(v)=>{
+                      const nextUnit = v as QuotaUnit
+                      setQuotaUnit(nextUnit)
                       setSliderVal(0)
-                      setSliderMax(toUnit(DEFAULT_TOTAL_BYTES, v as QuotaUnit))
+                      setSliderMax(toUnit(DEFAULT_TOTAL_BYTES, nextUnit))
                     }}
                   >
-                    <SelectTrigger className='w-[110px]'><SelectValue placeholder='单位' /></SelectTrigger>
+                    <SelectTrigger className='w-28'><SelectValue placeholder='单位' /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value='KB'>KB</SelectItem>
                       <SelectItem value='MB'>MB</SelectItem>
@@ -248,13 +257,20 @@ export default function AdminUsersPage() {
                       <SelectItem value='TB'>TB</SelectItem>
                     </SelectContent>
                   </Select>
-                  <label className='text-sm text-muted-foreground'>总容量参考({quotaUnit})</label>
+                  <label className='text-sm text-nothing-secondary'>总容量参考 ({quotaUnit})</label>
                   <Input className='w-24' value={String(sliderMax)} onChange={(e)=>{
                     const v = Number.parseInt(e.target.value||'0',10); setSliderMax(Number.isFinite(v)&&v>0? v: sliderMax)
                   }} />
                 </div>
-                <input type='range' min={0} max={sliderMax} value={sliderVal} onChange={(e)=>setSliderVal(Number(e.target.value))} className='w-full' />
-                <div className='text-xs text-muted-foreground'>当前选择：{sliderVal} {quotaUnit}</div>
+                <input
+                  type='range'
+                  min={0}
+                  max={sliderMax}
+                  value={sliderVal}
+                  onChange={(e)=>setSliderVal(Number(e.target.value))}
+                  className='w-full accent-nothing-display'
+                />
+                <div className='font-nothing-mono text-xs text-nothing-secondary'>当前选择：{sliderVal} {quotaUnit}</div>
               </div>
 
               {/* Manual input */}
@@ -264,7 +280,7 @@ export default function AdminUsersPage() {
               </div>
             </div>
           ) : (
-            <div className='text-sm text-muted-foreground'>正在加载...</div>
+            <div className='text-sm text-nothing-secondary'>正在加载...</div>
           )}
           <DialogFooter>
             <Button variant='outline' onClick={()=>setQuotaDlgOpen(false)}>关闭</Button>

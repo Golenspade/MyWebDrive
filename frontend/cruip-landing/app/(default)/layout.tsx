@@ -3,8 +3,10 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 
-import AOS from "aos";
-import "aos/dist/aos.css";
+// AOS scroll animations are disabled during the Nothing UI redesign to keep
+// the interface static, monochrome and motion-minimal.
+// import AOS from "aos";
+// import "aos/dist/aos.css";
 
 import Header from "@/components/ui/header";
 import Footer from "@/components/ui/footer";
@@ -15,12 +17,12 @@ export default function DefaultLayout({
   children: React.ReactNode;
 }) {
   useEffect(() => {
-    AOS.init({
-      once: true,
-      disable: "phone",
-      duration: 700,
-      easing: "ease-out-cubic",
-    });
+    // AOS.init({
+    //   once: true,
+    //   disable: "phone",
+    //   duration: 700,
+    //   easing: "ease-out-cubic",
+    // });
   });
 
   const pathname = usePathname();

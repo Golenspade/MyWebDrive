@@ -3,34 +3,13 @@
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts"
 
 const data = [
-  {
-    name: "周一",
-    total: Math.floor(Math.random() * 3000) + 500,
-  },
-  {
-    name: "周二",
-    total: Math.floor(Math.random() * 3000) + 500,
-  },
-  {
-    name: "周三",
-    total: Math.floor(Math.random() * 3000) + 500,
-  },
-  {
-    name: "周四",
-    total: Math.floor(Math.random() * 3000) + 500,
-  },
-  {
-    name: "周五",
-    total: Math.floor(Math.random() * 3000) + 500,
-  },
-  {
-    name: "周六",
-    total: Math.floor(Math.random() * 3000) + 500,
-  },
-  {
-    name: "周日",
-    total: Math.floor(Math.random() * 3000) + 500,
-  },
+  { name: "周一", total: Math.floor(Math.random() * 3000) + 500 },
+  { name: "周二", total: Math.floor(Math.random() * 3000) + 500 },
+  { name: "周三", total: Math.floor(Math.random() * 3000) + 500 },
+  { name: "周四", total: Math.floor(Math.random() * 3000) + 500 },
+  { name: "周五", total: Math.floor(Math.random() * 3000) + 500 },
+  { name: "周六", total: Math.floor(Math.random() * 3000) + 500 },
+  { name: "周日", total: Math.floor(Math.random() * 3000) + 500 },
 ]
 
 export function Overview() {
@@ -39,23 +18,24 @@ export function Overview() {
       <BarChart data={data}>
         <XAxis
           dataKey="name"
-          stroke="#888888"
+          stroke="var(--nothing-line)"
           fontSize={12}
           tickLine={false}
           axisLine={false}
+          tick={{ fill: "var(--nothing-muted)" }}
         />
         <YAxis
-          stroke="#888888"
+          stroke="var(--nothing-line)"
           fontSize={12}
           tickLine={false}
           axisLine={false}
           tickFormatter={(value) => `${value}`}
+          tick={{ fill: "var(--nothing-muted)" }}
         />
         <Bar
           dataKey="total"
-          fill="currentColor"
+          fill="var(--nothing-display)"
           radius={[4, 4, 0, 0]}
-          className="fill-primary"
         />
       </BarChart>
     </ResponsiveContainer>

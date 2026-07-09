@@ -5,67 +5,35 @@ import {
 } from "@/components/ui/avatar"
 
 export function RecentSales() {
+  const items = [
+    { name: "olivia_martin", ip: "192.168.1.101", file: "视频.mp4", fallback: "OM", src: "/avatars/01.png" },
+    { name: "jackson_lee", ip: "192.168.1.102", file: "文档.pdf", fallback: "JL", src: "/avatars/02.png" },
+    { name: "isabella_nguyen", ip: "192.168.1.103", file: "音乐.mp3", fallback: "IN", src: "/avatars/03.png" },
+    { name: "william_kim", ip: "192.168.1.104", file: "软件.zip", fallback: "WK", src: "/avatars/04.png" },
+    { name: "sofia_davis", ip: "192.168.1.105", file: "图片.jpg", fallback: "SD", src: "/avatars/05.png" },
+  ]
+
   return (
-    <div className="space-y-8">
-      <div className="flex items-center">
-        <Avatar className="h-9 w-9">
-          <AvatarImage src="/avatars/01.png" alt="Avatar" />
-          <AvatarFallback>OM</AvatarFallback>
-        </Avatar>
-        <div className="ml-4 space-y-1">
-          <p className="text-sm font-medium leading-none">用户 olivia_martin</p>
-          <p className="text-sm text-muted-foreground">
-            192.168.1.101
-          </p>
+    <div className="space-y-6">
+      {items.map((item) => (
+        <div key={item.name} className="flex items-center">
+          <Avatar className="h-9 w-9">
+            <AvatarImage src={item.src} alt="Avatar" />
+            <AvatarFallback className="bg-nothing-raised text-sm text-nothing-primary">
+              {item.fallback}
+            </AvatarFallback>
+          </Avatar>
+          <div className="ml-4 space-y-1">
+            <p className="text-sm font-medium leading-none text-nothing-primary">
+              用户 {item.name}
+            </p>
+            <p className="text-sm text-nothing-secondary">{item.ip}</p>
+          </div>
+          <div className="ml-auto text-sm font-medium text-nothing-primary">
+            {item.file}
+          </div>
         </div>
-        <div className="ml-auto font-medium text-sm">视频.mp4</div>
-      </div>
-      <div className="flex items-center">
-        <Avatar className="flex h-9 w-9 items-center justify-center space-y-0 border">
-          <AvatarImage src="/avatars/02.png" alt="Avatar" />
-          <AvatarFallback>JL</AvatarFallback>
-        </Avatar>
-        <div className="ml-4 space-y-1">
-          <p className="text-sm font-medium leading-none">用户 jackson_lee</p>
-          <p className="text-sm text-muted-foreground">192.168.1.102</p>
-        </div>
-        <div className="ml-auto font-medium text-sm">文档.pdf</div>
-      </div>
-      <div className="flex items-center">
-        <Avatar className="h-9 w-9">
-          <AvatarImage src="/avatars/03.png" alt="Avatar" />
-          <AvatarFallback>IN</AvatarFallback>
-        </Avatar>
-        <div className="ml-4 space-y-1">
-          <p className="text-sm font-medium leading-none">用户 isabella_nguyen</p>
-          <p className="text-sm text-muted-foreground">
-            192.168.1.103
-          </p>
-        </div>
-        <div className="ml-auto font-medium text-sm">音乐.mp3</div>
-      </div>
-      <div className="flex items-center">
-        <Avatar className="h-9 w-9">
-          <AvatarImage src="/avatars/04.png" alt="Avatar" />
-          <AvatarFallback>WK</AvatarFallback>
-        </Avatar>
-        <div className="ml-4 space-y-1">
-          <p className="text-sm font-medium leading-none">用户 william_kim</p>
-          <p className="text-sm text-muted-foreground">192.168.1.104</p>
-        </div>
-        <div className="ml-auto font-medium text-sm">软件.zip</div>
-      </div>
-      <div className="flex items-center">
-        <Avatar className="h-9 w-9">
-          <AvatarImage src="/avatars/05.png" alt="Avatar" />
-          <AvatarFallback>SD</AvatarFallback>
-        </Avatar>
-        <div className="ml-4 space-y-1">
-          <p className="text-sm font-medium leading-none">用户 sofia_davis</p>
-          <p className="text-sm text-muted-foreground">192.168.1.105</p>
-        </div>
-        <div className="ml-auto font-medium text-sm">图片.jpg</div>
-      </div>
+      ))}
     </div>
   )
 }

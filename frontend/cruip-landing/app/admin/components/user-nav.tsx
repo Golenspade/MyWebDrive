@@ -32,38 +32,58 @@ export function UserNav() {
         <Button variant="ghost" className="relative h-8 w-8 rounded-full">
           <Avatar className="h-8 w-8">
             <AvatarImage src="/avatars/01.png" alt="user" />
-            <AvatarFallback>{initials}</AvatarFallback>
+            <AvatarFallback className="bg-nothing-raised text-nothing-primary text-xs">
+              {initials}
+            </AvatarFallback>
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56" align="end" forceMount>
+      <DropdownMenuContent
+        className="w-56 border-nothing-line bg-nothing-surface text-nothing-primary"
+        align="end"
+        forceMount
+      >
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">{user?.name || (isAuthenticated ? 'User' : 'Guest')}</p>
-            <p className="text-xs leading-none text-muted-foreground">角色: {role || '-'}</p>
+            <p className="text-sm font-medium leading-none text-nothing-primary">
+              {user?.name || (isAuthenticated ? 'User' : 'Guest')}
+            </p>
+            <p className="text-xs leading-none text-nothing-secondary">
+              角色: {role || '-'}
+            </p>
           </div>
-            <p className="text-[10px] font-mono leading-none text-muted-foreground break-all">ID: {user?.id || '-'}</p>
-
+          <p className="mt-1 text-[10px] font-nothing-mono leading-none text-nothing-muted break-all">
+            ID: {user?.id || '-'}
+          </p>
         </DropdownMenuLabel>
-        <DropdownMenuSeparator />
+        <DropdownMenuSeparator className="bg-nothing-line" />
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={() => router.push('/account')}>
+          <DropdownMenuItem
+            onClick={() => router.push('/account')}
+            className="focus:bg-nothing-raised focus:text-nothing-primary"
+          >
             个人中心
-            <DropdownMenuShortcut>⇧⌘P</DropdownMenuShortcut>
+            <DropdownMenuShortcut className="text-nothing-muted">⇧⌘P</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem>
+          <DropdownMenuItem className="focus:bg-nothing-raised focus:text-nothing-primary">
             Settings
-            <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+            <DropdownMenuShortcut className="text-nothing-muted">⌘S</DropdownMenuShortcut>
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => user?.id && navigator.clipboard?.writeText(user.id)}>
+          <DropdownMenuItem
+            onClick={() => user?.id && navigator.clipboard?.writeText(user.id)}
+            className="focus:bg-nothing-raised focus:text-nothing-primary"
+          >
             复制用户ID
-            <DropdownMenuShortcut>⌘C</DropdownMenuShortcut>
+            <DropdownMenuShortcut className="text-nothing-muted">⌘C</DropdownMenuShortcut>
           </DropdownMenuItem>
         </DropdownMenuGroup>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={onLogout}>
+        <DropdownMenuSeparator className="bg-nothing-line" />
+        <DropdownMenuItem
+          onClick={onLogout}
+          className="focus:bg-nothing-raised focus:text-nothing-primary"
+        >
           Log out
-          <DropdownMenuShortcut>⇧⌘Q</DropdownMenuShortcut>
+          <DropdownMenuShortcut className="text-nothing-muted">⇧⌘Q</DropdownMenuShortcut>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

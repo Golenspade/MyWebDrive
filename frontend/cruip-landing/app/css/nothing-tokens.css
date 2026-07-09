@@ -1,0 +1,177 @@
+/* Nothing UI design tokens for MyWebDrive
+ * Source: https://github.com/wangbh030722/vibe-nothing-ui-design
+ * Fonts bundled under SIL OFL 1.1 (see public/fonts/open/OFL-*.txt)
+ *
+ * Tokens use the `--nothing-*` namespace so they can be safely mapped into
+ * Tailwind v4's `@theme` block without self-referencing existing variables.
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Font faces                                                                 */
+/* -------------------------------------------------------------------------- */
+
+@font-face {
+  font-family: 'Doto';
+  src: url('/fonts/open/Doto-ROND-wght.ttf') format('truetype');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/open/Geist-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/open/Geist-SemiBold.ttf') format('truetype');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/open/GeistMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/open/GeistMono-Medium.ttf') format('truetype');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Newsreader';
+  src: url('/fonts/open/Newsreader-Italic.ttf') format('truetype');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Design tokens                                                              */
+/* -------------------------------------------------------------------------- */
+
+:root {
+  /* Font roles — wired to next/font/local CSS variables where available */
+  --nothing-font-display: var(--font-doto, 'Doto'), 'Doto', monospace;
+  --nothing-font-ui: var(--font-geist, 'Geist'), var(--font-sans, 'Noto Sans SC'), 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --nothing-font-mono: var(--font-geist-mono, 'Geist Mono'), 'Sarasa Gothic SC', ui-monospace, monospace;
+  --nothing-font-head: var(--font-geist, 'Geist'), var(--font-sans, 'Noto Sans SC'), sans-serif;
+  --nothing-font-editorial: var(--font-newsreader, 'Newsreader'), 'Newsreader', Georgia, serif;
+  --nothing-font-heading-zh: var(--font-heading, 'ZCOOL XiaoWei'), 'ZCOOL XiaoWei', 'Noto Sans SC', sans-serif;
+  --nothing-font-handwrite-zh: var(--font-handwrite, 'Ma Shan Zheng'), 'Ma Shan Zheng', cursive;
+
+  /* Dark theme (default) */
+  --nothing-bg: #000000;
+  --nothing-surface: #0E0E0E;
+  --nothing-raised: #171717;
+  --nothing-line: #222222;
+  --nothing-line-2: #333333;
+  --nothing-muted: #5A5A5A;
+  --nothing-secondary: #8C8C8C;
+  --nothing-primary: #EDEDED;
+  --nothing-display: #FFFFFF;
+  --nothing-accent: #D71921;
+  --nothing-accent-text: #FF4438;
+  --nothing-accent-ink: #FFFFFF;
+  --nothing-success: #7BE38A;
+  --nothing-warning: #F2C94C;
+  --nothing-error: #FF5247;
+  --nothing-focus: rgb(59 130 246 / .55);
+  --nothing-glass: rgba(16, 16, 16, .9);
+  --nothing-glass-brd: rgba(255, 255, 255, .09);
+
+  /* Radius */
+  --nothing-r-sm: 6px;
+  --nothing-r-md: 8px;
+  --nothing-r-pill: 999px;
+
+  /* Spacing */
+  --nothing-space-1: 4px;
+  --nothing-space-2: 8px;
+  --nothing-space-3: 12px;
+  --nothing-space-4: 16px;
+  --nothing-space-5: 20px;
+  --nothing-space-6: 24px;
+  --nothing-space-8: 32px;
+  --nothing-space-10: 40px;
+  --nothing-space-16: 64px;
+  --nothing-space-20: 80px;
+  --nothing-space-24: 96px;
+  --nothing-space-32: 128px;
+
+  /* Motion */
+  --nothing-duration-control: 200ms;
+  --nothing-duration-theme: 350ms;
+  --nothing-duration-transition: 400ms;
+  --nothing-ease-default: ease-in-out;
+  --nothing-hover-opacity: 0.8;
+  --nothing-hover-lift: -2px;
+
+  /* Elevation */
+  --nothing-z-base: 0;
+  --nothing-z-elevated: 10;
+  --nothing-z-sticky: 30;
+  --nothing-z-overlay: 40;
+  --nothing-z-modal: 50;
+  --nothing-z-popover: 60;
+  --nothing-z-toast: 70;
+  --nothing-z-skip-link: 80;
+  --nothing-z-dev: 90;
+}
+
+/* Light theme */
+[data-theme="light"],
+.light {
+  --nothing-bg: #F2F2F2;
+  --nothing-surface: #FFFFFF;
+  --nothing-raised: #EDEDED;
+  --nothing-line: #E5E7EB;
+  --nothing-line-2: #CFCFCF;
+  --nothing-muted: #9A9A9A;
+  --nothing-secondary: #585A5A;
+  --nothing-primary: #1C1C1C;
+  --nothing-display: #000000;
+  --nothing-accent: #D71921;
+  --nothing-accent-text: #C2141C;
+  --nothing-accent-ink: #FFFFFF;
+  --nothing-success: #3D8B4A;
+  --nothing-warning: #9C6B00;
+  --nothing-error: #D23B30;
+  --nothing-glass: rgba(255, 255, 255, .96);
+  --nothing-glass-brd: rgba(0, 0, 0, .08);
+}
+
+/* Explicit dark scopes override the global `.light` class from next-themes. */
+[data-theme="dark"],
+.dark,
+.appwrap[data-theme="dark"] {
+  --nothing-bg: #000000;
+  --nothing-surface: #0E0E0E;
+  --nothing-raised: #171717;
+  --nothing-line: #222222;
+  --nothing-line-2: #333333;
+  --nothing-muted: #5A5A5A;
+  --nothing-secondary: #8C8C8C;
+  --nothing-primary: #EDEDED;
+  --nothing-display: #FFFFFF;
+  --nothing-accent: #D71921;
+  --nothing-accent-text: #FF4438;
+  --nothing-accent-ink: #FFFFFF;
+  --nothing-success: #7BE38A;
+  --nothing-warning: #F2C94C;
+  --nothing-error: #FF5247;
+  --nothing-glass: rgba(16, 16, 16, .9);
+  --nothing-glass-brd: rgba(255, 255, 255, .09);
+}

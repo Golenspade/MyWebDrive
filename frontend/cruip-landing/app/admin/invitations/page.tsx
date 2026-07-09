@@ -1,15 +1,53 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { Badge } from '@/components/ui/badge'
 import { invitationsApi, type Invitation } from '@/lib/api/admin'
 import { auditApi } from '@/lib/api/audit'
 
-// 管理端邀请码管理页。
-// 依赖 Auth 后端的邀请制开关，当 REGISTRATION_REQUIRE_INVITE=true 时，用户只能通过邀请码注册。
+function SegmentedBar({ used, limit }: { used: number; limit: number }) {
+  const cells = useMemo(() => {
+    const cap = Math.min(limit, 20)
+    if (cap <= 0) return []
+    const unit = limit > 20 ? limit / 20 : 1
+    const filled = Math.min(Math.max(0, Math.ceil(used / unit)), cap)
+    const over = Math.min(Math.max(0, Math.ceil((used - limit) / unit)), cap - filled)
+    return Array.from({ length: cap }, (_, i) => {
+      if (i < filled) return 'filled'
+      if (i < filled + over) return 'over'
+      return 'empty'
+    })
+  }, [used, limit])
+
+  return (
+    <div className='flex items-center gap-3'>
+      <div className='flex gap-0.5'>
+        {cells.map((state, i) => (
+          <div
+            key={i}
+            className={cn(
+              'h-3 w-3',
+              state === 'filled' && 'bg-nothing-display',
+              state === 'over' && 'bg-nothing-accent',
+              state === 'empty' && 'bg-nothing-line'
+            )}
+          />
+        ))}
+      </div>
+      <div className='text-sm font-nothing-mono text-nothing-secondary'>
+        <span className='font-nothing-display text-nothing-primary'>{used}</span>
+        <span className='mx-1'>/</span>
+        <span className='font-nothing-display text-nothing-primary'>{limit}</span>
+      </div>
+    </div>
+  )
+}
+
 export default function InvitationsPage() {
   const [items, setItems] = useState<Invitation[]>([])
   const [loading, setLoading] = useState(false)
@@ -18,6 +56,7 @@ export default function InvitationsPage() {
   const [usageLimit, setUsageLimit] = useState('1')
   const [expiresAt, setExpiresAt] = useState('')
   const [notes, setNotes] = useState('')
+  const [createdFlag, setCreatedFlag] = useState(false)
 
   // 初始加载邀请码列表。失败时只在顶部显示错误提示，不阻断整个页面。
   async function load() {
@@ -27,8 +66,7 @@ export default function InvitationsPage() {
       const list = await invitationsApi.list()
       setItems(list)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '加载失败'
-      setError(msg || '加载失败')
+      setError((err instanceof Error ? err.message : String(err)) || '加载失败')
     } finally {
       setLoading(false)
     }
@@ -58,6 +96,8 @@ export default function InvitationsPage() {
     setUsageLimit('1')
     setExpiresAt('')
     setNotes('')
+    setCreatedFlag(true)
+    setTimeout(() => setCreatedFlag(false), 2000)
   }
 
   async function revoke(code: string) {
@@ -83,16 +123,17 @@ export default function InvitationsPage() {
   return (
     <div className='p-6 space-y-6'>
       <div className='flex items-center justify-between'>
-        <h1 className='text-2xl font-bold'>邀请码管理</h1>
+        <h1 className='text-2xl font-nothing-head font-semibold text-nothing-display'>邀请码管理</h1>
         <div className='flex items-center gap-2'>
           <Button onClick={() => setCreateOpen(true)}>创建邀请码</Button>
-          <Button onClick={load} disabled={loading}>刷新</Button>
+          <Button variant='outline' onClick={load} disabled={loading}>刷新</Button>
+          {createdFlag && <span className='text-xs font-nothing-mono uppercase tracking-[0.08em] text-nothing-success'>[CREATED]</span>}
         </div>
       </div>
 
-      {error && <div className='rounded bg-red-50 p-3 text-sm text-red-600'>{error}</div>}
+      {error && <div className='rounded-[var(--nothing-r-md)] border border-nothing-error/30 bg-nothing-error/10 p-3 text-sm text-nothing-error'>{error}</div>}
 
-      <div className='rounded-md border'>
+      <div className='rounded-[var(--nothing-r-md)] border border-nothing-line-2 overflow-hidden'>
         <Table>
           <TableHeader>
             <TableRow>
@@ -107,11 +148,19 @@ export default function InvitationsPage() {
           <TableBody>
             {items.map((i) => (
               <TableRow key={i.id}>
-                <TableCell className='font-mono text-sm'>{i.code}</TableCell>
-                <TableCell>{i.isActive ? '有效' : '已停用'}</TableCell>
-                <TableCell>{i.usedCount} / {i.usageLimit}</TableCell>
-                <TableCell>{i.expiresAt ? new Date(i.expiresAt).toLocaleString() : '-'}</TableCell>
-                <TableCell>{i.notes || '-'}</TableCell>
+                <TableCell className='font-nothing-mono text-sm text-nothing-primary'>{i.code}</TableCell>
+                <TableCell>
+                  {i.isActive ? (
+                    <Badge variant='default'>有效</Badge>
+                  ) : (
+                    <Badge variant='outline'>已停用</Badge>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <SegmentedBar used={i.usedCount} limit={i.usageLimit} />
+                </TableCell>
+                <TableCell className='font-nothing-mono text-[11px] text-nothing-secondary'>{i.expiresAt ? new Date(i.expiresAt).toLocaleString() : '-'}</TableCell>
+                <TableCell className='text-nothing-primary text-sm'>{i.notes || '-'}</TableCell>
                 <TableCell className='text-right'>
                   <div className='inline-flex gap-2'>
                     <Button size='sm' variant='outline' onClick={() => copyLink(i.code)}>复制链接</Button>
@@ -130,22 +179,22 @@ export default function InvitationsPage() {
           <DialogHeader>
             <DialogTitle>创建邀请码</DialogTitle>
           </DialogHeader>
-          <div className='space-y-3'>
+          <div className='space-y-4'>
             <div>
-              <label className='mb-1 block text-sm text-muted-foreground'>使用次数上限 (1-100)</label>
+              <label className='label-nothing'>使用次数上限 (1-100)</label>
               <Input value={usageLimit} onChange={(e)=>setUsageLimit(e.target.value)} />
             </div>
             <div>
-              <label className='mb-1 block text-sm text-muted-foreground'>过期时间 (ISO，可选)</label>
+              <label className='label-nothing'>过期时间 (ISO，可选)</label>
               <Input placeholder='2025-12-31T23:59:59Z' value={expiresAt} onChange={(e)=>setExpiresAt(e.target.value)} />
             </div>
             <div>
-              <label className='mb-1 block text-sm text-muted-foreground'>备注（可选）</label>
+              <label className='label-nothing'>备注（可选）</label>
               <Input value={notes} onChange={(e)=>setNotes(e.target.value)} />
             </div>
           </div>
           <DialogFooter>
-            <Button variant='secondary' onClick={()=>setCreateOpen(false)}>取消</Button>
+            <Button variant='ghost' onClick={()=>setCreateOpen(false)}>取消</Button>
             <Button onClick={createOne}>创建</Button>
           </DialogFooter>
         </DialogContent>

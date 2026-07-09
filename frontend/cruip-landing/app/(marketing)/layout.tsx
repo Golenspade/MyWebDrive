@@ -10,7 +10,7 @@ export default function MarketingLayout({
   children: React.ReactNode
 }) {
   return (
-    <div className="cursor-none">
+    <div className="flex min-h-screen flex-col cursor-none text-nothing-primary">
       {/* Client-only effects without forcing whole layout to be client */}
       <ClientEffects />
 

@@ -90,7 +90,7 @@ export default function TeamSwitcher({ className }: TeamSwitcherProps) {
             role="combobox"
             aria-expanded={open}
             aria-label="Select a team"
-            className={cn("w-[200px] justify-between", className)}
+            className={cn("w-52 justify-between", className)}
           >
             <Avatar className="mr-2 h-5 w-5">
               <AvatarImage
@@ -98,19 +98,30 @@ export default function TeamSwitcher({ className }: TeamSwitcherProps) {
                 alt={selectedTeam.label}
                 className="grayscale"
               />
-              <AvatarFallback>SC</AvatarFallback>
+              <AvatarFallback className="bg-nothing-raised text-[10px] text-nothing-primary">
+                SC
+              </AvatarFallback>
             </Avatar>
             {selectedTeam.label}
             <ChevronsUpDown className="ml-auto opacity-50" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent className="w-[200px] p-0">
-          <Command>
+        <PopoverContent
+          className="w-52 border-nothing-line bg-nothing-surface p-0 text-nothing-primary"
+          align="start"
+        >
+          <Command className="bg-nothing-surface text-nothing-primary">
             <CommandInput placeholder="Search team..." />
             <CommandList>
-              <CommandEmpty>No team found.</CommandEmpty>
+              <CommandEmpty className="py-6 text-center text-sm text-nothing-secondary">
+                No team found.
+              </CommandEmpty>
               {groups.map((group) => (
-                <CommandGroup key={group.label} heading={group.label}>
+                <CommandGroup
+                  key={group.label}
+                  heading={group.label}
+                  className="text-nothing-secondary [&_[cmdk-group-heading]]:text-nothing-secondary"
+                >
                   {group.teams.map((team) => (
                     <CommandItem
                       key={team.value}
@@ -118,7 +129,7 @@ export default function TeamSwitcher({ className }: TeamSwitcherProps) {
                         setSelectedTeam(team)
                         setOpen(false)
                       }}
-                      className="text-sm"
+                      className="text-sm data-[selected=true]:bg-nothing-raised data-[selected=true]:text-nothing-primary"
                     >
                       <Avatar className="mr-2 h-5 w-5">
                         <AvatarImage
@@ -126,7 +137,9 @@ export default function TeamSwitcher({ className }: TeamSwitcherProps) {
                           alt={team.label}
                           className="grayscale"
                         />
-                        <AvatarFallback>SC</AvatarFallback>
+                        <AvatarFallback className="bg-nothing-raised text-[10px] text-nothing-primary">
+                          SC
+                        </AvatarFallback>
                       </Avatar>
                       {team.label}
                       <Check
@@ -142,7 +155,7 @@ export default function TeamSwitcher({ className }: TeamSwitcherProps) {
                 </CommandGroup>
               ))}
             </CommandList>
-            <CommandSeparator />
+            <CommandSeparator className="bg-nothing-line" />
             <CommandList>
               <CommandGroup>
                 <DialogTrigger asChild>
@@ -151,6 +164,7 @@ export default function TeamSwitcher({ className }: TeamSwitcherProps) {
                       setOpen(false)
                       setShowNewTeamDialog(true)
                     }}
+                    className="data-[selected=true]:bg-nothing-raised data-[selected=true]:text-nothing-primary"
                   >
                     <PlusCircle className="h-5 w-5" />
                     Create Team
@@ -182,14 +196,14 @@ export default function TeamSwitcher({ className }: TeamSwitcherProps) {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="free">
-                    <span className="font-medium">Free</span> -{" "}
-                    <span className="text-muted-foreground">
+                    <span className="font-medium">Free</span>{" "}
+                    <span className="text-nothing-muted">
                       Trial for two weeks
                     </span>
                   </SelectItem>
                   <SelectItem value="pro">
-                    <span className="font-medium">Pro</span> -{" "}
-                    <span className="text-muted-foreground">
+                    <span className="font-medium">Pro</span>{" "}
+                    <span className="text-nothing-muted">
                       $9/month per user
                     </span>
                   </SelectItem>

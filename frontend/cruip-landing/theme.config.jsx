@@ -1,9 +1,12 @@
 export default {
-  logo: <span>从txt到mp4 文档</span>,
+  logo: (
+    <span className="font-nothing-head text-lg font-semibold text-nothing-primary">
+      从txt到mp4 文档
+    </span>
+  ),
   project: {
     link: 'https://github.com/Golenspade/MyWebDrive',
   },
-  // v4: 文档已迁移到 content/
   docsRepositoryBase: 'https://github.com/Golenspade/MyWebDrive/tree/main/frontend/cruip-landing/content',
   editLink: {
     text: '在 GitHub 上编辑此页',
@@ -17,8 +20,20 @@ export default {
     }
   },
   footer: {
-    text: <span>
-      MIT {new Date().getFullYear()} © <a href="https://mygoavemujica.top" target="_blank">MyGO Studio</a>.
-    </span>
-  }
+    text: (
+      <span className="text-sm text-nothing-secondary">
+        MIT {new Date().getFullYear()} ©{' '}
+        <a
+          href="https://mygoavemujica.top"
+          target="_blank"
+          rel="noreferrer"
+          className="text-nothing-primary hover:opacity-80 transition-opacity duration-200 ease-in-out"
+        >
+          MyGO Studio
+        </a>.
+      </span>
+    ),
+  },
+  // Nextra v4 app router: keep docs monochrome and dot-field via global CSS overrides
+  darkMode: false,
 };

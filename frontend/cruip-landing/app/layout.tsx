@@ -1,7 +1,7 @@
 import "./css/style.css";
 import localFont from "next/font/local";
 
-// Self-hosted fonts
+// Self-hosted Chinese fonts (existing)
 const notoSansSC = localFont({
   src: [
     { path: "../public/fonts/noto-sans-sc-v39-chinese-simplified_latin-regular.woff2", weight: "400", style: "normal" },
@@ -17,10 +17,40 @@ const zcoolXiaoWei = localFont({
   display: "swap",
 });
 
-
 const maShanZheng = localFont({
   src: "../public/fonts/ma-shan-zheng-v14-latin-regular.woff2",
   variable: "--font-handwrite",
+  display: "swap",
+});
+
+// Nothing UI fonts (SIL OFL 1.1)
+const doto = localFont({
+  src: "../public/fonts/open/Doto-ROND-wght.ttf",
+  variable: "--font-doto",
+  display: "swap",
+});
+
+const geist = localFont({
+  src: [
+    { path: "../public/fonts/open/Geist-Regular.ttf", weight: "400", style: "normal" },
+    { path: "../public/fonts/open/Geist-SemiBold.ttf", weight: "600", style: "normal" },
+  ],
+  variable: "--font-geist",
+  display: "swap",
+});
+
+const geistMono = localFont({
+  src: [
+    { path: "../public/fonts/open/GeistMono-Regular.ttf", weight: "400", style: "normal" },
+    { path: "../public/fonts/open/GeistMono-Medium.ttf", weight: "500", style: "normal" },
+  ],
+  variable: "--font-geist-mono",
+  display: "swap",
+});
+
+const newsreader = localFont({
+  src: "../public/fonts/open/Newsreader-Italic.ttf",
+  variable: "--font-newsreader",
   display: "swap",
 });
 
@@ -43,7 +73,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning className="scroll-smooth">
       <body
-        className={`${notoSansSC.variable} ${zcoolXiaoWei.variable} ${maShanZheng.variable} bg-gray-50 dark:bg-gray-950 font-sans tracking-tight text-gray-900 dark:text-gray-50 antialiased`}
+        className={`${notoSansSC.variable} ${zcoolXiaoWei.variable} ${maShanZheng.variable} ${doto.variable} ${geist.variable} ${geistMono.variable} ${newsreader.variable} bg-nothing-bg text-nothing-primary font-sans antialiased`}
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
           <div className="flex min-h-screen flex-col">

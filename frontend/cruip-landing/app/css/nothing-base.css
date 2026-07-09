@@ -1,0 +1,397 @@
+/* Nothing UI base styles for MyWebDrive
+ * Dot-field background, glass cards, admin dark lock, and primitive utilities.
+ */
+
+/* -------------------------------------------------------------------------- */
+/* Global dot-field background                                                */
+/* -------------------------------------------------------------------------- */
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.42) 1.3px, transparent 1.7px);
+  background-size: 120px 120px;
+  background-attachment: fixed;
+  mix-blend-mode: difference;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Admin dashboard dark lock                                                  */
+/* -------------------------------------------------------------------------- */
+
+.appwrap {
+  position: relative;
+  isolation: isolate;
+  background: var(--nothing-bg);
+  color: var(--nothing-primary);
+  min-height: 100vh;
+}
+
+.appwrap::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.42) 1.3px, transparent 1.7px);
+  background-size: 120px 120px;
+  background-attachment: fixed;
+  mix-blend-mode: difference;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Utility primitives                                                         */
+/* -------------------------------------------------------------------------- */
+
+/* Glass card */
+.card-nothing {
+  background: var(--nothing-glass);
+  backdrop-filter: blur(12px);
+  border-radius: var(--nothing-r-md);
+  border: none;
+  transition: transform var(--nothing-duration-control) var(--nothing-ease-default);
+}
+
+.card-nothing:hover {
+  transform: translateY(var(--nothing-hover-lift));
+}
+
+/* Optional inner hairline for glass cards */
+.card-nothing-bordered {
+  border: 1px solid var(--nothing-glass-brd);
+}
+
+/* Base button */
+.btn-nothing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nothing-space-2);
+  border-radius: var(--nothing-r-sm);
+  padding: var(--nothing-space-2) var(--nothing-space-4);
+  font-family: var(--nothing-font-mono);
+  font-size: 12px;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  transition: opacity var(--nothing-duration-control) var(--nothing-ease-default);
+  cursor: pointer;
+}
+
+.btn-nothing:hover {
+  opacity: var(--nothing-hover-opacity);
+}
+
+.btn-nothing:active {
+  opacity: 0.6;
+}
+
+.btn-nothing:disabled,
+.btn-nothing[aria-disabled="true"] {
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+.btn-nothing-primary {
+  background: var(--nothing-display);
+  color: var(--nothing-bg);
+}
+
+.btn-nothing-outline {
+  background: transparent;
+  color: var(--nothing-primary);
+  border: 1px solid var(--nothing-line-2);
+}
+
+.btn-nothing-ghost {
+  background: transparent;
+  color: var(--nothing-primary);
+  border: none;
+}
+
+/* Base input */
+.input-nothing {
+  width: 100%;
+  height: 44px;
+  padding: 0 var(--nothing-space-3);
+  border-radius: var(--nothing-r-sm);
+  border: 1px solid var(--nothing-line-2);
+  background: var(--nothing-surface);
+  color: var(--nothing-primary);
+  font-family: var(--nothing-font-ui);
+  font-size: 16px;
+  transition: border-color var(--nothing-duration-control) var(--nothing-ease-default);
+}
+
+.input-nothing::placeholder {
+  color: var(--nothing-muted);
+}
+
+.input-nothing:hover {
+  border-color: var(--nothing-primary);
+}
+
+.input-nothing:focus {
+  outline: 2px solid var(--nothing-focus);
+  outline-offset: 2px;
+  border-color: var(--nothing-primary);
+}
+
+.input-nothing-error {
+  border-color: var(--nothing-error);
+}
+
+/* Mono label */
+.label-nothing {
+  display: block;
+  margin-bottom: var(--nothing-space-2);
+  font-family: var(--nothing-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--nothing-secondary);
+}
+
+/* Hairline divider */
+.hairline {
+  height: 1px;
+  background: var(--nothing-line);
+  border: none;
+}
+
+/* Empty state dashed box */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--nothing-space-4);
+  padding: var(--nothing-space-10);
+  border: 1px dashed var(--nothing-line-2);
+  border-radius: var(--nothing-r-md);
+  text-align: center;
+}
+
+/* Focus ring helper */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--nothing-focus);
+  outline-offset: 2px;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Nextra docs theme overrides                                                */
+/* -------------------------------------------------------------------------- */
+
+/* Pin Nextra's background to Nothing tokens so the dot-field layer is visible. */
+:root {
+  --nextra-bg: 0 0 0;
+  --nextra-primary-hue: 0deg;
+  --nextra-primary-saturation: 0%;
+  --nextra-content-width: 768px;
+}
+
+[data-theme="light"],
+.light {
+  --nextra-bg: 242 242 242;
+}
+
+/* Navbar */
+.nextra-navbar {
+  height: var(--nextra-navbar-height);
+}
+
+.nextra-navbar-blur {
+  background: var(--nothing-glass) !important;
+  backdrop-filter: blur(16px);
+  border-bottom-color: var(--nothing-line) !important;
+}
+
+.nextra-navbar a {
+  color: var(--nothing-primary);
+  font-family: var(--nothing-font-ui);
+}
+
+.nextra-navbar a:hover {
+  opacity: 0.8;
+}
+
+/* Sidebar */
+.nextra-sidebar {
+  background: var(--nothing-surface);
+  border-right: 1px solid var(--nothing-line);
+}
+
+.nextra-sidebar a,
+.nextra-sidebar button {
+  color: var(--nothing-primary);
+  font-family: var(--nothing-font-ui);
+  font-size: 14px;
+}
+
+.nextra-sidebar a:hover,
+.nextra-sidebar button:hover {
+  background: var(--nothing-raised);
+  color: var(--nothing-display);
+}
+
+.nextra-sidebar [aria-current="page"],
+.nextra-sidebar .active {
+  background: var(--nothing-raised);
+  color: var(--nothing-display);
+  border-left: 2px solid var(--nothing-display);
+}
+
+/* Search */
+.nextra-search input {
+  background: var(--nothing-surface);
+  border: 1px solid var(--nothing-line-2);
+  border-radius: var(--nothing-r-sm);
+  color: var(--nothing-primary);
+  font-family: var(--nothing-font-mono);
+}
+
+.nextra-search input::placeholder {
+  color: var(--nothing-muted);
+}
+
+/* TOC */
+.nextra-toc {
+  color: var(--nothing-secondary);
+}
+
+.nextra-toc > div:first-child {
+  font-family: var(--nothing-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--nothing-secondary);
+}
+
+.nextra-toc a {
+  color: var(--nothing-secondary);
+  font-family: var(--nothing-font-ui);
+}
+
+.nextra-toc a:hover {
+  opacity: 0.8;
+  color: var(--nothing-primary);
+}
+
+/* Article body */
+.nextra-body-typesetting-article,
+.nextra-body-typesetting-article article,
+.nextra-body-typesetting-article main {
+  color: var(--nothing-primary);
+  font-family: var(--nothing-font-ui);
+}
+
+.nextra-body-typesetting-article h1,
+.nextra-body-typesetting-article h2,
+.nextra-body-typesetting-article h3,
+.nextra-body-typesetting-article h4,
+.nextra-body-typesetting-article h5,
+.nextra-body-typesetting-article h6 {
+  font-family: var(--nothing-font-head);
+  color: var(--nothing-display);
+}
+
+.nextra-body-typesetting-article h1 {
+  font-size: 32px;
+  line-height: 1.2;
+}
+
+.nextra-body-typesetting-article h2 {
+  font-size: 24px;
+  line-height: 1.2;
+  margin-top: 48px;
+  border-bottom: 1px solid var(--nothing-line);
+  padding-bottom: 8px;
+}
+
+.nextra-body-typesetting-article h3 {
+  font-size: 20px;
+  color: var(--nothing-primary);
+}
+
+.nextra-body-typesetting-article p,
+.nextra-body-typesetting-article li {
+  color: var(--nothing-primary);
+  line-height: 1.5;
+}
+
+.nextra-body-typesetting-article a {
+  color: var(--nothing-primary);
+  text-decoration: none;
+}
+
+.nextra-body-typesetting-article a:hover {
+  opacity: 0.8;
+}
+
+.nextra-body-typesetting-article strong {
+  color: var(--nothing-display);
+}
+
+/* Code blocks */
+.nextra-body-typesetting-article pre,
+.nextra-body-typesetting-article code {
+  font-family: var(--nothing-font-mono);
+}
+
+.nextra-body-typesetting-article pre {
+  background: var(--nothing-surface);
+  border: 1px solid var(--nothing-line);
+  border-radius: var(--nothing-r-md);
+}
+
+.nextra-body-typesetting-article :not(pre) > code {
+  background: var(--nothing-raised);
+  color: var(--nothing-primary);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 13px;
+}
+
+/* Tables */
+.nextra-body-typesetting-article table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.nextra-body-typesetting-article th {
+  font-family: var(--nothing-font-mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--nothing-secondary);
+  border-bottom: 1px solid var(--nothing-line);
+  text-align: left;
+  padding: 8px;
+}
+
+.nextra-body-typesetting-article td {
+  border-bottom: 1px solid var(--nothing-line);
+  color: var(--nothing-primary);
+  padding: 8px;
+}
+
+.nextra-body-typesetting-article tr:hover {
+  background: var(--nothing-raised);
+}
+
+/* Footer */
+.nextra-footer {
+  color: var(--nothing-secondary);
+}
+
+.nextra-footer a {
+  color: var(--nothing-primary);
+}
+
+.nextra-footer a:hover {
+  opacity: 0.8;
+}
