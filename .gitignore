@@ -33,6 +33,8 @@ frontend/cruip-landing/out/
 # Prisma generated clients and dev DBs
 services/*/prisma/client/
 services/*/prisma/*.db
+services/*/prisma/services/
+services/data/
 
 # Coverage
 coverage/
