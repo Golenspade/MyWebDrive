@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 import { useToast } from "@/components/ui/use-toast";
 import Footer from "@/components/ui/footer";
 import { Copy, Download, Github, Layers3, Search, Settings2, Terminal, ExternalLink, Apple, Monitor, Cpu, ShieldCheck, Package2 } from "lucide-react";
@@ -133,6 +134,7 @@ function HeaderBar() {
           <a className="transition-opacity duration-200 ease-in-out hover:opacity-80" href="https://github.com" target="_blank" rel="noreferrer">GitHub</a>
         </div>
         <div className="flex items-center gap-2">
+          <ThemeToggle />
           <Button size="sm" variant="ghost" className="hidden sm:inline-flex"><Github className="mr-1 size-4"/>Star</Button>
           <Button size="sm" className="h-8">提交工具</Button>
         </div>

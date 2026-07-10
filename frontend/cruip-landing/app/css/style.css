@@ -53,36 +53,6 @@
   --color-blue-500: #3388bb;
   --color-blue-600: #2570a3;
 
-  /* Nothing UI tokens (prefixed to avoid collision with shadcn defaults) */
-  --font-nothing-ui: var(--nothing-font-ui);
-  --font-nothing-display: var(--nothing-font-display);
-  --font-nothing-mono: var(--nothing-font-mono);
-  --font-nothing-head: var(--nothing-font-head);
-  --font-nothing-editorial: var(--nothing-font-editorial);
-
-  --color-nothing-bg: var(--nothing-bg);
-  --color-nothing-surface: var(--nothing-surface);
-  --color-nothing-raised: var(--nothing-raised);
-  --color-nothing-line: var(--nothing-line);
-  --color-nothing-line-2: var(--nothing-line-2);
-  --color-nothing-muted: var(--nothing-muted);
-  --color-nothing-secondary: var(--nothing-secondary);
-  --color-nothing-primary: var(--nothing-primary);
-  --color-nothing-display: var(--nothing-display);
-  --color-nothing-accent: var(--nothing-accent);
-  --color-nothing-accent-text: var(--nothing-accent-text);
-  --color-nothing-accent-ink: var(--nothing-accent-ink);
-  --color-nothing-success: var(--nothing-success);
-  --color-nothing-warning: var(--nothing-warning);
-  --color-nothing-error: var(--nothing-error);
-  --color-nothing-focus: var(--nothing-focus);
-  --color-nothing-glass: var(--nothing-glass);
-  --color-nothing-glass-brd: var(--nothing-glass-brd);
-
-  --radius-nothing-sm: var(--nothing-r-sm);
-  --radius-nothing-md: var(--nothing-r-md);
-  --radius-nothing-pill: var(--nothing-r-pill);
-
   --text-xs: 0.75rem;
   --text-xs--line-height: 1.5;
   --text-sm: 0.875rem;
@@ -203,6 +173,34 @@
 }
 
 @theme inline {
+  /* Resolve Nothing aliases where each utility is used so nested theme scopes work. */
+  --font-nothing-ui: var(--nothing-font-ui);
+  --font-nothing-display: var(--nothing-font-display);
+  --font-nothing-mono: var(--nothing-font-mono);
+  --font-nothing-head: var(--nothing-font-head);
+  --font-nothing-editorial: var(--nothing-font-editorial);
+  --color-nothing-bg: var(--nothing-bg);
+  --color-nothing-surface: var(--nothing-surface);
+  --color-nothing-raised: var(--nothing-raised);
+  --color-nothing-line: var(--nothing-line);
+  --color-nothing-line-2: var(--nothing-line-2);
+  --color-nothing-muted: var(--nothing-muted);
+  --color-nothing-secondary: var(--nothing-secondary);
+  --color-nothing-primary: var(--nothing-primary);
+  --color-nothing-display: var(--nothing-display);
+  --color-nothing-accent: var(--nothing-accent);
+  --color-nothing-accent-text: var(--nothing-accent-text);
+  --color-nothing-accent-ink: var(--nothing-accent-ink);
+  --color-nothing-success: var(--nothing-success);
+  --color-nothing-warning: var(--nothing-warning);
+  --color-nothing-error: var(--nothing-error);
+  --color-nothing-focus: var(--nothing-focus);
+  --color-nothing-glass: var(--nothing-glass);
+  --color-nothing-glass-brd: var(--nothing-glass-brd);
+  --radius-nothing-sm: var(--nothing-r-sm);
+  --radius-nothing-md: var(--nothing-r-md);
+  --radius-nothing-pill: var(--nothing-r-pill);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);

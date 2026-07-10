@@ -8,7 +8,7 @@ import jwt from 'jsonwebtoken'
 import { fileURLToPath } from 'url'
 import helmet from 'helmet'
 import cors from 'cors'
-import rateLimit from 'express-rate-limit'
+import rateLimit, { ipKeyGenerator } from 'express-rate-limit'
 import { RedisStore } from 'rate-limit-redis'
 import { Redis } from 'ioredis'
 import { createTerminus } from '@godaddy/terminus'
@@ -86,7 +86,12 @@ async function resilientFetch(
       // Treat 5xx as retriable errors
       throw new Error(`Service error: ${resp.status}`)
     }
-    return resp
+    const body = await resp.arrayBuffer()
+    return new Response(body, {
+      headers: resp.headers,
+      status: resp.status,
+      statusText: resp.statusText,
+    })
   })
 }
 
@@ -131,7 +136,7 @@ const globalLimiter = rateLimit({
   keyGenerator: (req) => {
     // For authenticated requests, prefer userId to avoid NAT false positives
     const userId = (req as any).auth?.userId
-    return userId || req.ip || 'unknown'
+    return userId || ipKeyGenerator(req.ip || 'unknown')
   },
   handler: (_req, res) => {
     res.status(429).json({ error: 'Too many requests', retryAfter: 60 })
@@ -145,7 +150,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: createRedisStore('auth'),
-  keyGenerator: (req) => req.ip || 'unknown',
+  keyGenerator: (req) => ipKeyGenerator(req.ip || 'unknown'),
   handler: (_req, res) => {
     res.status(429).json({ error: 'Too many authentication attempts', retryAfter: 60 })
   },
@@ -158,7 +163,7 @@ const shareLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   store: createRedisStore('share'),
-  keyGenerator: (req) => (req as any).auth?.userId || req.ip || 'unknown',
+  keyGenerator: (req) => (req as any).auth?.userId || ipKeyGenerator(req.ip || 'unknown'),
   handler: (_req, res) => {
     res.status(429).json({ error: 'Too many share operations', retryAfter: 60 })
   },
