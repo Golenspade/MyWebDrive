@@ -13,7 +13,8 @@
     "prisma:generate": "prisma generate",
     "migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
-    "migrate:deploy": "prisma migrate deploy"
+    "migrate:deploy": "prisma migrate deploy",
+    "test": "vitest run"
   },
   "dependencies": {
     "@mywebdrive/common": "workspace:*",
@@ -36,6 +37,7 @@
     "prisma": "^5.19.1",
     "rimraf": "^5.0.5",
     "tsx": "^4.17.0",
-    "typescript": "^5.4.0"
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.13"
   }
 }
