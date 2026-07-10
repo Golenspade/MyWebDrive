@@ -5,7 +5,7 @@ import jwt from 'jsonwebtoken'
 import { PrismaClient } from '../prisma/client/index.js'
 import { getEnv } from '@mywebdrive/common'
 
-const app = express()
+export const app: express.Express = express()
 app.use(helmet({ contentSecurityPolicy: false }))
 app.disable('x-powered-by')
 
@@ -150,25 +150,11 @@ app.patch('/api/v1/users/:id/quota', requireAuth, requireAdmin, async (req, res,
   }
 })
 
-// Adjust storage used (owner)
-app.post('/api/v1/users/me/storage/adjust', requireAuth, async (req, res, next) => {
-  try {
-    const userId = (req as any).auth.userId as string
-    const { delta } = (req.body || {}) as { delta?: number }
-    const d = Number(delta)
-    if (!Number.isFinite(d)) return res.status(400).json({ error: 'Invalid delta' })
-    const user = await prisma.user.upsert({
-      where: { id: userId },
-      update: {},
-      create: { id: userId, name: 'User', storageQuota: BigInt(DEFAULT_USER_QUOTA_BYTES), storageUsed: BigInt(0) },
-    })
-    const cur = Number(user.storageUsed || 0)
-    const next = Math.max(0, Math.floor(cur + d))
-    const updated = await prisma.user.update({ where: { id: userId }, data: { storageUsed: BigInt(next) } })
-    return res.json({ storageQuota: Number(updated.storageQuota), storageUsed: Number(updated.storageUsed) })
-  } catch (err) {
-    next(err)
-  }
+// Storage accounting moves to the Core API quota ledger. This legacy public
+// endpoint intentionally remains as a clear migration error rather than an
+// arbitrary user-controlled counter.
+app.post('/api/v1/users/me/storage/adjust', requireAuth, (_req, res) => {
+  return res.status(410).json({ error: 'Storage adjustment endpoint disabled' })
 })
 
 app.get('/api/v1/users/:id/storage', requireAuth, requireAdmin, async (req, res, next) => {
@@ -191,6 +177,8 @@ app.use((err: any, _req: express.Request, res: express.Response, _next: express.
   res.status(status).json({ error: { code: 'INTERNAL_ERROR', message } })
 })
 
-app.listen(PORT, () => {
-  logger.info({ port: PORT }, 'user-service-node listening')
-})
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    logger.info({ port: PORT }, 'user-service-node listening')
+  })
+}
