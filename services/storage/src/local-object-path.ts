@@ -1,9 +1,10 @@
 import path from 'path'
 
-const OBJECT_KEY_PATTERN = /^[a-f0-9]{64}$/
+const HASH_OBJECT_KEY_PATTERN = /^[a-f0-9]{64}$/
+const UUID_OBJECT_KEY_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 export function isOpaqueObjectKey(value: unknown): value is string {
-  return typeof value === 'string' && OBJECT_KEY_PATTERN.test(value)
+  return typeof value === 'string' && (HASH_OBJECT_KEY_PATTERN.test(value) || UUID_OBJECT_KEY_PATTERN.test(value))
 }
 
 export function resolveLocalObjectPath(storageRoot: string, objectKey: string): string {

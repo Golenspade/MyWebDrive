@@ -14,7 +14,7 @@
     "migrate:dev": "prisma migrate dev",
     "db:push": "prisma db push",
     "migrate:deploy": "prisma migrate deploy",
-    "test": "vitest run"
+    "test": "vitest run src"
   },
   "dependencies": {
     "@mywebdrive/common": "workspace:*",
@@ -34,8 +34,10 @@
     "@types/morgan": "^1.9.9",
     "@types/multer": "^1.4.11",
     "@types/node": "^20.14.10",
+    "@types/supertest": "^6.0.3",
     "prisma": "^5.19.1",
     "rimraf": "^5.0.5",
+    "supertest": "^7.1.4",
     "tsx": "^4.17.0",
     "typescript": "^5.4.0",
     "vitest": "^4.0.13"

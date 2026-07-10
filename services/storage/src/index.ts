@@ -7,6 +7,8 @@ import { promises as fsp } from 'fs'
 import path from 'path'
 import { randomUUID } from 'crypto'
 import { Worker } from 'worker_threads'
+import { GrantConsumptionUnavailable, createDownloadRouter } from './download-router.js'
+import { isOpaqueObjectKey, resolveLocalObjectPath } from './local-object-path.js'
 
 const app = express()
 app.use(helmet({ contentSecurityPolicy: false }))
@@ -19,6 +21,12 @@ const JWT_SECRET = (() => {
   if (RAW_JWT_SECRET && RAW_JWT_SECRET !== 'dev-secret') return RAW_JWT_SECRET
   if (IS_TEST) return RAW_JWT_SECRET || 'dev-secret'
   throw new Error('JWT_SECRET must be set to a non-default value')
+})()
+const STORAGE_GRANT_SECRET = (() => {
+  const secret = process.env.STORAGE_GRANT_SECRET
+  if (secret) return secret
+  if (IS_TEST) return 'storage-grant-test-secret'
+  throw new Error('STORAGE_GRANT_SECRET must be set')
 })()
 const PORT = parseInt(process.env.STORAGE_PORT || '7084', 10)
 const STORAGE_PATH = process.env.STORAGE_PATH || path.resolve('storage')
@@ -38,6 +46,9 @@ const STORAGE_DB_URL = (() => {
 
 // Dev toggle: skip metadata callback during finalize (for local demo)
 const STORAGE_SKIP_METADATA = (process.env.STORAGE_SKIP_METADATA || 'false').toLowerCase() === 'true'
+const GIT_SHA = process.env.GIT_SHA || 'unknown'
+const BUILD_ID = process.env.BUILD_ID || 'unknown'
+const STARTED_AT = new Date().toISOString()
 
 
 // Redis for download concurrency gating
@@ -133,8 +144,37 @@ const FINALIZE_IN_PROGRESS = new Set<string>()
 
 
 // Health & metrics
-app.get('/health', (_req, res) => res.json({ status: 'healthy', service: 'storage-service-node' }))
+app.get('/live', (_req, res) => res.json({ status: 'live', service: 'storage-service-node' }))
+app.get('/health', (_req, res) => res.json({ status: 'live', service: 'storage-service-node' }))
 app.get('/metrics', metricsHandler)
+
+app.get('/ready', async (_req, res) => {
+  try {
+    await prisma.$queryRawUnsafe('SELECT 1')
+    await redis.ping()
+
+    if (USE_MINIO) {
+      const { Client } = await import('minio')
+      const [host, portValue] = MINIO_ENDPOINT.split(':')
+      const client = new Client({
+        endPoint: host,
+        port: Number(portValue || (MINIO_USE_SSL ? '443' : '9000')),
+        useSSL: MINIO_USE_SSL,
+        accessKey: MINIO_ACCESS_KEY,
+        secretKey: MINIO_SECRET_KEY,
+      })
+      if (!(await client.bucketExists(MINIO_BUCKET))) throw new Error('Object storage bucket is unavailable')
+    } else {
+      await fsp.access(path.resolve(STORAGE_PATH, 'files'))
+    }
+
+    return res.json({ status: 'ready', service: 'storage-service-node' })
+  } catch {
+    return res.status(503).json({ status: 'not_ready', service: 'storage-service-node' })
+  }
+})
+
+app.get('/version', (_req, res) => res.json({ gitSha: GIT_SHA, buildId: BUILD_ID, startedAt: STARTED_AT }))
 
 // Prepare dirs
 async function ensureDir(p: string) {
@@ -692,6 +732,40 @@ app.delete('/api/v1/storage/uploads/:uploadId', requireAuth, async (req, res) =>
   res.sendStatus(204)
 })
 
+async function consumeDownloadGrant(jti: string, expiresAt: Date): Promise<boolean> {
+  const ttlSeconds = Math.max(1, Math.ceil((expiresAt.getTime() - Date.now()) / 1000))
+  try {
+    return (await redis.set(`storage:download-grant:${jti}`, '1', 'EX', ttlSeconds, 'NX')) === 'OK'
+  } catch {
+    throw new GrantConsumptionUnavailable()
+  }
+}
+
+async function openDownloadObject(objectKey: string) {
+  if (USE_MINIO) {
+    const { Client } = await import('minio')
+    const [host, portValue] = MINIO_ENDPOINT.split(':')
+    const client = new Client({
+      endPoint: host,
+      port: Number(portValue || (MINIO_USE_SSL ? '443' : '9000')),
+      useSSL: MINIO_USE_SSL,
+      accessKey: MINIO_ACCESS_KEY,
+      secretKey: MINIO_SECRET_KEY,
+    })
+    return client.getObject(MINIO_BUCKET, `files/${objectKey}`)
+  }
+
+  const objectPath = resolveLocalObjectPath(STORAGE_PATH, objectKey)
+  await fsp.stat(objectPath)
+  return createReadStream(objectPath)
+}
+
+app.use(createDownloadRouter({
+  grantSecret: STORAGE_GRANT_SECRET,
+  consumeGrant: consumeDownloadGrant,
+  openObject: openDownloadObject,
+}))
+
 
 // Public download with concurrency gating (owner bypass). Bandwidth limit to be added with throttle stream.
 app.get('/api/v1/storage/files/:fileId/download', async (req, res) => {
@@ -841,12 +915,14 @@ async function callMetadataServiceWithRetry(url: string, data: any, bearer: stri
 }
 
 app.get('/api/v1/storage/files/:fileId', requireServiceToken, async (req, res) => {
-  const fileId = req.params.fileId
+  const objectKey = req.params.fileId
+  if (!isOpaqueObjectKey(objectKey)) return res.status(400).json({ error: 'Invalid object key' })
+
   if (USE_MINIO) {
     try {
       const { Client } = await import('minio')
       const client = new Client({ endPoint: MINIO_ENDPOINT.split(':')[0], port: Number(MINIO_ENDPOINT.split(':')[1] || (MINIO_USE_SSL ? '443' : '9000')), useSSL: MINIO_USE_SSL, accessKey: MINIO_ACCESS_KEY, secretKey: MINIO_SECRET_KEY })
-      const obj = await client.getObject(MINIO_BUCKET, `files/${fileId}`)
+      const obj = await client.getObject(MINIO_BUCKET, `files/${objectKey}`)
       res.setHeader('Content-Type', 'application/octet-stream')
       obj.on('error', () => res.end())
       obj.pipe(res)
@@ -855,7 +931,7 @@ app.get('/api/v1/storage/files/:fileId', requireServiceToken, async (req, res) =
       return res.status(404).json({ error: 'File not found' })
     }
   } else {
-    const p = path.join(STORAGE_PATH, 'files', fileId)
+    const p = resolveLocalObjectPath(STORAGE_PATH, objectKey)
     try {
 
       await fsp.stat(p)
