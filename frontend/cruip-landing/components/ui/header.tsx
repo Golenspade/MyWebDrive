@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Logo from "./logo";
 import { Button } from "@/components/ui/button";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export default function Header() {
   return (
@@ -14,10 +15,13 @@ export default function Header() {
 
           {/* Desktop actions */}
           <ul className="flex flex-1 items-center justify-end gap-3">
-            <li>
+            <li className="hidden sm:block">
               <Button asChild variant="outline" size="sm">
                 <Link href="/download">下载</Link>
               </Button>
+            </li>
+            <li>
+              <ThemeToggle />
             </li>
             <li>
               <Button asChild variant="outline" size="sm">

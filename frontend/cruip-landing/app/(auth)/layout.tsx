@@ -1,4 +1,5 @@
 import Logo from "@/components/ui/logo";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export default function AuthLayout({
   children,
@@ -9,10 +10,11 @@ export default function AuthLayout({
     <>
       <header className="absolute z-30 w-full">
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
-          <div className="flex h-16 items-center md:h-20">
+          <div className="flex h-16 items-center justify-between md:h-20">
             <div className="shrink-0">
               <Logo />
             </div>
+            <ThemeToggle />
           </div>
         </div>
       </header>

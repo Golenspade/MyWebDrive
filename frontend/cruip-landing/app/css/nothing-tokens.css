@@ -156,7 +156,8 @@
 /* Explicit dark scopes override the global `.light` class from next-themes. */
 [data-theme="dark"],
 .dark,
-.appwrap[data-theme="dark"] {
+.appwrap[data-theme="dark"],
+body:has(.appwrap[data-theme="dark"]) {
   --nothing-bg: #000000;
   --nothing-surface: #0E0E0E;
   --nothing-raised: #171717;
