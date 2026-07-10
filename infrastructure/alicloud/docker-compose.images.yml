@@ -130,6 +130,7 @@ services:
     environment:
       NODE_ENV: production
       JWT_SECRET: ${JWT_SECRET:-dev-secret}
+      STORAGE_GRANT_SECRET: ${STORAGE_GRANT_SECRET:?STORAGE_GRANT_SECRET must be set}
       STORAGE_PORT: 7094
       STORAGE_PATH: ./storage
       METADATA_SERVICE_URL: http://metadata:7093
@@ -248,4 +249,3 @@ volumes:
 networks:
   mywebdrive:
     driver: bridge
-

@@ -56,13 +56,13 @@
 - Delete: `services/storage/prisma/services/storage/prisma/storage.db`
 - Delete: `services/user/prisma/services/user/prisma/user.db`
 
-- [ ] **Step 1: Run the sensitive-artifact assertion before writing it**
+- [x] **Step 1: Run the sensitive-artifact assertion before writing it**
 
 Run: `git ls-files | rg '(^|/)([^/]+\\.(db|sqlite|sqlite3)|\\.env)$'`
 
 Expected: policy failure because the command prints the ten tracked SQLite files.
 
-- [ ] **Step 2: Write the policy assertion**
+- [x] **Step 2: Write the policy assertion**
 
 ```bash
 #!/usr/bin/env bash
@@ -76,11 +76,11 @@ if [[ -n "$forbidden" ]]; then
 fi
 ```
 
-- [ ] **Step 3: Remove tracked data and add exact ignore rules**
+- [x] **Step 3: Remove tracked data and add exact ignore rules**
 
 Use `git rm --` for each listed database. Add `services/data/` and `services/*/prisma/services/` to `.gitignore` in addition to the existing `services/*/prisma/*.db` rule.
 
-- [ ] **Step 4: Verify the policy and commit**
+- [x] **Step 4: Verify the policy and commit**
 
 Run: `bash scripts/assert-no-sensitive-artifacts.sh && git check-ignore -v services/data/dev.db services/storage/prisma/storage.db`
 
@@ -118,7 +118,7 @@ export function verifyStorageGrant(token: string, secret: string, purpose: Stora
 export function resolveLocalObjectPath(storageRoot: string, objectKey: string): string
 ```
 
-- [ ] **Step 1: Write the failing access-grant tests**
+- [x] **Step 1: Write the failing access-grant tests**
 
 ```ts
 test('rejects a user access token because its audience is not storage-api', () => {
@@ -132,13 +132,13 @@ test('rejects a valid upload grant on a download request', () => {
 })
 ```
 
-- [ ] **Step 2: Run the tests and observe the missing-module failure**
+- [x] **Step 2: Run the tests and observe the missing-module failure**
 
 Run: `pnpm -C services/storage test -- access-grant.test.ts`
 
 Expected: FAIL because `../access-grant.js` does not exist.
 
-- [ ] **Step 3: Write the failing local-path tests**
+- [x] **Step 3: Write the failing local-path tests**
 
 ```ts
 test.each(['../.env', '..%2F..%2F.env', '/etc/passwd', 'nested/file'])(
@@ -147,7 +147,7 @@ test.each(['../.env', '..%2F..%2F.env', '/etc/passwd', 'nested/file'])(
 )
 ```
 
-- [ ] **Step 4: Implement the two minimal primitives**
+- [x] **Step 4: Implement the two minimal primitives**
 
 ```ts
 const OBJECT_KEY_PATTERN = /^[a-f0-9]{64}$/
@@ -163,7 +163,7 @@ export function resolveLocalObjectPath(storageRoot: string, objectKey: string): 
 
 `verifyStorageGrant` must call `jwt.verify` with `algorithms: ['HS256']` and `audience: 'storage-api'`, require `typ: 'storage-grant'`, a UUID `jti`, a 64-hex `objectKey`, and the requested purpose.
 
-- [ ] **Step 5: Run the focused tests and commit**
+- [x] **Step 5: Run the focused tests and commit**
 
 Run: `pnpm -C services/storage test -- access-grant.test.ts local-object-path.test.ts`
 
@@ -192,7 +192,7 @@ GET /api/v1/storage/files/:fileId/download -> 410 { error: 'Legacy download endp
 GET /api/v1/storage/files/:fileId/direct-url -> 410 { error: 'Legacy direct URL endpoint disabled' }
 ```
 
-- [ ] **Step 1: Add failing route-level tests for no grant, malformed key and legacy endpoints**
+- [x] **Step 1: Add failing route-level tests for no grant, malformed key and legacy endpoints**
 
 ```ts
 expect(await request(app).get(`/api/v1/storage/objects/${validObjectKey}/download`)).toHaveProperty('status', 401)
@@ -200,21 +200,21 @@ expect(await request(app).get('/api/v1/storage/objects/..%2F..%2F.env/download')
 expect(await request(app).get('/api/v1/storage/files/x/download')).toHaveProperty('status', 410)
 ```
 
-- [ ] **Step 2: Run the route tests and observe the old public behavior**
+- [x] **Step 2: Run the route tests and observe the old public behavior**
 
 Run: `pnpm -C services/storage test -- download-route.test.ts`
 
 Expected: FAIL because the old endpoint returns a non-410 response and the new endpoint is absent.
 
-- [ ] **Step 3: Implement the guarded route**
+- [x] **Step 3: Implement the guarded route**
 
 The route must verify the grant before opening any object, require `grant.objectKey === req.params.objectKey`, atomically consume `grant.jti` in Redis with `SET key 1 EX 60 NX`, and return `503` if Redis is unavailable. It must call `resolveLocalObjectPath` for local storage and use `files/${objectKey}` for MinIO. Both legacy public routes and `download-direct` return 410 without issuing redirects or presigned URLs.
 
-- [ ] **Step 4: Add live, ready and version behavior**
+- [x] **Step 4: Add live, ready and version behavior**
 
 `/live` returns process liveness only. `/ready` pings Prisma, Redis and MinIO when enabled (or checks the contained local storage root). `/version` returns `GIT_SHA`, `BUILD_ID` and startup timestamp. A readiness dependency error returns 503.
 
-- [ ] **Step 5: Run tests, build Storage and commit**
+- [x] **Step 5: Run tests, build Storage and commit**
 
 Run: `pnpm -C services/storage test && pnpm -C services/storage build`
 
