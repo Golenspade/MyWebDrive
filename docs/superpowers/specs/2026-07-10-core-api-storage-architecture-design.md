@@ -451,6 +451,13 @@ MyWebDrive 的控制面复杂度主要来自错误的进程切分，而数据面
 - Core API 模块合并、单一迁移历史、Quota Ledger、Upload Orchestrator、Outbox/Worker 和旧网关退役。
 - 分享下载额度的原子消费、邀请码注册事务、刷新会话轮换及 Metadata 到配额账本的原子写入。
 - 唯一 image-based production compose、迁移 job、真实全栈 readiness、CI fail-closed 质量门和镜像 digest 回滚。
-- 生产服务器的秘密轮换、数据快照/清空、部署和线上冒烟验证。
+- 阿里云 EIP/安全组的公网 TCP 80/443 入站放行；该云侧规则不在服务器或仓库权限范围内，导致 Cloudflare 和源站外部探测仍超时。
+
+### 19.1 生产轮换记录（2026-07-10）
+
+- 已在重建前生成 PostgreSQL、MinIO、Redis 和 Storage 数据卷快照；四个产物均已通过 SHA-256 校验。备份保留在服务器独立的 `/root/backups/architecture-reset-20260710-234225` 目录。
+- 在产品所有者确认“仅保留 seed 管理员和测试账户”后，已删除旧数据卷、在空 PostgreSQL 中应用五个服务迁移和 Gateway schema，并只重新创建受控管理员、默认邀请码和测试账户。验证计数为 `2` 个认证用户、`1` 个邀请码、`0` 个文件、版本、分享和上传会话。
+- 生产应用当前运行提交 `5641a2f`：全部服务进程健康；`/health`、Storage `/ready`、Storage `/version`、前端直连和本机 Nginx HTTPS 均为 200；旧下载路由为 410，无 grant 的有效 object key 下载为 401。
+- Docker Engine 29 与服务器安装的 Docker Compose v1.29.2 在 `--force-recreate` 路径上触发 `ContainerConfig` 不兼容。发布已通过保留数据卷的容器恢复和逐容器重启完成；在完成 Phase 1 的不可变镜像编排前，不应把该路径当作标准化发布方案。
 
 该清单是当前代码与本设计的核对结果；只有所有“尚未完成”条目完成并通过发布验证，系统才符合本设计的目标态。
