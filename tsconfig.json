@@ -4,6 +4,7 @@
     { "path": "packages/common" },
     { "path": "services/api-gateway-node" },
     { "path": "services/auth" },
+    { "path": "services/core-api" },
     { "path": "services/user" },
     { "path": "services/metadata" },
     { "path": "services/storage" }

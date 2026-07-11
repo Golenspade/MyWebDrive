@@ -1,0 +1,191 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("CORE_DATABASE_URL")
+}
+
+model User {
+  id                String             @id @default(uuid())
+  email             String             @unique
+  displayName       String?
+  role              String             @default("user")
+  status            String             @default("active")
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  sessions          RefreshSession[]
+  files             File[]
+  uploadIntents     UploadIntent[]
+  quotaAccount      QuotaAccount?
+  quotaReservations QuotaReservation[]
+  quotaLedger       QuotaLedgerEntry[]
+  shares            Share[]
+}
+
+model EmailOtpChallenge {
+  id              String    @id @default(uuid())
+  email           String
+  codeDigest      String
+  failedAttempts  Int       @default(0)
+  expiresAt       DateTime
+  consumedAt      DateTime?
+  deliveryStatus  String    @default("pending")
+  requestedIpHash String
+  createdAt       DateTime  @default(now())
+
+  @@index([email, createdAt])
+  @@index([expiresAt])
+}
+
+model RefreshSession {
+  id                String    @id @default(uuid())
+  familyId          String
+  userId            String
+  tokenHash         String    @unique
+  idleExpiresAt     DateTime
+  absoluteExpiresAt DateTime
+  rotatedAt         DateTime?
+  revokedAt         DateTime?
+  replacedById      String?
+  createdAt         DateTime  @default(now())
+  lastUsedAt        DateTime  @default(now())
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+  @@index([userId, revokedAt])
+}
+
+model QuotaAccount {
+  userId         String   @id
+  limitBytes     BigInt
+  reservedBytes  BigInt   @default(0)
+  committedBytes BigInt   @default(0)
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UploadIntent {
+  id             String            @id @default(uuid())
+  userId         String
+  idempotencyKey String
+  objectKey      String            @unique
+  fileName       String
+  sizeBytes      BigInt
+  mimeType       String
+  parentId       String?
+  status         String            @default("created")
+  expiresAt      DateTime
+  completedAt    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  user           User              @relation(fields: [userId], references: [id])
+  reservation    QuotaReservation?
+  fileVersion    FileVersion?
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, status])
+}
+
+model QuotaReservation {
+  id             String       @id @default(uuid())
+  userId         String
+  uploadIntentId String       @unique
+  bytes          BigInt
+  status         String       @default("reserved")
+  expiresAt      DateTime
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  uploadIntent   UploadIntent @relation(fields: [uploadIntentId], references: [id], onDelete: Cascade)
+}
+
+model QuotaLedgerEntry {
+  id          String   @id @default(uuid())
+  userId      String
+  businessRef String   @unique
+  kind        String
+  deltaBytes  BigInt
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model File {
+  id          String       @id @default(uuid())
+  ownerId     String
+  parentId    String?
+  name        String
+  type        String
+  deletedAt   DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  owner       User         @relation(fields: [ownerId], references: [id])
+  parent      File?        @relation("FileTree", fields: [parentId], references: [id])
+  children    File[]       @relation("FileTree")
+  versions    FileVersion[]
+  shares      Share[]
+  publication Publication?
+
+  @@index([ownerId, parentId, deletedAt])
+}
+
+model FileVersion {
+  id             String       @id @default(uuid())
+  fileId         String
+  uploadIntentId String       @unique
+  version        Int
+  objectKey      String       @unique
+  sizeBytes      BigInt
+  mimeType       String
+  sha256         String
+  createdAt      DateTime     @default(now())
+  file           File         @relation(fields: [fileId], references: [id])
+  uploadIntent   UploadIntent @relation(fields: [uploadIntentId], references: [id])
+
+  @@unique([fileId, version])
+}
+
+model Share {
+  id            String   @id @default(uuid())
+  token         String   @unique
+  fileId        String
+  ownerId       String
+  passwordHash  String?
+  expiresAt     DateTime?
+  maxDownloads  Int?
+  downloadCount Int      @default(0)
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  file          File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId, isActive])
+}
+
+model Publication {
+  id        String   @id @default(uuid())
+  fileId    String   @unique
+  slug      String   @unique
+  status    String   @default("draft")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid())
+  topic         String
+  aggregateId   String
+  payload       Json
+  attempts      Int       @default(0)
+  availableAt   DateTime  @default(now())
+  processedAt   DateTime?
+  lastErrorCode String?
+  createdAt     DateTime  @default(now())
+
+  @@index([processedAt, availableAt])
+}
