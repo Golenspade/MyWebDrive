@@ -525,6 +525,8 @@ git commit -m "feat(frontend): adopt passwordless cookie sessions"
 ## Task 4: Implement quota reservations and upload intents
 
 **Files:**
+- Create: `services/core-api/src/grants/storage-grant.ts`
+- Create: `services/core-api/src/grants/__tests__/storage-grant.test.ts`
 - Create: `services/core-api/src/quota/service.ts`
 - Create: `services/core-api/src/uploads/service.ts`
 - Create: `services/core-api/src/uploads/router.ts`
@@ -545,11 +547,11 @@ GET /api/v1/quota -> { limitBytes: string; reservedBytes: string; committedBytes
 
 - [ ] **Step 1: Write failing concurrent reservation tests**
 
-Create a quota of 100 bytes and concurrently request two 80-byte intents. Assert exactly one succeeds, one returns 413, the account reserves 80 bytes, and retrying the winning `Idempotency-Key` returns the same intent without another reservation.
+Create a quota of 100 bytes and concurrently request two 80-byte intents. Assert exactly one succeeds, one returns 413, the account reserves 80 bytes, and retrying the winning `Idempotency-Key` returns the same intent without another reservation. Add grant-contract tests for `alg=HS256`, `typ=storage-grant`, `aud=storage-api`, `purpose=upload`, exact opaque `objectKey`, UUID `jti`, independent `STORAGE_GRANT_SECRET`, and expiry no later than 300 seconds.
 
 - [ ] **Step 2: Implement one-transaction reservation**
 
-Use a serializable Prisma transaction and a conditional `UPDATE` equivalent to `committed + reserved + requested <= limit`. Create `UploadIntent` and `QuotaReservation` in the same transaction. Use UUID object keys and issue an upload grant only after commit.
+Use a serializable Prisma transaction and a conditional `UPDATE` equivalent to `committed + reserved + requested <= limit`. Create `UploadIntent` and `QuotaReservation` in the same transaction. Use UUID object keys and issue the shared grant module's upload grant only after commit. The grant issuer accepts an enumerated purpose and never accepts a user-supplied path.
 
 - [ ] **Step 3: Implement idempotent cancel/expiry release**
 
@@ -557,10 +559,10 @@ Conditional transition `reserved -> released` decrements `QuotaAccount.reservedB
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `pnpm -C services/core-api test -- src/uploads src/quota && pnpm -C services/core-api build`
+Run: `pnpm -C services/core-api test -- src/uploads src/quota src/grants && pnpm -C services/core-api build`
 
 ```bash
-git add services/core-api/src/quota services/core-api/src/uploads services/core-api/src/app.ts
+git add services/core-api/src/grants services/core-api/src/quota services/core-api/src/uploads services/core-api/src/app.ts
 git commit -m "feat(core): reserve quota with upload intents"
 ```
 
@@ -584,15 +586,15 @@ body: { objectKey: string; sizeBytes: string; sha256: string }
 
 - [ ] **Step 1: Write failing ten-retry completion test**
 
-Submit the same signed completion ten times. Assert one FileVersion, one committed QuotaLedgerEntry, one processed UploadIntent and one `file.version.created` OutboxEvent.
+Submit the same signed completion ten times. Assert every authenticated retry returns the same file/version identity, with one FileVersion, one committed QuotaLedgerEntry, one processed UploadIntent and one `file.version.created` OutboxEvent.
 
 - [ ] **Step 2: Implement callback identity**
 
-Verify `hex(HMAC_SHA256(CORE_CALLBACK_SECRET, timestamp + '.' + rawBody))` with constant-time comparison, allow at most 300 seconds clock skew, and reject missing/replayed callback identity before parsing business fields.
+Verify `hex(HMAC_SHA256(CORE_CALLBACK_SECRET, timestamp + '.' + rawBody))` with constant-time comparison, allow at most 300 seconds clock skew, and reject missing, stale or invalid callback identity before parsing business fields. An authenticated replay inside the clock window is handled by the business idempotency key (`uploadIntentId` plus immutable `objectKey`), not by an in-memory replay cache, so worker retries remain valid across Core restarts.
 
 - [ ] **Step 3: Implement the completion transaction**
 
-In one serializable transaction, conditionally transition intent `finalizing -> completed`, create or update the logical File, create its immutable version with unique `uploadIntentId`, move bytes from reserved to committed, create ledger ref `upload-commit:<intentId>` and insert the outbox event. A repeated completion returns the existing IDs and performs no writes.
+In one serializable transaction, verify the callback `objectKey` and exact uploaded size against the intent, then conditionally transition an active intent (`created`, `uploading` or `finalizing`) to `completed`. Create or update the logical File, create its immutable version with unique `uploadIntentId`, move bytes from reserved to committed, create ledger ref `upload-commit:<intentId>` and insert the outbox event. A repeated completion with the same immutable result returns the existing IDs and performs no writes; a replay with different size, digest or object key is rejected as a conflict. A concurrent cancel can win only by first changing the reservation/intent to a terminal released state, in which case finalization fails without committing quota.
 
 - [ ] **Step 4: Verify and commit**
 
@@ -606,7 +608,7 @@ git commit -m "feat(core): finalize uploads transactionally"
 ## Task 6: Issue private, share and publication download grants
 
 **Files:**
-- Create: `services/core-api/src/grants/storage-grant.ts`
+- Modify: `services/core-api/src/grants/storage-grant.ts`
 - Create: `services/core-api/src/sharing/service.ts`
 - Create: `services/core-api/src/sharing/router.ts`
 - Create: `services/core-api/src/sharing/__tests__/download-ticket.test.ts`
@@ -649,8 +651,11 @@ git commit -m "feat(core): centralize download authorization"
 - Create: `services/storage/src/object-storage/local.ts`
 - Create: `services/storage/src/object-storage/minio.ts`
 - Create: `services/storage/src/object-storage/oss.ts`
+- Create: `services/storage/src/grants/verifier.ts`
+- Create: `services/storage/src/finalization-queue.ts`
 - Create: `services/storage/src/worker.ts`
 - Create: `services/storage/src/__tests__/object-storage.test.ts`
+- Create: `services/storage/src/__tests__/grant-verifier.test.ts`
 - Create: `services/storage/src/__tests__/worker-callback.test.ts`
 - Modify: `services/storage/src/index.ts`
 - Modify: `services/storage/package.json`
@@ -667,17 +672,33 @@ export interface ObjectStorage {
 }
 ```
 
+The byte API and queue boundary are exact:
+
+```ts
+PUT  /api/v1/storage/uploads/:objectKey/parts/:partNumber
+POST /api/v1/storage/uploads/:objectKey/complete
+GET  /api/v1/storage/objects/:objectKey
+
+Authorization: Bearer <storage-grant>
+
+Redis Stream: storage:finalize
+job: { uploadIntentId: string; objectKey: string; parts: number }
+consumer group: storage-workers
+```
+
+Upload grants may authorize the idempotent part writes and one completion enqueue for the same upload intent during their at-most-300-second lifetime. Download grants are consumed once with an atomic Redis `SET grant:used:<jti> 1 NX EX <remaining-ttl>` before opening bytes; Redis errors fail closed. Neither type permits an `objectKey`, upload intent or purpose different from the signed claims.
+
 - [ ] **Step 1: Write failing adapter containment tests**
 
-Run every encoded traversal and absolute-path case against the Local adapter. Assert no filesystem method receives a path outside `STORAGE_PATH/files` or `STORAGE_PATH/parts`.
+Run every encoded traversal and absolute-path case against the Local adapter. Assert no filesystem method receives a path outside `STORAGE_PATH/files` or `STORAGE_PATH/parts`. Cover invalid signature, wrong algorithm/type/audience/purpose/object key, expiry, download replay, and Redis failure; no invalid grant may call an object-storage method.
 
 - [ ] **Step 2: Extract Storage API and Worker commands**
 
-`node dist/index.js api` serves grant-protected byte routes. `node dist/index.js worker` processes finalization jobs, calculates SHA-256 and sends the signed idempotent Core callback. Neither command imports Core Prisma or business tables.
+`node dist/index.js api` serves grant-protected byte routes and durably enqueues completion into the Redis Stream only after all declared parts exist. `node dist/index.js worker` uses a Redis consumer group, claims/reclaims pending jobs, composes the final object, calculates SHA-256 and sends the signed idempotent Core callback. It acknowledges a job only after Core accepts the callback or returns the same already-completed identity. Neither command imports Core Prisma or business tables.
 
 - [ ] **Step 3: Implement retry and orphan rules**
 
-Worker retries callback 5 times with capped exponential delays 1, 2, 4, 8 and 16 seconds. It retains completed objects for reconciliation when Core is unavailable; it never deletes the only final object because a callback failed.
+Worker retries callback 5 times with capped exponential delays 1, 2, 4, 8 and 16 seconds. After transient exhaustion it leaves the stream entry pending for later reclaim, retains completed objects for reconciliation, and never deletes the only final object because a callback failed. Permanent Core conflicts move the job to `storage:finalize:dead-letter` with only opaque IDs and error codes. API readiness requires Redis and the configured object adapter; Worker readiness requires Redis consumer-group access and the object adapter.
 
 - [ ] **Step 4: Verify and commit**
 
