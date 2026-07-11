@@ -10,6 +10,17 @@ function decodePart(token: string, index: number): Record<string, unknown> {
   return JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Record<string, unknown>
 }
 
+function signStorageGrant(payload: Record<string, unknown>, secret: string): string {
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'HS256', typ: 'storage-grant' }),
+    'utf8',
+  ).toString('base64url')
+  const encodedPayload = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url')
+  const signingInput = `${header}.${encodedPayload}`
+  const signed = createHmac('sha256', secret).update(signingInput).digest('base64url')
+  return `${signingInput}.${signed}`
+}
+
 describe('storage grants', () => {
   test('issues the exact upload grant contract with an independent secret', () => {
     const now = new Date('2026-07-11T08:00:00.000Z')
@@ -80,5 +91,72 @@ describe('storage grants', () => {
         secret: 'storage-grant-test-secret-at-least-32-bytes',
       }),
     ).toThrow('invalid storage grant input')
+  })
+
+  test.each([
+    {
+      label: 'future iat beyond clock skew',
+      mutate: (payload: Record<string, unknown>, nowSeconds: number) => {
+        payload.iat = nowSeconds + 31
+        payload.exp = nowSeconds + 300
+      },
+    },
+    {
+      label: 'unsafe iat',
+      mutate: (payload: Record<string, unknown>) => {
+        payload.iat = Number.MAX_SAFE_INTEGER + 1
+      },
+    },
+    {
+      label: 'unsafe exp',
+      mutate: (payload: Record<string, unknown>) => {
+        payload.exp = Number.MAX_SAFE_INTEGER + 1
+      },
+    },
+    {
+      label: 'exp equal to iat',
+      mutate: (payload: Record<string, unknown>) => {
+        payload.exp = payload.iat
+      },
+    },
+    {
+      label: 'lifetime above 300 seconds',
+      mutate: (payload: Record<string, unknown>) => {
+        payload.exp = Number(payload.iat) + 301
+      },
+    },
+    {
+      label: 'expiry more than 300 seconds from verifier now',
+      mutate: (payload: Record<string, unknown>, nowSeconds: number) => {
+        payload.iat = nowSeconds + 30
+        payload.exp = nowSeconds + 301
+      },
+    },
+    {
+      label: 'far-future year',
+      mutate: (payload: Record<string, unknown>) => {
+        payload.iat = 4_102_444_800
+        payload.exp = 4_102_445_100
+      },
+    },
+  ])('rejects hand-signed grants with invalid NumericDate: $label', ({ mutate }) => {
+    const now = new Date('2026-07-11T08:00:00.000Z')
+    const nowSeconds = Math.floor(now.getTime() / 1000)
+    const secret = 'storage-grant-test-secret-at-least-32-bytes'
+    const payload: Record<string, unknown> = {
+      aud: 'storage-api',
+      purpose: 'upload',
+      objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
+      uploadIntentId: '126b455f-b9e7-49b9-aab6-4cb1ff971328',
+      maxBytes: '80',
+      jti: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
+      iat: nowSeconds,
+      exp: nowSeconds + 300,
+    }
+    mutate(payload, nowSeconds)
+
+    expect(() => verifyStorageGrant(signStorageGrant(payload, secret), secret, now)).toThrow(
+      'invalid storage grant',
+    )
   })
 })

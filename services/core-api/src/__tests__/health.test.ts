@@ -120,6 +120,19 @@ describe('Core callback raw body', () => {
 })
 
 describe('Core configuration', () => {
+  test.each([
+    ['CORE_SESSION_SECRET', 'OTP_PEPPER'],
+    ['CORE_SESSION_SECRET', 'STORAGE_GRANT_SECRET'],
+    ['CORE_SESSION_SECRET', 'CORE_CALLBACK_SECRET'],
+    ['OTP_PEPPER', 'STORAGE_GRANT_SECRET'],
+    ['OTP_PEPPER', 'CORE_CALLBACK_SECRET'],
+    ['STORAGE_GRANT_SECRET', 'CORE_CALLBACK_SECRET'],
+  ] as const)('production rejects equal %s and %s', (left, right) => {
+    const env = productionEnvironment()
+    env[right] = env[left]
+    expect(() => loadCoreConfig(env)).toThrow('production secrets must be distinct')
+  })
+
   test.each(REQUIRED_PRODUCTION_SECRETS)(
     'production rejects missing $key',
     ({ key }) => {

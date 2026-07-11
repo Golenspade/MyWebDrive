@@ -61,46 +61,53 @@ export async function releaseExpiredReservations(
   userId: string,
   now: Date,
 ): Promise<number> {
-  return runSerializable(prisma, async (tx) => {
-    const candidates = await tx.quotaReservation.findMany({
-      where: { userId, status: 'reserved', expiresAt: { lte: now } },
-      orderBy: { createdAt: 'asc' },
-      take: EXPIRY_RELEASE_BATCH_SIZE,
-      select: { id: true, uploadIntentId: true, bytes: true },
-    })
-    let released = 0
-    for (const candidate of candidates) {
-      const transitioned = await tx.quotaReservation.updateMany({
-        where: { id: candidate.id, userId, status: 'reserved', expiresAt: { lte: now } },
-        data: { status: 'expired' },
+  let totalReleased = 0
+  for (;;) {
+    const batch = await runSerializable(prisma, async (tx) => {
+      const candidates = await tx.quotaReservation.findMany({
+        where: { userId, status: 'reserved', expiresAt: { lte: now } },
+        orderBy: { expiresAt: 'asc' },
+        take: EXPIRY_RELEASE_BATCH_SIZE,
+        select: { id: true, uploadIntentId: true, bytes: true },
       })
-      if (transitioned.count !== 1) continue
+      let released = 0
+      for (const candidate of candidates) {
+        const transitioned = await tx.quotaReservation.updateMany({
+          where: { id: candidate.id, userId, status: 'reserved', expiresAt: { lte: now } },
+          data: { status: 'expired' },
+        })
+        if (transitioned.count !== 1) continue
 
-      const debited = await tx.quotaAccount.updateMany({
-        where: { userId, reservedBytes: { gte: candidate.bytes } },
-        data: { reservedBytes: { decrement: candidate.bytes } },
-      })
-      if (debited.count !== 1) throw new QuotaInvariantError()
-      await tx.quotaLedgerEntry.create({
-        data: {
-          userId,
-          businessRef: `reservation-release:${candidate.id}`,
-          kind: 'reservation_expired',
-          deltaBytes: -candidate.bytes,
-        },
-      })
-      await tx.uploadIntent.updateMany({
-        where: {
-          id: candidate.uploadIntentId,
-          userId,
-          status: { in: ['created', 'uploading', 'finalizing'] },
-        },
-        data: { status: 'expired' },
-      })
-      released += 1
-    }
-    return released
-  })
+        const debited = await tx.quotaAccount.updateMany({
+          where: { userId, reservedBytes: { gte: candidate.bytes } },
+          data: { reservedBytes: { decrement: candidate.bytes } },
+        })
+        if (debited.count !== 1) throw new QuotaInvariantError()
+        await tx.quotaLedgerEntry.create({
+          data: {
+            userId,
+            businessRef: `reservation-release:${candidate.id}`,
+            kind: 'reservation_expired',
+            deltaBytes: -candidate.bytes,
+          },
+        })
+        await tx.uploadIntent.updateMany({
+          where: {
+            id: candidate.uploadIntentId,
+            userId,
+            status: { in: ['created', 'uploading', 'finalizing'] },
+          },
+          data: { status: 'expired' },
+        })
+        released += 1
+      }
+      return { candidateCount: candidates.length, released }
+    })
+    totalReleased += batch.released
+    if (batch.candidateCount < EXPIRY_RELEASE_BATCH_SIZE) return totalReleased
+    // A full batch can have more rows behind it even when a competing replica
+    // wins some conditional transitions. Query again with the same fixed cutoff.
+  }
 }
 
 export async function getQuotaBalance(

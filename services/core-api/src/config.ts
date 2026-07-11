@@ -100,6 +100,13 @@ export function loadCoreConfig(env: Environment = process.env): CoreConfig {
     ? requireProductionValue(env, 'EMAIL_PROVIDER_TOKEN')
     : env.EMAIL_PROVIDER_TOKEN ?? 'development-only-email-token'
 
+  if (
+    production &&
+    new Set([sessionSecret, otpPepper, storageGrantSecret, callbackSecret]).size !== 4
+  ) {
+    throw new Error('production secrets must be distinct')
+  }
+
   return {
     nodeEnv,
     port: parsePort(env.CORE_PORT),

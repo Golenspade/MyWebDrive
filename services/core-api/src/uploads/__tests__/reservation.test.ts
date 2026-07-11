@@ -154,6 +154,72 @@ integration('quota reservations and upload intents', () => {
     ).toBe(1)
   })
 
+  test('drains more than one bounded expiry batch before reserving new quota', async () => {
+    const user = await createUser({
+      email: 'expiry-batches@example.test',
+      limit: 1000n,
+      reserved: 51n,
+    })
+    const expiredAt = new Date(now.getTime() - 1)
+    for (let index = 0; index < 51; index += 1) {
+      const intent = await prisma.uploadIntent.create({
+        data: {
+          userId: user.id,
+          idempotencyKey: `expired-${index}`,
+          objectKey: randomUUID(),
+          fileName: `expired-${index}.bin`,
+          sizeBytes: 1n,
+          mimeType: 'application/octet-stream',
+          expiresAt: expiredAt,
+        },
+      })
+      await prisma.quotaReservation.create({
+        data: {
+          userId: user.id,
+          uploadIntentId: intent.id,
+          bytes: 1n,
+          expiresAt: expiredAt,
+        },
+      })
+    }
+
+    const response = await postIntent(user, 'after-expiry-drain', {
+      fileName: 'full-quota.bin',
+      sizeBytes: '1000',
+      mimeType: 'application/octet-stream',
+    })
+    expect(response.status).toBe(201)
+    expect(
+      await prisma.quotaReservation.count({ where: { userId: user.id, status: 'expired' } }),
+    ).toBe(51)
+    expect(
+      await prisma.quotaLedgerEntry.count({
+        where: { userId: user.id, businessRef: { startsWith: 'reservation-release:' } },
+      }),
+    ).toBe(51)
+    expect(
+      await prisma.quotaAccount.findUniqueOrThrow({ where: { userId: user.id } }),
+    ).toMatchObject({ limitBytes: 1000n, reservedBytes: 1000n, committedBytes: 0n })
+  })
+
+  test('returns quota exceeded instead of overflowing at the PostgreSQL BIGINT boundary', async () => {
+    const max = 9_223_372_036_854_775_807n
+    const user = await createUser({
+      email: 'bigint-boundary@example.test',
+      limit: max,
+      committed: max,
+    })
+
+    const response = await postIntent(user, 'bigint-boundary', {
+      fileName: 'one-more-byte.bin',
+      sizeBytes: '1',
+      mimeType: 'application/octet-stream',
+    })
+    expect(response.status).toBe(413)
+    expect(response.body).toEqual({ error: 'quota exceeded' })
+    expect(await prisma.uploadIntent.count({ where: { userId: user.id } })).toBe(0)
+  })
+
   test('serializes quota JSON as decimal strings and validates admin quota changes against occupancy', async () => {
     const user = await createUser({
       email: 'quota-user@example.test',

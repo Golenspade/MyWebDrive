@@ -156,7 +156,7 @@ export async function createUploadIntent(input: {
         SET "reservedBytes" = "reservedBytes" + ${input.request.sizeBytes},
             "updatedAt" = CURRENT_TIMESTAMP
         WHERE "userId" = ${input.userId}
-          AND "committedBytes" + "reservedBytes" + ${input.request.sizeBytes} <= "limitBytes"
+          AND ${input.request.sizeBytes} <= "limitBytes" - "committedBytes" - "reservedBytes"
         RETURNING "userId"
       `)
       if (!reserved[0]) {

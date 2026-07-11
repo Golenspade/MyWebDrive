@@ -2,6 +2,7 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 
 const AUDIENCE = 'storage-api'
 const MAX_GRANT_SECONDS = 300
+const CLOCK_SKEW_SECONDS = 30
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const PURPOSES = new Set<string>([
@@ -70,7 +71,13 @@ export function issueStorageGrant(input: StorageGrantInput): string {
     issuedAt + MAX_GRANT_SECONDS,
     Math.floor(input.expiresAt.getTime() / 1000),
   )
-  if (!Number.isSafeInteger(issuedAt) || expiresAt <= issuedAt) invalidInput()
+  if (
+    !Number.isSafeInteger(issuedAt) ||
+    !Number.isSafeInteger(expiresAt) ||
+    expiresAt <= issuedAt
+  ) {
+    invalidInput()
+  }
 
   const header = encode({ alg: 'HS256', typ: 'storage-grant' })
   const payload = encode({
@@ -127,9 +134,19 @@ export function verifyStorageGrant(
     !UUID_PATTERN.test(String(payload.objectKey)) ||
     !UUID_PATTERN.test(String(payload.jti)) ||
     typeof payload.iat !== 'number' ||
+    !Number.isSafeInteger(payload.iat) ||
     typeof payload.exp !== 'number' ||
-    payload.exp <= Math.floor(now.getTime() / 1000) ||
-    payload.exp > payload.iat + MAX_GRANT_SECONDS
+    !Number.isSafeInteger(payload.exp)
+  ) {
+    throw new Error('invalid storage grant')
+  }
+  const nowSeconds = Math.floor(now.getTime() / 1000)
+  if (
+    payload.iat > nowSeconds + CLOCK_SKEW_SECONDS ||
+    payload.exp <= payload.iat ||
+    payload.exp > payload.iat + MAX_GRANT_SECONDS ||
+    payload.exp > nowSeconds + MAX_GRANT_SECONDS ||
+    payload.exp <= nowSeconds
   ) {
     throw new Error('invalid storage grant')
   }

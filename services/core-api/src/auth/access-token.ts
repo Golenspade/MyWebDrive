@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 const ISSUER = 'mywebdrive-core'
 const AUDIENCE = 'mywebdrive-web'
 const ACCESS_TOKEN_SECONDS = 900
+const CLOCK_SKEW_SECONDS = 30
 
 function encodeJson(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
@@ -75,8 +76,19 @@ export function verifyAccessToken(
     payload.iss !== ISSUER ||
     payload.aud !== AUDIENCE ||
     typeof payload.iat !== 'number' ||
+    !Number.isSafeInteger(payload.iat) ||
     typeof payload.exp !== 'number' ||
-    payload.exp <= Math.floor(Date.now() / 1000)
+    !Number.isSafeInteger(payload.exp)
+  ) {
+    throw new Error('invalid access token')
+  }
+
+  const now = Math.floor(Date.now() / 1000)
+  if (
+    payload.iat > now + CLOCK_SKEW_SECONDS ||
+    payload.exp <= payload.iat ||
+    payload.exp - payload.iat !== ACCESS_TOKEN_SECONDS ||
+    payload.exp <= now
   ) {
     throw new Error('invalid access token')
   }

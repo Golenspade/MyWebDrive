@@ -99,6 +99,8 @@ model QuotaReservation {
   updatedAt      DateTime     @updatedAt
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   uploadIntent   UploadIntent @relation(fields: [uploadIntentId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status, expiresAt])
 }
 
 model QuotaLedgerEntry {
