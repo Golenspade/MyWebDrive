@@ -525,6 +525,8 @@ git commit -m "feat(frontend): adopt passwordless cookie sessions"
 ## Task 4: Implement quota reservations and upload intents
 
 **Files:**
+- Modify: `services/core-api/prisma/schema.prisma`
+- Create: `services/core-api/prisma/migrations/202607110002_quota_expiry_index/migration.sql`
 - Create: `services/core-api/src/auth/middleware.ts`
 - Create: `services/core-api/src/auth/__tests__/middleware.test.ts`
 - Create: `services/core-api/src/grants/storage-grant.ts`
@@ -567,14 +569,14 @@ Validate `Idempotency-Key` as 1-128 characters from `[A-Za-z0-9._:-]`; validate 
 
 - [ ] **Step 3: Implement idempotent cancel/expiry release**
 
-Conditional transition `reserved -> released` decrements `QuotaAccount.reservedBytes` once and creates one ledger row with business ref `reservation-release:<reservationId>`. Cancel is owner-scoped and idempotently returns 204 for an already released/expired reservation. Before quota read or new reservation, lazily release that user's expired reservations in bounded serializable batches; multiple Core replicas may race, but conditional status updates and unique business refs allow each reservation to affect the balance once.
+Conditional transition `reserved -> released` decrements `QuotaAccount.reservedBytes` once and creates one ledger row with business ref `reservation-release:<reservationId>`. Cancel is owner-scoped and idempotently returns 204 for an already released/expired reservation. Before quota read or new reservation, lazily release that user's expired reservations in bounded serializable batches using one fixed `now` until no batch remains; multiple Core replicas may race, but conditional status updates and unique business refs allow each reservation to affect the balance once. The migration adds `(userId,status,expiresAt)` indexing so the bounded expiry query never degrades into a historical full-table scan.
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `pnpm -C services/core-api test -- src/auth src/identity src/uploads src/quota src/grants && pnpm -C services/core-api build`
+Run: `pnpm -C services/core-api test -- src/auth src/identity src/uploads src/quota src/grants && pnpm -C services/core-api exec prisma validate --schema prisma/schema.prisma && pnpm -C services/core-api build`; then apply the ordered migration history twice to an empty PostgreSQL database and confirm the second run has no pending migration.
 
 ```bash
-git add services/core-api/src/auth services/core-api/src/config.ts services/core-api/src/identity services/core-api/src/grants services/core-api/src/quota services/core-api/src/uploads services/core-api/src/app.ts
+git add services/core-api/prisma services/core-api/src/auth services/core-api/src/config.ts services/core-api/src/identity services/core-api/src/grants services/core-api/src/quota services/core-api/src/uploads services/core-api/src/app.ts
 git commit -m "feat(core): reserve quota with upload intents"
 ```
 
@@ -582,7 +584,7 @@ git commit -m "feat(core): reserve quota with upload intents"
 
 **Files:**
 - Modify: `services/core-api/prisma/schema.prisma`
-- Create: `services/core-api/prisma/migrations/202607110002_file_targets/migration.sql`
+- Create: `services/core-api/prisma/migrations/202607110003_file_targets/migration.sql`
 - Modify: `services/core-api/src/uploads/service.ts`
 - Modify: `services/core-api/src/uploads/router.ts`
 - Create: `services/core-api/src/files/service.ts`
