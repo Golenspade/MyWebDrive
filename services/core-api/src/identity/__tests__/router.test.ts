@@ -291,7 +291,8 @@ integration('passwordless identity routes', () => {
     }
   })
 
-  test('stores only the hash of an opaque 32-byte refresh token', async () => {
+  test('stores only the token hash with a 30-day idle and 90-day absolute expiry', async () => {
+    const dayMs = 24 * 60 * 60 * 1000
     const user = await prisma.user.create({ data: { email: 'session-hash@example.test' } })
     const created = await createRefreshSession(prisma, user.id, now, (size) =>
       Buffer.alloc(size, 7),
@@ -303,28 +304,58 @@ integration('passwordless identity routes', () => {
     expect(created.token).toMatch(/^[^.]+\.[A-Za-z0-9_-]{43}$/)
     expect(stored.tokenHash).toBe(createHash('sha256').update(created.token).digest('hex'))
     expect(stored.tokenHash).not.toContain(created.token)
+    expect(stored.idleExpiresAt).toEqual(new Date(now.getTime() + 30 * dayMs))
+    expect(stored.absoluteExpiresAt).toEqual(new Date(now.getTime() + 90 * dayMs))
   })
 
-  test('rotates into the same family and preserves the absolute deadline', async () => {
+  test('refresh activity extends idle expiry after day 30 but never beyond day 90', async () => {
+    const dayMs = 24 * 60 * 60 * 1000
     const user = await prisma.user.create({ data: { email: 'session-rotate@example.test' } })
     const created = await createRefreshSession(prisma, user.id, now, (size) =>
       Buffer.alloc(size, 8),
     )
-    const rotatedAt = new Date('2026-07-12T04:00:00.000Z')
-    const rotated = await rotateRefreshSession(prisma, created.token, rotatedAt, (size) =>
+    const firstRotationAt = new Date(now.getTime() + 29 * dayMs)
+    const first = await rotateRefreshSession(prisma, created.token, firstRotationAt, (size) =>
       Buffer.alloc(size, 9),
     )
+    const secondRotationAt = new Date(now.getTime() + 58 * dayMs)
+    const second = await rotateRefreshSession(prisma, first.token, secondRotationAt, (size) =>
+      Buffer.alloc(size, 10),
+    )
+    const thirdRotationAt = new Date(now.getTime() + 87 * dayMs)
+    const third = await rotateRefreshSession(prisma, second.token, thirdRotationAt, (size) =>
+      Buffer.alloc(size, 11),
+    )
+
+    await expect(
+      rotateRefreshSession(
+        prisma,
+        third.token,
+        new Date(now.getTime() + 90 * dayMs),
+        (size) => Buffer.alloc(size, 12),
+      ),
+    ).rejects.toBeInstanceOf(InvalidRefreshSessionError)
+
     const rows = await prisma.refreshSession.findMany({
       where: { familyId: created.familyId },
       orderBy: { createdAt: 'asc' },
     })
 
-    expect(rows).toHaveLength(2)
-    expect(rows[0]?.rotatedAt).toEqual(rotatedAt)
-    expect(rows[0]?.replacedById).toBe(rotated.sessionId)
-    expect(rows[1]?.familyId).toBe(rows[0]?.familyId)
-    expect(rows[1]?.absoluteExpiresAt).toEqual(rows[0]?.absoluteExpiresAt)
-    expect(rows[1]?.idleExpiresAt).toEqual(rows[0]?.absoluteExpiresAt)
+    expect(rows).toHaveLength(4)
+    expect(rows.map((row) => row.idleExpiresAt)).toEqual([
+      new Date(now.getTime() + 30 * dayMs),
+      new Date(now.getTime() + 59 * dayMs),
+      new Date(now.getTime() + 88 * dayMs),
+      new Date(now.getTime() + 90 * dayMs),
+    ])
+    expect(
+      rows.every(
+        (row) => row.absoluteExpiresAt.getTime() === now.getTime() + 90 * dayMs,
+      ),
+    ).toBe(true)
+    expect(rows[0]?.replacedById).toBe(first.sessionId)
+    expect(rows[1]?.replacedById).toBe(second.sessionId)
+    expect(rows[2]?.replacedById).toBe(third.sessionId)
   })
 
   test('reuse revokes every session in the token family', async () => {

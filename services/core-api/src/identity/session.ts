@@ -2,7 +2,8 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 
 import { Prisma, type PrismaClient } from '@prisma/client'
 
-const SESSION_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
+const SESSION_IDLE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
+const SESSION_ABSOLUTE_LIFETIME_MS = 90 * 24 * 60 * 60 * 1000
 
 type SessionStore = Pick<PrismaClient, 'refreshSession'>
 type RandomBytes = (size: number) => Buffer
@@ -49,7 +50,8 @@ export async function createRefreshSession(
   const sessionId = randomUUID()
   const familyId = randomUUID()
   const token = createOpaqueToken(sessionId, randomBytes)
-  const absoluteExpiresAt = new Date(now.getTime() + SESSION_LIFETIME_MS)
+  const idleExpiresAt = new Date(now.getTime() + SESSION_IDLE_LIFETIME_MS)
+  const absoluteExpiresAt = new Date(now.getTime() + SESSION_ABSOLUTE_LIFETIME_MS)
 
   await store.refreshSession.create({
     data: {
@@ -57,7 +59,7 @@ export async function createRefreshSession(
       familyId,
       userId,
       tokenHash: hashToken(token),
-      idleExpiresAt: absoluteExpiresAt,
+      idleExpiresAt,
       absoluteExpiresAt,
       createdAt: now,
       lastUsedAt: now,
@@ -114,7 +116,10 @@ export async function rotateRefreshSession(
           }
 
           const idleDeadline = new Date(
-            Math.min(now.getTime() + SESSION_LIFETIME_MS, current.absoluteExpiresAt.getTime()),
+            Math.min(
+              now.getTime() + SESSION_IDLE_LIFETIME_MS,
+              current.absoluteExpiresAt.getTime(),
+            ),
           )
           const rotated = await tx.refreshSession.updateMany({
             where: {
