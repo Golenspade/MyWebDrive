@@ -2,16 +2,10 @@ import type { PrismaClient } from '@prisma/client'
 import express from 'express'
 import type Redis from 'ioredis'
 
-export type SendOtpInput = {
-  to: string
-  code: string
-  ttlSeconds: 600
-  purpose: 'login'
-}
+import type { EmailSender } from './identity/email-sender.js'
+import { createIdentityRouter } from './identity/router.js'
 
-export interface EmailSender {
-  sendOtp(input: SendOtpInput): Promise<void>
-}
+export type { EmailSender, SendOtpInput } from './identity/email-sender.js'
 
 export type CoreDependencies = {
   prisma: PrismaClient
@@ -19,6 +13,12 @@ export type CoreDependencies = {
   emailSender: EmailSender
   now: () => Date
   randomBytes: (size: number) => Buffer
+  identity?: {
+    sessionSecret: string
+    otpPepper: string
+    adminEmails: string
+    production: boolean
+  }
 }
 
 declare global {
@@ -34,6 +34,13 @@ const INTERNAL_COMPLETION_PATH = /^\/api\/v1\/internal\/upload-intents\/[^/]+\/c
 export function createCoreApp(deps: CoreDependencies): express.Express {
   const app = express()
   const startedAt = deps.now().toISOString()
+  const identity = deps.identity ?? {
+    sessionSecret:
+      process.env.CORE_SESSION_SECRET ?? 'development-only-core-session-secret',
+    otpPepper: process.env.OTP_PEPPER ?? 'development-only-otp-pepper',
+    adminEmails: process.env.CORE_ADMIN_EMAILS ?? '',
+    production: process.env.NODE_ENV === 'production',
+  }
 
   app.use(
     express.json({
@@ -61,6 +68,18 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
       gitSha: process.env.GIT_SHA ?? 'unknown',
       buildId: process.env.BUILD_ID ?? 'local',
       startedAt,
+    }),
+  )
+
+  app.use(
+    '/api/v1/auth',
+    createIdentityRouter({
+      prisma: deps.prisma,
+      redis: deps.redis,
+      emailSender: deps.emailSender,
+      now: deps.now,
+      randomBytes: deps.randomBytes,
+      ...identity,
     }),
   )
 
