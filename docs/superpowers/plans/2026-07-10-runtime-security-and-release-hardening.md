@@ -1,5 +1,7 @@
 # Runtime Security and Release Integrity Implementation Plan
 
+> **Status (2026-07-11):** Tasks 0–2 are complete. Tasks 3–4 are superseded by `docs/superpowers/plans/2026-07-11-core-first-migration.md` after the product owner selected architecture completeness over temporary availability. Do not implement new cross-service quota or grant bridges from this plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Remove the currently exploitable unauthenticated download and quota paths, make critical state changes fail closed, and make CI/deployment report real failures.
@@ -227,7 +229,15 @@ git add services/storage
 git commit -m "fix(storage): close public file download paths"
 ```
 
-## Task 3: Stop quota bypasses and share races
+## Superseded Tasks 3–4
+
+The original Task 3 would have added temporary Metadata → User quota calls and Sharing → Storage grant issuance while the old control plane remained split. That direction now conflicts with the approved Core-first decision. The original release task also assumed the split services remained the production application set.
+
+The replacement plan builds one Core transaction boundary first, moves passwordless Identity, quota, file metadata, sharing, grants, upload orchestration and outbox into it, then establishes the immutable release contract around the final process topology. Continue with `docs/superpowers/plans/2026-07-11-core-first-migration.md`.
+
+<!-- Historical text below is intentionally retained for auditability and must not be executed. -->
+
+## Task 3: Stop quota bypasses and share races (superseded)
 
 **Files:**
 - Modify: `services/user/src/index.ts:140-170`
@@ -275,7 +285,7 @@ git add services/user services/metadata services/sharing
 git commit -m "fix(core): fail closed for quota and share limits"
 ```
 
-## Task 4: Make CI and production compose fail closed
+## Task 4: Make CI and production compose fail closed (superseded)
 
 **Files:**
 - Modify: `package.json`

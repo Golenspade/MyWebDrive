@@ -3,6 +3,7 @@
 - 状态：已批准，实施中
 - 日期：2026-07-10
 - 决策：采用“模块化 Core API + 独立 Storage Data Plane”作为目标架构
+- 2026-07-11 补充决策：采用 Core-first，不为旧微服务增加临时桥接；认证改为邮箱 OTP 无密码登录
 - 适用范围：后端、数据模型、认证授权、上传下载链路、部署与发布系统
 
 ## 1. 背景与问题
@@ -18,7 +19,7 @@ MyWebDrive 当前把认证、用户、元数据、存储、分享和网关拆成
 5. CI 的工作区过滤器被 shell 展开，实际命令没有执行目标包却返回成功；日志中还出现 Prisma 校验失败、测试工具缺失、lint/typecheck 未真实执行等情况。因此绿色状态不能证明制品可用。
 6. 用户服务公开了可由普通登录用户调用的存储用量调整接口，负数可将用量归零；元数据服务在缺少用户服务地址时又会放行配额检查。
 7. 上传完成链路跨越文件写入、配额调整和版本创建，但没有统一事务或稳定幂等键；重试可能产生重复版本，部分失败可能留下孤儿对象或不一致配额。
-8. 邀请码消费存在并发竞争；健康检查只报告进程存活，无法证明数据库、Redis 或对象存储可用。
+8. 旧认证同时维护密码、邀请码和无状态刷新令牌，既增加攻击面，也无法可靠撤销会话；健康检查只报告进程存活，无法证明数据库、Redis 或对象存储可用。
 9. 多套 compose、同步脚本和文档并存，生产入口不唯一；数据库迁移、镜像版本、线上版本识别和可逆回滚缺少统一契约。
 10. 前端仍存在假成功和假数据回退，并把认证材料放入 localStorage 或 URL；请求 URL 日志可能记录令牌。
 
@@ -34,7 +35,7 @@ MyWebDrive 当前把认证、用户、元数据、存储、分享和网关拆成
 - 把配额从可任意修改的计数器改成可审计、可预留、可幂等提交的账本。
 - 建立唯一的生产部署入口、迁移入口和版本识别方式。
 - 让 CI、readiness 和发布验证真正失败即阻塞，而不是“记录错误后继续成功”。
-- 在不大爆炸重写的前提下，逐条路由迁移并保持现有 `/api/v1/*` 外部契约。
+- 在独立工作树中完成完整 Core 控制面并保持 `/api/v1/*` 外部契约；验收通过前不让旧服务与 Core 共同写入业务数据。
 
 ## 3. 非目标
 
@@ -44,7 +45,7 @@ MyWebDrive 当前把认证、用户、元数据、存储、分享和网关拆成
 - Kafka、RabbitMQ 等独立消息基础设施。
 - 新的前端视觉重构或新业务功能。
 - 为未来假设场景创建大量接口或插件层。
-- 一次性替换全部数据和路由的“大爆炸”上线。
+- 在缺少可回滚制品、迁移验证和数据快照时直接切换生产流量。
 - 完整的客户端端到端加密体系；如需该能力，应单独设计密钥和恢复模型。
 
 ## 4. 方案比较与决策
@@ -100,7 +101,7 @@ Nginx 是唯一公网入口。目标态不再保留一层独立 Node API Gateway
 
 Core API 内部使用模块边界，而不是继续把模块伪装成远程服务：
 
-- `Identity Module`：账号、凭证、邀请、访问令牌、刷新会话和撤销。
+- `Identity Module`：邮箱 OTP 挑战、无密码用户、访问令牌、刷新会话轮换和撤销。
 - `File Metadata Module`：文件、版本、目录关系、标签和展示元数据。
 - `Access Grant Module`：所有者、分享密码、过期时间、下载次数、发布状态和短期票据签发。
 - `Quota Ledger Module`：配额预留、提交、释放、审计和余额计算。
@@ -128,11 +129,16 @@ Local Adapter 必须使用 `path.resolve` 后验证结果仍位于配置根目�
 
 ### 6.1 用户会话
 
-- 访问令牌有效期建议为 15 分钟，只保存在前端内存中。
-- 刷新令牌放入 `HttpOnly`、`Secure`、明确 `SameSite` 的 Cookie，不进入 localStorage。
-- 刷新令牌具有 `jti`，每次刷新轮换，并记录会话族；检测到旧令牌重用时撤销整个会话族。
+- `POST /api/v1/auth/email/request` 接受规范化后的邮箱；无论邮箱是否已对应用户，成功投递时都返回相同的 202。Core 生成 6 位密码学随机数字验证码，通过上游邮件组件发送，数据库只保存带服务端 pepper 的摘要，不保存或记录明文验证码。上游不可用时返回不暴露邮箱状态的 503。
+- OTP 有效期固定为 10 分钟，同一 challenge 最多失败 5 次，成功后必须在同一事务内原子标记为已消费。重发冷却为 60 秒；每个规范化邮箱每小时最多发送 5 次，每个来源 IP 每小时最多发送 20 次。Redis 限流不可用时请求验证码失败关闭。
+- `POST /api/v1/auth/email/verify` 校验 `challengeId + email + code`。首次验证成功在事务内创建用户，后续验证成功直接登录；两个并发验证最多一个成功消费 challenge。
+- 邮箱语法只做基本规范化与长度检查；邮箱是否可投递、域名政策和提供商风控由上游邮件组件负责。Core 不因上游能力而省略验证码摘要、过期、尝试次数、限流和一次性消费。
+- 访问令牌有效期固定为 15 分钟，只保存在前端内存中。
+- 刷新凭证使用 256 位随机 opaque token，数据库只保存 SHA-256 摘要；Cookie 名为 `mwd_refresh`，使用 `HttpOnly`、生产环境 `Secure`、`SameSite=Lax` 和 `/api/v1/auth` Path，不进入 localStorage。
+- 刷新会话空闲有效期为 30 天、绝对有效期为 90 天。每次刷新都轮换 token 并记录会话族；检测到已轮换 token 被重用时撤销整个会话族。
 - 令牌验证固定允许的算法，并验证 `type=access`、`issuer`、`audience`、过期时间和签名。
 - SSE 改用带 Authorization Header 的 fetch 流，不把访问令牌放入查询字符串。
+- 用户登出时撤销当前刷新会话并清除 Cookie；客户端重新加载后使用 Cookie 静默换取新的短期访问令牌，从而维持长期登录态。
 
 ### 6.2 Core 与 Storage 的服务身份
 
@@ -154,8 +160,9 @@ Local Adapter 必须使用 `path.resolve` 后验证结果仍位于配置根目�
 
 | 模块 | 表 | 责任 |
 | --- | --- | --- |
-| Identity | `users`, `credentials` | 用户与登录凭证 |
-| Identity | `refresh_sessions` | 刷新令牌族、轮换和撤销 |
+| Identity | `users` | 规范化邮箱、角色、状态与用户资料；不保存密码 |
+| Identity | `email_otp_challenges` | OTP 摘要、过期、失败次数、一次性消费和投递状态 |
+| Identity | `refresh_sessions` | opaque refresh token 摘要、会话族、轮换、空闲/绝对过期和撤销 |
 | File Metadata | `files`, `file_versions` | 逻辑文件与不可变版本 |
 | Access Grant | `shares`, `publications` | 分享约束与公开发布状态 |
 | Upload Orchestrator | `upload_intents` | 上传状态机和幂等键 |
@@ -170,7 +177,7 @@ Local Adapter 必须使用 `path.resolve` 后验证结果仍位于配置根目�
 - 每个成功上传意图只能生成一个文件版本。
 - 配额账本项具有唯一业务引用，重试不能重复记账。
 - 分享下载次数通过条件更新原子消费，不能先读后写。
-- 邀请码消费和用户创建位于同一事务中，并通过行锁或条件更新避免并发复用。
+- OTP challenge 的消费和首次用户创建位于同一事务中；并发验证同一 challenge 只能有一个事务成功。
 
 ## 8. 关键业务流
 
@@ -335,7 +342,7 @@ CI 中每个检查必须有真实目标且失败即终止：
 - 并发上传不能超过 quota reservation。
 - 完成回调重复 10 次仍只创建一个 FileVersion 和一条 committed ledger。
 - 并发消费最后一次分享下载额度只能成功一次。
-- 邀请码并发注册只能成功一次。
+- 同一 OTP challenge 并发验证只能成功一次，超过 5 次错误尝试后不能再登录。
 - PostgreSQL、Redis 或对象存储断开时 readiness 变为失败。
 - 从空卷启动、迁移、上传、下载和按镜像 digest 回滚的演练。
 
@@ -352,29 +359,29 @@ CI 中每个检查必须有真实目标且失败即终止：
 
 本次上线得到产品所有者确认：生产仅有 seed 生成的管理员与测试账户，没有需要保留的业务用户或文件。因此可以在完成快照后重建 PostgreSQL schema、Redis 状态和对象存储，而不执行历史业务数据迁移；重建后只重新创建受控管理员和测试账户。
 
-### Phase 1：建立可信发布系统（1–3 天）
+### Phase 1：Core-first 基座与 Identity
 
-- 固化唯一 compose、不可变镜像、独立数据卷和唯一迁移任务。
-- 修复 CI filters，确保 build、lint、typecheck、test 和迁移真实执行。
-- 实现 `/live`、`/ready`、`/version` 和部署后冒烟检查。
-- 验证备份覆盖对象数据，并完成一次隔离环境恢复。
+- 新建 `services/core-api`，使用单一 Prisma schema、单一迁移历史和显式模块边界。
+- 先实现真实 `/live`、`/ready`、`/version`，再实现邮箱 OTP、无密码用户、刷新会话轮换和撤销。
+- 前端移除密码、邀请码、localStorage refresh token 与 URL token，改为内存 access token + HttpOnly refresh Cookie。
+- 旧 Auth、User、Metadata、Sharing 与 Gateway 在此阶段冻结；不增加临时内部接口，也不与 Core 双写。
 
-### Phase 2：建立三个关键深模块（约 1 周）
+### Phase 2：Core 业务不变量
 
-- 在现有服务可兼容的路径上先实现 Access Grant Module。
-- 实现 Quota Ledger 与 reservation，替换跨服务任意 delta。
-- 实现 Upload Orchestrator、幂等完成和 outbox。
-- Storage 改为只接受短期 grant 和稳定 objectKey。
+- 在同一数据库事务边界内实现 Quota Ledger、reservation、Upload Orchestrator、File Metadata、Sharing/Publication 和 Outbox。
+- Core 成为唯一 Storage grant 签发方；分享次数原子消费与 grant 签发属于同一个 Core 业务操作。
+- 完成回调以 upload intent 和幂等键为依据；文件版本、配额提交、意图完成和 outbox 在同一事务提交。
 
-### Phase 3：逐路由合并 Core API（1–2 周）
+### Phase 3：Storage Data Plane 接入与完整验收
 
-- 按 Identity、File Metadata、Sharing/Publication、Catalog/Admin 顺序迁移。
-- 通过 Nginx 路由和 feature flag 灰度；对安全的只读请求可做影子比对。
-- 保持前端所需响应契约，记录新旧实现的差异。
-- 每完成一个模块，就停止旧服务写入并迁移其数据所有权。
+- Storage 只接受 Core 签发的短期 grant 和稳定 objectKey；Worker 使用独立回调身份。
+- 从空数据库、Redis 和对象卷执行完整迁移、OTP 登录、上传、完成、私有下载、分享下载、重放拒绝和故障注入测试。
+- Core 完整验收前不切换生产写流量；本项目当前没有必须维持临时可用性的业务压力，架构完整性优先于旧服务临时可用。
 
-### Phase 4：清理与恢复演练（2–3 天）
+### Phase 4：可信发布、一次切换与清理
 
+- 固化唯一 image-based compose、不可变镜像、独立数据卷、唯一迁移 job 和 fail-closed CI。
+- 在已验证快照和回滚制品存在时，将 Nginx `/api/v1/*` 一次切换到 Core；Storage 数据面保留独立路由。
 - 删除旧 gateway 和拆分服务的生产入口。
 - 归档互相冲突的 compose、部署脚本和文档。
 - 删除旧数据库和内部 service token 前，确认无流量、无回滚依赖。
@@ -427,6 +434,7 @@ CI 中每个检查必须有真实目标且失败即终止：
 - 从裸 fileId 切换到 download grant 会改变前端下载方式和缓存行为，需要同版本发布兼容客户端。
 - Core 合并后不是“没有边界”；必须以模块所有权、数据库约束和测试维持边界，禁止重新形成无组织的共享工具层。
 - Storage Worker 与 Core 的完成回调是跨进程 seam，必须保持幂等、可重试和可对账，不能假设网络恰好一次交付。
+- OTP 邮件上游是外部依赖；投递失败、限流和超时必须返回泛化响应并记录脱敏指标，不能回退为日志打印验证码或绕过验证。
 
 ## 18. 决策摘要
 
@@ -449,9 +457,8 @@ MyWebDrive 的控制面复杂度主要来自错误的进程切分，而数据面
 尚未完成、因此不能作为上线完成条件宣称的条目：
 
 - Core API 模块合并、单一迁移历史、Quota Ledger、Upload Orchestrator、Outbox/Worker 和旧网关退役。
-- 分享下载额度的原子消费、邀请码注册事务、刷新会话轮换及 Metadata 到配额账本的原子写入。
+- 邮箱 OTP 无密码认证、刷新会话轮换、分享下载额度原子消费及 Core 内部配额账本事务。
 - 唯一 image-based production compose、迁移 job、真实全栈 readiness、CI fail-closed 质量门和镜像 digest 回滚。
-- 阿里云 EIP/安全组的公网 TCP 80/443 入站放行；该云侧规则不在服务器或仓库权限范围内，导致 Cloudflare 和源站外部探测仍超时。
 
 ### 19.1 生产轮换记录（2026-07-10）
 
@@ -459,5 +466,11 @@ MyWebDrive 的控制面复杂度主要来自错误的进程切分，而数据面
 - 在产品所有者确认“仅保留 seed 管理员和测试账户”后，已删除旧数据卷、在空 PostgreSQL 中应用五个服务迁移和 Gateway schema，并只重新创建受控管理员、默认邀请码和测试账户。验证计数为 `2` 个认证用户、`1` 个邀请码、`0` 个文件、版本、分享和上传会话。
 - 生产应用当前运行提交 `5641a2f`：全部服务进程健康；`/health`、Storage `/ready`、Storage `/version`、前端直连和本机 Nginx HTTPS 均为 200；旧下载路由为 410，无 grant 的有效 object key 下载为 401。
 - Docker Engine 29 与服务器安装的 Docker Compose v1.29.2 在 `--force-recreate` 路径上触发 `ContainerConfig` 不兼容。发布已通过保留数据卷的容器恢复和逐容器重启完成；在完成 Phase 1 的不可变镜像编排前，不应把该路径当作标准化发布方案。
+
+### 19.2 Core-first 与无密码认证确认（2026-07-11）
+
+- 产品所有者确认当前没有必须维持临时可用性的流量压力，明确选择架构完整性优先；因此取消旧服务间的临时 grant/quota 桥接，直接建设完整 Core API。
+- 邀请码和密码认证从目标态删除。用户通过邮箱 OTP 完成首次注册和后续登录；验证成功后签发短期 access token 与可轮换 refresh session，使客户端能够长期保持登录态。
+- 旧止血计划只保留已经完成的 Task 0–2；未完成的旧 Task 3–4 由新的 Core-first 实施计划接管。
 
 该清单是当前代码与本设计的核对结果；只有所有“尚未完成”条目完成并通过发布验证，系统才符合本设计的目标态。
