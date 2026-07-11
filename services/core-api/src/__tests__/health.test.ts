@@ -31,6 +31,7 @@ function productionEnvironment(): ProductionEnvironment {
     CORE_CALLBACK_SECRET: 'c'.repeat(32),
     EMAIL_PROVIDER_URL: 'https://email.example.test',
     EMAIL_PROVIDER_TOKEN: 'provider-token',
+    DEFAULT_USER_QUOTA_BYTES: '10737418240',
   }
 }
 
@@ -177,5 +178,34 @@ describe('Core configuration', () => {
 
     expect(config.emailProviderToken).toBe('provider-token')
     expect(config.emailProviderUrl).toBe('https://email.example.test')
+    expect(config.defaultUserQuotaBytes).toBe(10_737_418_240n)
+  })
+
+  test.each([
+    undefined,
+    '',
+    '-1',
+    '+1',
+    '1.5',
+    ' 1',
+    '1 ',
+    '01',
+    'abc',
+    '9223372036854775808',
+  ])(
+    'rejects a missing or non-canonical DEFAULT_USER_QUOTA_BYTES (%s)',
+    (value) => {
+      const env = productionEnvironment()
+      env.DEFAULT_USER_QUOTA_BYTES = value
+      expect(() => loadCoreConfig(env)).toThrow(
+        'DEFAULT_USER_QUOTA_BYTES must be a nonnegative decimal integer',
+      )
+    },
+  )
+
+  test('accepts an explicit zero DEFAULT_USER_QUOTA_BYTES', () => {
+    const env = productionEnvironment()
+    env.DEFAULT_USER_QUOTA_BYTES = '0'
+    expect(loadCoreConfig(env).defaultUserQuotaBytes).toBe(0n)
   })
 })

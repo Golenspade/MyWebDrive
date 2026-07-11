@@ -33,6 +33,7 @@ type IdentityRouterDependencies = {
   otpPepper: string
   adminEmails: string
   production: boolean
+  defaultUserQuotaBytes: bigint
 }
 
 function parseCookie(header: string | undefined, name: string): string | undefined {
@@ -136,6 +137,7 @@ export function createIdentityRouter(deps: IdentityRouterDependencies): express.
         pepper: deps.otpPepper,
         adminEmails: admins,
         randomBytes: deps.randomBytes,
+        defaultUserQuotaBytes: deps.defaultUserQuotaBytes,
       })
       const accessToken = issueAccessToken(verified.user, deps.sessionSecret)
       res.cookie(COOKIE_NAME, verified.refreshToken, cookieOptions(deps.production))

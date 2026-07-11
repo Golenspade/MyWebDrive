@@ -149,6 +149,7 @@ export async function verifyEmailOtp(input: {
   pepper: string
   adminEmails: ReadonlySet<string>
   randomBytes: RandomBytes
+  defaultUserQuotaBytes: bigint
 }): Promise<{
   user: { id: string; email: string; role: string }
   refreshToken: string
@@ -212,6 +213,11 @@ export async function verifyEmailOtp(input: {
             create: { email, role: input.adminEmails.has(email) ? 'admin' : 'user' },
             update: {},
             select: { id: true, email: true, role: true },
+          })
+          await tx.quotaAccount.upsert({
+            where: { userId: user.id },
+            create: { userId: user.id, limitBytes: input.defaultUserQuotaBytes },
+            update: {},
           })
           const session = await createRefreshSession(tx, user.id, input.now, input.randomBytes)
           return { kind: 'verified', user, refreshToken: session.token } as const

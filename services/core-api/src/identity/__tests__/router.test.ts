@@ -50,6 +50,7 @@ integration('passwordless identity routes', () => {
         otpPepper: 'identity-test-otp-pepper',
         adminEmails: 'first-admin@example.test,existing-admin@example.test',
         production: false,
+        defaultUserQuotaBytes: 1000n,
       },
       ...overrides,
     })
@@ -70,6 +71,11 @@ integration('passwordless identity routes', () => {
     await redis.flushdb()
     await prisma.refreshSession.deleteMany()
     await prisma.emailOtpChallenge.deleteMany()
+    await prisma.quotaLedgerEntry.deleteMany()
+    await prisma.quotaReservation.deleteMany()
+    await prisma.uploadIntent.deleteMany()
+    await prisma.file.deleteMany()
+    await prisma.quotaAccount.deleteMany()
     await prisma.user.deleteMany()
     sent.clear()
     emailSender.sendOtp.mockClear()
@@ -130,6 +136,7 @@ integration('passwordless identity routes', () => {
         otpPepper: 'identity-test-otp-pepper',
         adminEmails: '',
         production: true,
+        defaultUserQuotaBytes: 1000n,
       },
     })
     const verified = await request(productionApp).post('/api/v1/auth/email/verify').send({
@@ -289,6 +296,38 @@ integration('passwordless identity routes', () => {
       expect(verified.status).toBe(200)
       expect(verified.body.user.role).toBe(role)
     }
+  })
+
+  test('creates or backfills quota during OTP verification without resetting an existing account', async () => {
+    const existing = await prisma.user.create({ data: { email: 'quota-backfill@example.test' } })
+    const first = await requestCode(existing.email)
+    await request(app())
+      .post('/api/v1/auth/email/verify')
+      .send({ challengeId: first.response.body.challengeId, email: existing.email, code: first.code })
+      .expect(200)
+
+    expect(await prisma.quotaAccount.findUniqueOrThrow({ where: { userId: existing.id } })).toMatchObject({
+      limitBytes: 1000n,
+      reservedBytes: 0n,
+      committedBytes: 0n,
+    })
+
+    await prisma.quotaAccount.update({
+      where: { userId: existing.id },
+      data: { limitBytes: 777n, committedBytes: 100n },
+    })
+    await redis.flushdb()
+    const second = await requestCode(existing.email)
+    await request(app())
+      .post('/api/v1/auth/email/verify')
+      .send({ challengeId: second.response.body.challengeId, email: existing.email, code: second.code })
+      .expect(200)
+
+    expect(await prisma.quotaAccount.findUniqueOrThrow({ where: { userId: existing.id } })).toMatchObject({
+      limitBytes: 777n,
+      reservedBytes: 0n,
+      committedBytes: 100n,
+    })
   })
 
   test('stores only the token hash with a 30-day idle and 90-day absolute expiry', async () => {

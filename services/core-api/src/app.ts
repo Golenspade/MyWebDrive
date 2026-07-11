@@ -4,6 +4,7 @@ import type Redis from 'ioredis'
 
 import type { EmailSender } from './identity/email-sender.js'
 import { createIdentityRouter } from './identity/router.js'
+import { createUploadRouter } from './uploads/router.js'
 
 export type { EmailSender, SendOtpInput } from './identity/email-sender.js'
 
@@ -18,7 +19,9 @@ export type CoreDependencies = {
     otpPepper: string
     adminEmails: string
     production: boolean
+    defaultUserQuotaBytes: bigint
   }
+  storage?: { grantSecret: string }
 }
 
 declare global {
@@ -40,6 +43,7 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
     otpPepper: process.env.OTP_PEPPER ?? 'development-only-otp-pepper',
     adminEmails: process.env.CORE_ADMIN_EMAILS ?? '',
     production: process.env.NODE_ENV === 'production',
+    defaultUserQuotaBytes: 0n,
   }
 
   app.use(
@@ -80,6 +84,19 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
       now: deps.now,
       randomBytes: deps.randomBytes,
       ...identity,
+    }),
+  )
+
+  app.use(
+    '/api/v1',
+    createUploadRouter({
+      prisma: deps.prisma,
+      now: deps.now,
+      sessionSecret: identity.sessionSecret,
+      grantSecret:
+        deps.storage?.grantSecret ??
+        process.env.STORAGE_GRANT_SECRET ??
+        'development-only-storage-grant-secret',
     }),
   )
 

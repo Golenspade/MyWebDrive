@@ -28,7 +28,9 @@ const app = createCoreApp({
     otpPepper: config.otpPepper,
     adminEmails: process.env.CORE_ADMIN_EMAILS ?? '',
     production: config.nodeEnv === 'production',
+    defaultUserQuotaBytes: config.defaultUserQuotaBytes,
   },
+  storage: { grantSecret: config.storageGrantSecret },
 })
 
 app.listen(config.port)

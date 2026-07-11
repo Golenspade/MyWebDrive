@@ -9,9 +9,11 @@ export type CoreConfig = {
   callbackSecret: string
   emailProviderUrl: string
   emailProviderToken: string
+  defaultUserQuotaBytes: bigint
 }
 
 type Environment = Record<string, string | undefined>
+const MAX_DATABASE_BIGINT = 9_223_372_036_854_775_807n
 
 const DEVELOPMENT_DEFAULTS = {
   sessionSecret: 'development-only-core-session-secret',
@@ -64,6 +66,17 @@ function parsePort(value: string | undefined): number {
   return port
 }
 
+function parseDefaultUserQuotaBytes(value: string | undefined): bigint {
+  if (value === undefined || !/^(0|[1-9]\d*)$/.test(value)) {
+    throw new Error('DEFAULT_USER_QUOTA_BYTES must be a nonnegative decimal integer')
+  }
+  const parsed = BigInt(value)
+  if (parsed > MAX_DATABASE_BIGINT) {
+    throw new Error('DEFAULT_USER_QUOTA_BYTES must be a nonnegative decimal integer')
+  }
+  return parsed
+}
+
 export function loadCoreConfig(env: Environment = process.env): CoreConfig {
   const nodeEnv = env.NODE_ENV ?? 'development'
   const production = nodeEnv === 'production'
@@ -100,5 +113,6 @@ export function loadCoreConfig(env: Environment = process.env): CoreConfig {
     callbackSecret,
     emailProviderUrl,
     emailProviderToken,
+    defaultUserQuotaBytes: parseDefaultUserQuotaBytes(env.DEFAULT_USER_QUOTA_BYTES),
   }
 }
