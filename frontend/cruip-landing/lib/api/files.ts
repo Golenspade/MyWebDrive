@@ -1,62 +1,68 @@
-// Files (Metadata) APIs (user + admin)
-// Style: 2-space indent, single quotes, no semicolons
-
 import { apiClient } from './client'
 
-export type FileItem = {
-  id: string
-  name: string
-  size: number | null
-  mimeType?: string | null
-  updatedAt: string
-  path: string
-  version?: number
-}
-
-export type FilesResp = { items: FileItem[]; nextCursor: string | null }
-
-export const userFilesApi = {
-  listMine: (opts: { limit?: number; cursor?: string } = {}) => {
-    const usp = new URLSearchParams()
-    if (opts.limit) usp.set('limit', String(opts.limit))
-    if (opts.cursor) usp.set('cursor', String(opts.cursor))
-    const qs = usp.toString()
-    return apiClient.get<FilesResp>(`/files/me${qs ? `?${qs}` : ''}`)
-  }
-}
 export type FileVersion = {
   id: string
+  fileId: string
   version: number
-  size: number
-  md5Hash?: string | null
+  sizeBytes: string
+  mimeType: string
+  sha256: string
   createdAt: string
 }
 
-export const userFileVersionsApi = {
-  list: (fileId: string, limit = 20) => apiClient.get<{ versions: FileVersion[] }>(`/files/${encodeURIComponent(fileId)}/versions?limit=${limit}`),
-  restore: (fileId: string, versionId: string) => apiClient.post(`/files/${encodeURIComponent(fileId)}/versions/${encodeURIComponent(versionId)}/restore`),
-}
-
-
-
-export type AdminFileItem = {
+export type FileItem = {
   id: string
+  ownerId: string
+  parentId: string | null
   name: string
-  size: number | null
-  mimeType?: string | null
+  type: 'file' | 'folder'
+  createdAt: string
   updatedAt: string
-  path: string
+  currentVersion: FileVersion | null
 }
 
-export type AdminFilesResp = { items: AdminFileItem[]; nextCursor: string | null }
+export type FilesResp = { items: FileItem[]; nextCursor: string | null }
+export type VersionsResp = { items: FileVersion[]; nextCursor: string | null }
+
+export type DownloadTicket = {
+  objectKey: string
+  downloadGrant: string
+  expiresInSeconds: number
+  fileName: string
+  mimeType: string
+}
+
+function query(opts: { limit?: number; cursor?: string; parentId?: string | null } = {}) {
+  const params = new URLSearchParams()
+  if (opts.limit) params.set('limit', String(opts.limit))
+  if (opts.cursor) params.set('cursor', opts.cursor)
+  if (opts.parentId !== undefined) params.set('parentId', opts.parentId ?? 'null')
+  const value = params.toString()
+  return value ? `?${value}` : ''
+}
+
+export const userFilesApi = {
+  listMine: (opts: { limit?: number; cursor?: string; parentId?: string | null } = {}) =>
+    apiClient.get<FilesResp>(`/files${query(opts)}`),
+  listVersions: (fileId: string, opts: { limit?: number; cursor?: string } = {}) =>
+    apiClient.get<VersionsResp>(
+      `/files/${encodeURIComponent(fileId)}/versions${query(opts)}`,
+    ),
+  privateTicket: (fileId: string) =>
+    apiClient.post<DownloadTicket>(`/files/${encodeURIComponent(fileId)}/download-ticket`, {}),
+}
 
 export const filesApi = {
-  listByUserAdmin: (userId: string, opts: { limit?: number; cursor?: string } = {}) => {
-    const usp = new URLSearchParams()
-    if (opts.limit) usp.set('limit', String(opts.limit))
-    if (opts.cursor) usp.set('cursor', opts.cursor)
-    const qs = usp.toString()
-    return apiClient.get<AdminFilesResp>(`/files/admin/by-user/${userId}${qs ? `?${qs}` : ''}`)
-  }
+  listByUserAdmin: (userId: string, opts: { limit?: number; cursor?: string } = {}) =>
+    apiClient.get<FilesResp>(
+      `/admin/users/${encodeURIComponent(userId)}/files${query(opts)}`,
+    ),
 }
 
+export const shareDownloadApi = {
+  ticket: (token: string, password?: string) =>
+    apiClient.postNoRetry<DownloadTicket>(
+      `/shares/${encodeURIComponent(token)}/download-ticket`,
+      password ? { password } : {},
+    ),
+}

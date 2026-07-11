@@ -816,27 +816,27 @@ git commit -m "fix(release): ship immutable core topology"
 - Create: `scripts/smoke-core-e2e.sh`
 - Create: `docs/runbooks/core-cutover-and-rollback.md`
 
-- [ ] **Step 1: Write the empty-environment end-to-end gate**
+- [x] **Step 1: Write the empty-environment end-to-end gate**
 
 The script provisions empty PostgreSQL/Redis/object volumes and verifies: email request with fake upstream, OTP first-user creation, refresh rotation, quota reservation, upload completion, private ticket, single-consumption share ticket, grant replay rejection, logout revocation, `/ready`, `/version`, and no old service in the active compose.
 
-- [ ] **Step 2: Run the gate before cutover**
+- [x] **Step 2: Run the gate before cutover**
 
 Expected: FAIL because Nginx/frontend still target Gateway and old services remain active.
 
-- [ ] **Step 3: Switch the only public route**
+- [x] **Step 3: Switch the only public route**
 
 Nginx sends `/api/v1/storage/objects/*` and upload byte routes to Storage; every other `/api/v1/*` route goes to Core. Frontend uses same-origin relative paths. Remove Gateway, Auth, User, Metadata and Sharing from production compose and deployment scripts.
 
 Replace the remaining frontend data-plane calls in the same cutover commit: `lib/api/files.ts`, `components/upload/upload-panel.tsx`, `app/account/page.tsx` and `components/download/catalog-page.tsx` use Core upload intents, metadata/version lists and ticket endpoints, then send byte requests to Storage with the grant in the `Authorization` header. Remove legacy `/files/me`, `/files/:id/draft`, `/storage/files/*`, direct-download URLs, token-copy UI, version restore until a restore state machine exists, and `SAMPLE_PROJECTS` fallback. Empty catalog, API failure and loading are three distinct UI states; no production click may target a fixture or `example.com`.
 
-- [ ] **Step 4: Verify rollback without old-service writes**
+- [x] **Step 4: Verify rollback without old-service writes**
 
 Rollback restores the previous complete Core image set and never re-enables old service writes against the Core database. Restore rehearsal uses the pre-cutover snapshot in an isolated environment before production traffic switches.
 
 The runbook must document the fail-safe deployment lock at `${DEPLOY_STATE_DIR}/.deploy.lock`: never remove it automatically. An operator may archive and remove a stale lock only after confirming from its `owner` record and host process/container activity that no deploy or rollback is still running; the incident and selected release manifest must be recorded before retrying.
 
-- [ ] **Step 5: Run complete verification and commit**
+- [x] **Step 5: Run complete verification and commit**
 
 Run:
 

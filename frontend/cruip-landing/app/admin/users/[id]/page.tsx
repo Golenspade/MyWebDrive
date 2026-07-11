@@ -16,7 +16,7 @@ export default function AdminUserDetailPage(){
   const params = useParams() as { id?: string }
   const id = params?.id || ''
   const [basic, setBasic] = useState<AdminUser | null>(null)
-  const [uploads, setUploads] = useState<Array<{ id:string; name:string; size:number|null; updatedAt:string }>>([])
+  const [uploads, setUploads] = useState<Array<{ id:string; name:string; sizeBytes:string; updatedAt:string }>>([])
   const [, setUploadsCursor] = useState<string | null>(null)
 
   const [storage, setStorage] = useState<{ storageQuota:number; storageUsed:number }|null>(null)
@@ -37,7 +37,7 @@ export default function AdminUserDetailPage(){
     }
     try {
       const r = await filesApi.listByUserAdmin(id, { limit: 20 })
-      setUploads(r.items.map(x=>({ id:x.id, name:x.name, size:x.size ?? 0, updatedAt:x.updatedAt })))
+      setUploads(r.items.map(x=>({ id:x.id, name:x.name, sizeBytes:x.currentVersion?.sizeBytes ?? '0', updatedAt:x.updatedAt })))
       setUploadsCursor(r.nextCursor)
     } catch {
       // 上传列表失败时保留已有 uploads，避免打断其它区域
@@ -153,7 +153,7 @@ export default function AdminUserDetailPage(){
                 {uploads.map(f => (
                   <div key={f.id} className='grid grid-cols-3 gap-2 py-1 border-b last:border-b-0'>
                     <div className='truncate'>{f.name}</div>
-                    <div>{formatCompactBytes(f.size||0)}</div>
+                    <div>{formatCompactBytes(Number(f.sizeBytes))}</div>
                     <div>{new Date(f.updatedAt).toLocaleString()}</div>
                   </div>
                 ))}
@@ -182,4 +182,3 @@ export default function AdminUserDetailPage(){
     </div>
   )
 }
-

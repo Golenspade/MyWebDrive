@@ -9,6 +9,25 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MINIO_MULTIPART_PART_BYTES = 64 * 1024 * 1024
 
+type UploadPartResponse = Readable & {
+  headers: Record<string, string | string[] | undefined>
+}
+
+type ByteMultipartClient = Client & {
+  makeRequestAsync(
+    options: {
+      method: 'PUT'
+      bucketName: string
+      objectName: string
+      query: string
+      headers: Record<string, number | string>
+    },
+    payload: Buffer,
+    expectedCodes: number[],
+    region: string,
+  ): Promise<UploadPartResponse>
+}
+
 function valid(objectKey: string, part?: number): void {
   if (!UUID_PATTERN.test(objectKey)) throw new Error('invalid object key')
   if (part !== undefined && (!Number.isInteger(part) || part < 1 || part > 100_000)) {
@@ -35,6 +54,41 @@ async function verifyMinioUpload(
       published.metaData?.[`x-amz-meta-${normalized}`]
     if (String(actual ?? '') !== value) throw new ObjectIntegrityError()
   }
+}
+
+async function uploadBytePart(
+  client: Client,
+  input: {
+    bucket: string
+    key: string
+    uploadId: string
+    partNumber: number
+    payload: Buffer
+  },
+): Promise<string> {
+  const response = await (client as ByteMultipartClient).makeRequestAsync(
+    {
+      method: 'PUT',
+      bucketName: input.bucket,
+      objectName: input.key,
+      query: `uploadId=${encodeURIComponent(input.uploadId)}&partNumber=${input.partNumber}`,
+      headers: {
+        'Content-Length': input.payload.length,
+        'Content-MD5': createHash('md5').update(input.payload).digest('base64'),
+      },
+    },
+    input.payload,
+    [200],
+    '',
+  )
+  const rawEtag = response.headers.etag
+  for await (const _chunk of response) {
+    // UploadPart has no response body, but drain it so the connection is reusable.
+  }
+  const header = Array.isArray(rawEtag) ? rawEtag[0] : rawEtag
+  const etag = header?.replace(/^"|"$/g, '') ?? ''
+  if (!/^[0-9a-f]{32}$/i.test(etag)) throw new ObjectIntegrityError()
+  return etag
 }
 
 export async function uploadMinioStreamAtomic(
@@ -69,20 +123,14 @@ export async function uploadMinioStreamAtomic(
 
     const uploadBufferedPart = async (): Promise<void> => {
       const payload = buffer.subarray(0, bufferedBytes)
-      const result = await client.uploadPart(
-        {
-          bucketName: bucket,
-          objectName: key,
-          uploadID: uploadId!,
-          partNumber,
-          headers: {
-            'Content-Length': payload.length,
-            'Content-MD5': createHash('md5').update(payload).digest('base64'),
-          },
-        },
+      const etag = await uploadBytePart(client, {
+        bucket,
+        key,
+        uploadId: uploadId!,
+        partNumber,
         payload,
-      )
-      etags.push({ part: partNumber, etag: result.etag })
+      })
+      etags.push({ part: partNumber, etag })
       partNumber += 1
       buffer = Buffer.allocUnsafe(partSizeBytes)
       bufferedBytes = 0

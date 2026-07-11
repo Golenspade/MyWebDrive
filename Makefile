@@ -39,6 +39,7 @@ quality-check:
 	pnpm run test:all
 	bash scripts/verify-core-release-contract.sh infrastructure/alicloud/docker-compose.core.yml
 	bash scripts/test-core-release-contract.sh
+	bash scripts/test-core-cutover-contract.sh
 	@echo "✅ 质量检查完成"
 
 # 阿里云部署（Node 版 compose）

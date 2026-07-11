@@ -1,39 +1,19 @@
-"use client"
+'use client'
 
-import { useState, useMemo } from 'react'
+import { useMemo, useState } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { apiClient } from '@/lib/api/client'
+import { userFilesApi } from '@/lib/api/files'
 
-type UploadSession = {
+const PART_BYTES = 5 * 1024 * 1024
+
+type UploadIntent = {
   id: string
-  chunkSize?: number
-  totalChunks?: number
-}
-
-type UploadFinalizeResponse = {
-  fileId?: string
-}
-
-type UploadStatusResponse = {
-  status?: 'uploading' | 'processing' | 'completed' | 'failed'
-}
-
-type DraftCategory = 'base' | 'writing' | 'model' | 'script' | 'bundle' | 'modelAsset' | 'article'
-type DraftOS = 'windows' | 'darwin' | 'linux' | 'any'
-type DraftArch = 'amd64' | 'arm64' | 'any'
-type DraftChannel = 'stable' | 'beta' | 'dev'
-
-type DraftMetadata = {
-  name?: string
-  description?: string
-  category?: DraftCategory
-  license?: string
-  os?: DraftOS
-  arch?: DraftArch
-  channel?: DraftChannel
+  objectKey: string
+  uploadGrant: string
+  expiresAt: string
 }
 
 type UploadPanelProps = {
@@ -43,105 +23,97 @@ type UploadPanelProps = {
   title?: boolean | string
 }
 
-export default function UploadPanel({ onCompleted, showPreMetadata = true, showPostDraft = true, title = '上传文件' }: UploadPanelProps) {
+function message(error: unknown) {
+  return error instanceof Error ? error.message : '上传失败'
+}
+
+export default function UploadPanel({ onCompleted, title = '上传文件' }: UploadPanelProps) {
   const [file, setFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
-  const [progress, setProgress] = useState(0) // 0~100
-  const [status, setStatus] = useState<string>('')
-  const [uploadId, setUploadId] = useState<string | null>(null)
+  const [progress, setProgress] = useState(0)
+  const [status, setStatus] = useState('')
 
-  // Draft metadata UI state (pre-upload fill)
-  const [draft, setDraft] = useState<DraftMetadata>({ channel: 'stable', os: 'any', arch: 'any' })
-  const [savingDraft, setSavingDraft] = useState(false)
-
-  const fileInfo = useMemo(() => {
+  const fileSummary = useMemo(() => {
     if (!file) return null
-    const fmt = (n: number) => {
-      if (!n) return '0 B'
-      const u = ['B','KB','MB','GB','TB']
-      const i = Math.floor(Math.log(n)/Math.log(1024))
-      return `${(n/Math.pow(1024,i)).toFixed(2)} ${u[i]}`
-    }
-    return `${file.name}（${fmt(file.size)}）`
+    return `${file.name} · ${file.size.toLocaleString()} B`
   }, [file])
 
+  async function waitUntilVisible(fileName: string) {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const files = await userFilesApi.listMine({ limit: 100 })
+      const visible = files.items.find(
+        (item) => item.name === fileName && item.currentVersion !== null,
+      )
+      if (visible) return visible
+      await new Promise((resolve) => setTimeout(resolve, 500))
+    }
+    return null
+  }
+
   async function startUpload() {
-    if (!file) return
+    if (!file || file.size < 1) {
+      setStatus('请选择一个非空文件')
+      return
+    }
     setUploading(true)
     setProgress(0)
-    setStatus('创建上传会话…')
+    setStatus('预留上传配额…')
+    let intent: UploadIntent | null = null
+    let completionQueued = false
     try {
-      // 1) 创建会话（JSON 流程）
-      const session = await apiClient.post<UploadSession>('/storage/uploads', {
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type || 'application/octet-stream',
-      })
-      const id: string = session.id
-      const chunkSize: number = session.chunkSize || 5 * 1024 * 1024
-      const totalChunks: number = session.totalChunks || Math.ceil(file.size / chunkSize)
-      setUploadId(id)
+      intent = await apiClient.post<UploadIntent>(
+        '/upload-intents',
+        {
+          fileName: file.name,
+          sizeBytes: String(file.size),
+          mimeType: file.type || 'application/octet-stream',
+        },
+        { headers: { 'Idempotency-Key': crypto.randomUUID() } },
+      )
 
-      // 2) 逐块上传
-      setStatus('开始上传分片…')
-      for (let i = 0; i < totalChunks; i++) {
-        const start = i * chunkSize
-        const end = Math.min(file.size, start + chunkSize)
-        const slice = file.slice(start, end)
-        await apiClient.raw(`/storage/uploads/${id}`, {
-          method: 'PATCH',
+      const parts = Math.ceil(file.size / PART_BYTES)
+      for (let index = 0; index < parts; index += 1) {
+        const partNumber = index + 1
+        const body = file.slice(index * PART_BYTES, Math.min(file.size, partNumber * PART_BYTES))
+        await apiClient.raw(`/storage/uploads/${intent.objectKey}/parts/${partNumber}`, {
+          method: 'PUT',
           headers: {
+            Authorization: `Bearer ${intent.uploadGrant}`,
             'Content-Type': 'application/octet-stream',
-            'X-Chunk-Index': String(i),
           },
-          body: slice,
+          body,
         })
-        const pct = Math.round(((i + 1) / totalChunks) * 100)
-        setProgress(pct)
-        setStatus(`已上传 ${i + 1}/${totalChunks} 个分片`)
+        setProgress(Math.round((partNumber / parts) * 100))
+        setStatus(`已上传 ${partNumber}/${parts} 个分片`)
       }
 
-      // 3) 完成合并（改为异步 finalize + 轮询）
-      setStatus('合并文件…')
-      const finRes = await apiClient.raw(`/storage/uploads/${id}/finalize`, {
+      await apiClient.raw(`/storage/uploads/${intent.objectKey}/complete`, {
         method: 'POST',
         headers: {
+          Authorization: `Bearer ${intent.uploadGrant}`,
           'Content-Type': 'application/json',
         },
-        body: '{}',
+        body: JSON.stringify({ parts }),
       })
-      if (finRes.status === 200) {
-        const fin: UploadFinalizeResponse = await finRes.json()
-        try {
-          await apiClient.put(`/files/${id}/draft`, draft)
-        } catch {
-          // 草稿保存失败不影响上传完成，只影响管理端展示
-        }
+      completionQueued = true
+      setStatus('文件正在完成处理…')
+      const visible = await waitUntilVisible(file.name)
+      if (visible) {
         setStatus('上传完成')
-        onCompleted?.({ fileId: fin.fileId || id, fileName: file.name })
+        onCompleted?.({ fileId: visible.id, fileName: visible.name })
       } else {
-        setStatus('合并进行中…（请不要关闭页面，可安全切换其他页面）')
-        // 轮询状态：最多 ~10 分钟（300 次 * 2s）
-        let done = false
-        for (let i = 0; i < 300; i++) {
-          await new Promise(r => setTimeout(r, 2000))
-          const s = await apiClient.get<UploadStatusResponse>(`/storage/uploads/${id}`)
-          if (s?.status === 'completed') { done = true; break }
-          if (s?.status === 'failed') throw new Error('合并失败')
-        }
-        if (!done) throw new Error('合并超时，请稍后在“我的文件”或发布管理中再试')
-        try {
-          await apiClient.put(`/files/${id}/draft`, draft)
-        } catch {
-          // 草稿保存失败不影响上传完成，只影响管理端展示
-        }
-        setStatus('上传完成')
-        onCompleted?.({ fileId: id, fileName: file.name })
+        setStatus('文件已提交，后台仍在处理，请稍后刷新文件列表')
       }
-    } catch (err) {
-      console.error(err)
-      const message = err instanceof Error ? err.message : null
-      setStatus(message || '上传失败')
+    } catch (error) {
+      if (intent && !completionQueued) {
+        try {
+          await apiClient.post(`/upload-intents/${intent.id}/cancel`, {})
+        } catch {
+          setStatus(`${message(error)}；上传预留的自动取消也失败，请稍后重试`)
+          return
+        }
+      }
+      setStatus(message(error))
     } finally {
       setUploading(false)
     }
@@ -149,177 +121,16 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
 
   return (
     <div className="space-y-3">
-      {title ? (
-        <div className="text-sm font-medium">{typeof title === 'string' ? title : '上传文件'}</div>
+      {title ? <div className="text-sm font-medium">{typeof title === 'string' ? title : '上传文件'}</div> : null}
+      <Input type="file" disabled={uploading} onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+      {fileSummary ? <div className="text-xs text-muted-foreground">{fileSummary}</div> : null}
+      {uploading ? (
+        <div className="h-2 w-full overflow-hidden rounded bg-muted">
+          <div className="h-2 bg-primary" style={{ width: `${progress}%` }} />
+        </div>
       ) : null}
-      {fileInfo && <div className="text-xs text-muted-foreground">{fileInfo}</div>}
-      {uploading && (
-        <div className="space-y-2">
-          <div className="h-2 w-full rounded bg-muted overflow-hidden">
-            <div className="h-2 bg-primary" style={{ width: `${progress}%` }} />
-          </div>
-          <div className="text-xs text-muted-foreground">{status}</div>
-        </div>
-      )}
-      {!uploading && status && <div className="text-xs text-muted-foreground">{status}</div>}
-      {showPostDraft && uploadId && !uploading && status === '上传完成' && (
-        <div className="space-y-3 text-xs">
-          <div>
-            已完成。你可以在“我的文件”或发布管理中使用该文件，或直接下载：
-            <a className="ml-1 underline" href={`/api/v1/storage/files/${uploadId}/download-direct?ttl=600`}>直链下载</a>
-          </div>
-          <div className="p-3 border rounded-md space-y-3">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-1">
-                  <Label htmlFor="name">资源名称</Label>
-                  <Input id="name" value={draft.name || ''} onChange={(e)=>setDraft({ ...draft, name: e.target.value })} placeholder="例如：Awesome Tool" />
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="category">分类</Label>
-                  <Select value={draft.category ?? undefined} onValueChange={(v) => setDraft({ ...draft, category: v as DraftCategory })}>
-                    <SelectTrigger className="w-[200px]">
-                      <SelectValue placeholder="选择分类" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="base">基础工具</SelectItem>
-                      <SelectItem value="writing">写作工具</SelectItem>
-                      <SelectItem value="model">模型工具</SelectItem>
-                      <SelectItem value="script">脚本工具</SelectItem>
-                      <SelectItem value="bundle">整合包</SelectItem>
-                      <SelectItem value="modelAsset">模型</SelectItem>
-                      <SelectItem value="article">文章</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1">
-                  <Label htmlFor="license">许可证</Label>
-                  <Input id="license" value={draft.license || ''} onChange={(e)=>setDraft({ ...draft, license: e.target.value })} placeholder="MIT/Apache-2.0/..." />
-                </div>
-                <div className="space-y-1">
-                  <Label>兼容性</Label>
-                  <div className="grid grid-cols-3 gap-2">
-                    <Select value={draft.os ?? undefined} onValueChange={(v) => setDraft({ ...draft, os: v as DraftOS })}>
-                      <SelectTrigger><SelectValue placeholder="OS" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="any">通用</SelectItem>
-                        <SelectItem value="windows">Windows</SelectItem>
-                        <SelectItem value="darwin">macOS</SelectItem>
-                        <SelectItem value="linux">Linux</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select value={draft.arch ?? undefined} onValueChange={(v) => setDraft({ ...draft, arch: v as DraftArch })}>
-                      <SelectTrigger><SelectValue placeholder="Arch" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="any">通用</SelectItem>
-                        <SelectItem value="amd64">AMD64</SelectItem>
-                        <SelectItem value="arm64">ARM64</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <Select value={draft.channel ?? undefined} onValueChange={(v) => setDraft({ ...draft, channel: v as DraftChannel })}>
-                      <SelectTrigger><SelectValue placeholder="渠道" /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="stable">Stable</SelectItem>
-                        <SelectItem value="beta">Beta</SelectItem>
-                        <SelectItem value="dev">Dev</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="space-y-1 md:col-span-2">
-                  <Label htmlFor="desc">描述</Label>
-                  <textarea id="desc" className="w-full min-h-[80px] p-2 rounded border bg-background text-foreground" value={draft.description || ''} onChange={(e)=>setDraft({ ...draft, description: e.target.value })} placeholder="简要介绍您的资源..." />
-                </div>
-              </div>
-              <div>
-                <Button size="sm" disabled={savingDraft} onClick={async()=>{
-                  if (!uploadId) return
-                  setSavingDraft(true)
-                  try {
-                    await apiClient.put(`/files/${uploadId}/draft`, draft)
-                    setStatus('草稿信息已保存')
-                  } catch (err) {
-                    const message = err instanceof Error ? err.message : null
-                    setStatus(message || '保存失败')
-                  } finally {
-                    setSavingDraft(false)
-                  }
-                }}>保存草稿</Button>
-              </div>
-            </div>
-        </div>
-      )}
-
-      {showPreMetadata && (
-      <div className="p-3 border rounded-md space-y-3">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label htmlFor="name-pre">资源名称</Label>
-            <Input id="name-pre" value={draft.name || ''} onChange={(e)=>setDraft({ ...draft, name: e.target.value })} placeholder="例如：Awesome Tool" />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="category-pre">分类</Label>
-            <Select value={draft.category ?? undefined} onValueChange={(v) => setDraft({ ...draft, category: v as DraftCategory })}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="选择分类" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="base">基础工具</SelectItem>
-                <SelectItem value="writing">写作工具</SelectItem>
-                <SelectItem value="model">模型工具</SelectItem>
-                <SelectItem value="script">脚本工具</SelectItem>
-                <SelectItem value="bundle">整合包</SelectItem>
-                <SelectItem value="modelAsset">模型</SelectItem>
-                <SelectItem value="article">文章</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="license-pre">许可证</Label>
-            <Input id="license-pre" value={draft.license || ''} onChange={(e)=>setDraft({ ...draft, license: e.target.value })} placeholder="MIT/Apache-2.0/..." />
-          </div>
-          <div className="space-y-1">
-            <Label>兼容性</Label>
-            <div className="grid grid-cols-3 gap-2">
-              <Select value={draft.os ?? undefined} onValueChange={(v) => setDraft({ ...draft, os: v as DraftOS })}>
-                <SelectTrigger><SelectValue placeholder="OS" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">通用</SelectItem>
-                  <SelectItem value="windows">Windows</SelectItem>
-                  <SelectItem value="darwin">macOS</SelectItem>
-                  <SelectItem value="linux">Linux</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={draft.arch ?? undefined} onValueChange={(v) => setDraft({ ...draft, arch: v as DraftArch })}>
-                <SelectTrigger><SelectValue placeholder="Arch" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">通用</SelectItem>
-                  <SelectItem value="amd64">AMD64</SelectItem>
-                  <SelectItem value="arm64">ARM64</SelectItem>
-                </SelectContent>
-              </Select>
-              <Select value={draft.channel ?? undefined} onValueChange={(v) => setDraft({ ...draft, channel: v as DraftChannel })}>
-                <SelectTrigger><SelectValue placeholder="渠道" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="stable">Stable</SelectItem>
-                  <SelectItem value="beta">Beta</SelectItem>
-                  <SelectItem value="dev">Dev</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-          <div className="space-y-1 md:col-span-2">
-            <Label htmlFor="desc-pre">描述</Label>
-            <textarea id="desc-pre" className="w-full min-h-[80px] p-2 rounded border bg-background text-foreground" value={draft.description || ''} onChange={(e)=>setDraft({ ...draft, description: e.target.value })} placeholder="简要介绍您的资源..." />
-          </div>
-        </div>
-      </div>
-      )}
-
-      <div className="flex items-center gap-2">
-        <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        <Button onClick={startUpload} disabled={!file || uploading || !draft.name}>开始上传</Button>
-      </div>
-
+      {status ? <div className="text-xs text-muted-foreground">{status}</div> : null}
+      <Button onClick={startUpload} disabled={!file || uploading}>开始上传</Button>
     </div>
   )
 }

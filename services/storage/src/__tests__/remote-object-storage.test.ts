@@ -13,6 +13,24 @@ import { OssObjectStorage, type OssClient } from '../object-storage/oss.js'
 const objectKey = '5dd0d998-ec26-4fbd-9589-eca8aa9a9311'
 const generation = '16232aef-1f26-4bb4-98ba-ccc72d7f3915'
 
+type ByteUploadRequest = { query: string; headers: Record<string, unknown> }
+
+function fakeEtag(partNumber: number): string {
+  return String(partNumber).padStart(32, '0')
+}
+
+function byteUpload(
+  handler: (partNumber: number, payload: Buffer) => Promise<void> | void = () => undefined,
+) {
+  return vi.fn(async (config: ByteUploadRequest, payload: Buffer) => {
+    const partNumber = Number(new URLSearchParams(config.query).get('partNumber'))
+    await handler(partNumber, payload)
+    return Object.assign(Readable.from([]), {
+      headers: { etag: `"${fakeEtag(partNumber)}"` },
+    })
+  })
+}
+
 async function text(stream: NodeJS.ReadableStream): Promise<string> {
   const chunks: Buffer[] = []
   for await (const chunk of stream) chunks.push(Buffer.from(chunk))
@@ -20,18 +38,54 @@ async function text(stream: NodeJS.ReadableStream): Promise<string> {
 }
 
 describe('remote object adapter arbitrary part contract', () => {
+  test('MinIO multipart reads ETag from the S3 response header instead of an empty body', async () => {
+    let published = false
+    const client = {
+      initiateNewMultipartUpload: vi.fn(async () => 'new-upload-id'),
+      makeRequestAsync: vi.fn(async () => Object.assign(Readable.from([]), {
+        headers: { etag: '"900150983cd24fb0d6963f7d28e17f72"' },
+      })),
+      uploadPart: vi.fn(async () => { throw new Error('SDK uploadPart parses an empty S3 body') }),
+      completeMultipartUpload: vi.fn(async () => { published = true }),
+      abortMultipartUpload: vi.fn(async () => undefined),
+      statObject: vi.fn(async () => ({ size: published ? 3 : 0, metaData: {} })),
+    }
+
+    await expect(uploadMinioStreamAtomic(
+      client as unknown as Client,
+      'bucket',
+      `parts/${objectKey}/1`,
+      Readable.from('abc'),
+      3n,
+      {},
+      4,
+    )).resolves.toBeUndefined()
+    expect(client.makeRequestAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        method: 'PUT',
+        bucketName: 'bucket',
+        objectName: `parts/${objectKey}/1`,
+        query: 'uploadId=new-upload-id&partNumber=1',
+      }),
+      Buffer.from('abc'),
+      [200],
+      '',
+    )
+    expect(client.completeMultipartUpload).toHaveBeenCalledWith(
+      'bucket', `parts/${objectKey}/1`, 'new-upload-id',
+      [{ part: 1, etag: '900150983cd24fb0d6963f7d28e17f72' }],
+    )
+    expect(client.uploadPart).not.toHaveBeenCalled()
+  })
+
   test('MinIO atomic stream upload uses bounded sequential parts and exact metadata', async () => {
     const source = Readable.from([Buffer.from('abc'), Buffer.from('defgh'), Buffer.from('ij')])
     expect(source.readableLength).toBe(0)
     const uploaded: Buffer[] = []
     const client = {
       initiateNewMultipartUpload: vi.fn(async () => 'new-upload-id'),
-      uploadPart: vi.fn(async (
-        config: { partNumber: number; headers: Record<string, unknown> },
-        payload: Buffer,
-      ) => {
+      makeRequestAsync: byteUpload(async (_partNumber, payload) => {
         uploaded.push(Buffer.from(payload))
-        return { etag: `etag-${config.partNumber}`, key: `files/${objectKey}`, part: config.partNumber }
       }),
       completeMultipartUpload: vi.fn(async () => ({ etag: 'final-etag', versionId: null })),
       abortMultipartUpload: vi.fn(async () => undefined),
@@ -60,8 +114,8 @@ describe('remote object adapter arbitrary part contract', () => {
     )
     expect(uploaded.map((part) => part.toString())).toEqual(['abcd', 'efgh', 'ij'])
     expect(uploaded.every((part) => part.length <= 4)).toBe(true)
-    expect(client.uploadPart.mock.calls.map(([config, payload]) => ({
-      partNumber: config.partNumber,
+    expect(client.makeRequestAsync.mock.calls.map(([config, payload]) => ({
+      partNumber: Number(new URLSearchParams(config.query).get('partNumber')),
       length: payload.length,
       headers: config.headers,
     }))).toEqual(uploaded.map((part, index) => ({
@@ -77,9 +131,9 @@ describe('remote object adapter arbitrary part contract', () => {
       `files/${objectKey}`,
       'new-upload-id',
       [
-        { part: 1, etag: 'etag-1' },
-        { part: 2, etag: 'etag-2' },
-        { part: 3, etag: 'etag-3' },
+        { part: 1, etag: fakeEtag(1) },
+        { part: 2, etag: fakeEtag(2) },
+        { part: 3, etag: fakeEtag(3) },
       ],
     )
     expect(client.findUploadId).not.toHaveBeenCalled()
@@ -96,9 +150,7 @@ describe('remote object adapter arbitrary part contract', () => {
     const client = {
       initiateNewMultipartUpload: vi.fn(async () => 'new-upload-id'),
       getObject: vi.fn(async () => Readable.from(bytes)),
-      uploadPart: vi.fn(async (config: { partNumber: number }) => ({
-        etag: `etag-${config.partNumber}`, key: 'final', part: config.partNumber,
-      })),
+      makeRequestAsync: byteUpload(),
       completeMultipartUpload: vi.fn(),
       abortMultipartUpload: vi.fn(async () => undefined),
       statObject: vi.fn(),
@@ -121,9 +173,8 @@ describe('remote object adapter arbitrary part contract', () => {
     const failure = new Error(`${failureAt} failed`)
     const client = {
       initiateNewMultipartUpload: vi.fn(async () => 'new-upload-id'),
-      uploadPart: vi.fn(async (config: { partNumber: number }) => {
+      makeRequestAsync: byteUpload(async () => {
         if (failureAt === 'upload') throw failure
-        return { etag: `etag-${config.partNumber}`, key: 'final', part: config.partNumber }
       }),
       completeMultipartUpload: vi.fn(async () => {
         if (failureAt === 'complete') throw failure
@@ -148,9 +199,7 @@ describe('remote object adapter arbitrary part contract', () => {
   test('MinIO preserves a completed final whose post-publication stat mismatches', async () => {
     const client = {
       initiateNewMultipartUpload: vi.fn(async () => 'new-upload-id'),
-      uploadPart: vi.fn(async (config: { partNumber: number }) => ({
-        etag: `etag-${config.partNumber}`, key: 'final', part: config.partNumber,
-      })),
+      makeRequestAsync: byteUpload(),
       completeMultipartUpload: vi.fn(async () => ({ etag: 'final', versionId: null })),
       abortMultipartUpload: vi.fn(async () => undefined),
       statObject: vi.fn(async () => ({ size: 10, metaData: { 'storage-generation': 'wrong' } })),
@@ -177,9 +226,8 @@ describe('remote object adapter arbitrary part contract', () => {
     let published = false
     const client = {
       initiateNewMultipartUpload: vi.fn(async () => 'part-upload-id'),
-      uploadPart: vi.fn(async (config: { partNumber: number }, payload: Buffer) => {
+      makeRequestAsync: byteUpload(async (_partNumber, payload) => {
         uploaded.push(Buffer.from(payload))
-        return { etag: `etag-${config.partNumber}`, key: 'part', part: config.partNumber }
       }),
       completeMultipartUpload: vi.fn(async () => {
         published = true
@@ -205,9 +253,7 @@ describe('remote object adapter arbitrary part contract', () => {
   test('MinIO writePart aborts its fresh multipart when the stream is short', async () => {
     const client = {
       initiateNewMultipartUpload: vi.fn(async () => 'part-upload-id'),
-      uploadPart: vi.fn(async (config: { partNumber: number }) => ({
-        etag: `etag-${config.partNumber}`, key: 'part', part: config.partNumber,
-      })),
+      makeRequestAsync: byteUpload(),
       completeMultipartUpload: vi.fn(),
       abortMultipartUpload: vi.fn(async () => undefined),
       statObject: vi.fn(),
@@ -239,9 +285,8 @@ describe('remote object adapter arbitrary part contract', () => {
       getObject: vi.fn(async (_bucket: string, key: string) =>
         Readable.from(key.endsWith('/1') ? ['he', 'llo'] : ['wo', 'rld'])),
       initiateNewMultipartUpload: vi.fn(async () => 'final-upload-id'),
-      uploadPart: vi.fn(async (config: { partNumber: number }, payload: Buffer) => {
+      makeRequestAsync: byteUpload(async (_partNumber, payload) => {
         uploaded.push(Buffer.from(payload))
-        return { etag: `etag-${config.partNumber}`, key: 'final', part: config.partNumber }
       }),
       completeMultipartUpload: vi.fn(async () => {
         published = true
@@ -263,7 +308,7 @@ describe('remote object adapter arbitrary part contract', () => {
     )
     expect(client.completeMultipartUpload).toHaveBeenCalledWith(
       'bucket', `files/${objectKey}`, 'final-upload-id',
-      [{ part: 1, etag: 'etag-1' }, { part: 2, etag: 'etag-2' }, { part: 3, etag: 'etag-3' }],
+      [{ part: 1, etag: fakeEtag(1) }, { part: 2, etag: fakeEtag(2) }, { part: 3, etag: fakeEtag(3) }],
     )
     expect(client.composeObject).not.toHaveBeenCalled()
     expect(client.copyObject).not.toHaveBeenCalled()
@@ -284,9 +329,7 @@ describe('remote object adapter arbitrary part contract', () => {
       }),
       getObject: vi.fn(async () => Readable.from(bytes)),
       initiateNewMultipartUpload: vi.fn(async () => 'final-upload-id'),
-      uploadPart: vi.fn(async (config: { partNumber: number }) => ({
-        etag: `etag-${config.partNumber}`, key: 'final', part: config.partNumber,
-      })),
+      makeRequestAsync: byteUpload(),
       completeMultipartUpload: vi.fn(),
       abortMultipartUpload: vi.fn(async () => undefined),
       putObject: vi.fn(),
@@ -380,7 +423,7 @@ describe('remote object adapter arbitrary part contract', () => {
       }),
       getObject: vi.fn(async () => Readable.from('abc')),
       initiateNewMultipartUpload: vi.fn(async () => 'final-upload-id'),
-      uploadPart: vi.fn(),
+      makeRequestAsync: vi.fn(),
       completeMultipartUpload: vi.fn(),
       abortMultipartUpload: vi.fn(async () => undefined),
       putObject: vi.fn(),
@@ -394,6 +437,7 @@ describe('remote object adapter arbitrary part contract', () => {
     expect(minio.copyObject).not.toHaveBeenCalled()
     expect(minio.composeObject).not.toHaveBeenCalled()
     expect(minio.putObject).not.toHaveBeenCalled()
+    expect(minio.makeRequestAsync).not.toHaveBeenCalled()
     expect(minio.completeMultipartUpload).not.toHaveBeenCalled()
     expect(minio.initiateNewMultipartUpload).not.toHaveBeenCalled()
     expect(minio.abortMultipartUpload).not.toHaveBeenCalled()

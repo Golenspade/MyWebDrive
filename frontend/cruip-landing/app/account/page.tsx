@@ -1,86 +1,79 @@
-"use client"
+'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useProtected } from '@/lib/hooks/use-protected'
-import { useAuthStore } from '@/lib/stores/auth-store'
-import { apiClient } from '@/lib/api/client'
-import { Button } from '@/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { formatCompactBytes } from '@/lib/utils/format-bytes'
-import { userFilesApi, userFileVersionsApi, type FileItem, type FileVersion } from '@/lib/api/files'
-
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-
-
 
 import UploadPanel from '@/components/upload/upload-panel'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { apiClient } from '@/lib/api/client'
+import {
+  userFilesApi,
+  type DownloadTicket,
+  type FileItem,
+  type FileVersion,
+} from '@/lib/api/files'
+import { useProtected } from '@/lib/hooks/use-protected'
+import { useAuthStore } from '@/lib/stores/auth-store'
+import { formatCompactBytes } from '@/lib/utils/format-bytes'
+
+function saveResponse(response: Response, fileName: string) {
+  return response.blob().then((blob) => {
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = fileName
+    anchor.click()
+    URL.revokeObjectURL(url)
+  })
+}
 
 export default function AccountPage() {
   const { ready } = useProtected('user')
   const router = useRouter()
   const { user, role, logout } = useAuthStore()
-  const [myFiles, setMyFiles] = useState<FileItem[]>([])
-  const [filesCursor, setFilesCursor] = useState<string | null>(null)
-  const [filesLoading, setFilesLoading] = useState(false)
+  const [files, setFiles] = useState<FileItem[]>([])
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [versionFile, setVersionFile] = useState<FileItem | null>(null)
+  const [versions, setVersions] = useState<FileVersion[]>([])
 
-  const loadMyFiles = useCallback(async (cursor?: string) => {
-    setFilesLoading(true)
+  const loadFiles = useCallback(async (cursor?: string) => {
+    setLoading(true)
+    setError('')
     try {
-      const r = await userFilesApi.listMine({ limit: 20, cursor })
-      setMyFiles(prev => cursor ? [...prev, ...r.items] : r.items)
-      setFilesCursor(r.nextCursor)
+      const response = await userFilesApi.listMine({ limit: 20, cursor })
+      setFiles((current) => (cursor ? [...current, ...response.items] : response.items))
+      setNextCursor(response.nextCursor)
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : '文件列表加载失败')
     } finally {
-      setFilesLoading(false)
+      setLoading(false)
     }
   }, [])
 
-  const [verOpenFor, setVerOpenFor] = useState<FileItem|null>(null)
-  const [versions, setVersions] = useState<FileVersion[]>([])
-  const [verLoading, setVerLoading] = useState(false)
-
-  async function openVersions(f: FileItem){
-    setVerOpenFor(f)
-    setVerLoading(true)
-    try{ const r = await userFileVersionsApi.list(f.id, 20); setVersions(r.versions||[]) } finally { setVerLoading(false) }
-  }
-  async function restoreVersion(v: FileVersion){
-    if (!verOpenFor) return
-    if (!confirm(`确认回滚到版本 ${v.version} 吗？`)) return
-    await userFileVersionsApi.restore(verOpenFor.id, v.id)
-    await loadMyFiles() // refresh list
-    await openVersions(verOpenFor) // refresh versions
-  }
-  async function previewFile(f: FileItem){
-    try{
-      const r = await apiClient.raw(`/files/${f.id}/preview`)
-      const blob = await r.blob()
-      const url = URL.createObjectURL(blob)
-      const w = window.open('about:blank')
-      if (w) { w.location.href = url } else { window.location.href = url }
-      setTimeout(()=> URL.revokeObjectURL(url), 60_000)
-    }catch{
-      alert('预览失败')
-    }
-  }
   useEffect(() => {
-    if (!ready) return
-    void loadMyFiles()
-  }, [ready, loadMyFiles])
+    if (ready) void loadFiles()
+  }, [ready, loadFiles])
 
-  const quota = useMemo(() => ({
-    used: Number(user?.storageUsed || 0),
-    total: Number(user?.storageQuota || 0),
-  }), [user])
+  async function openVersions(file: FileItem) {
+    setVersionFile(file)
+    const response = await userFilesApi.listVersions(file.id, { limit: 100 })
+    setVersions(response.items)
+  }
 
-  const percent = useMemo(() => {
-    const { used, total } = quota
-    if (!total) return 0
-    return Math.min(100, Math.round((used / total) * 100))
-  }, [quota])
-
-  function fmtBytes(n: number) {
-    return formatCompactBytes(Number(n || 0))
+  async function downloadFile(file: FileItem) {
+    const ticket = await apiClient.post<DownloadTicket>(
+      `/files/${encodeURIComponent(file.id)}/download-ticket`,
+      {},
+    )
+    const response = await apiClient.raw(
+      `/storage/objects/${encodeURIComponent(ticket.objectKey)}`,
+      { headers: { Authorization: `Bearer ${ticket.downloadGrant}` } },
+    )
+    await saveResponse(response, ticket.fileName)
   }
 
   async function onLogout() {
@@ -91,155 +84,68 @@ export default function AccountPage() {
   if (!ready) return null
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="space-y-6 p-6">
       <h1 className="text-2xl font-bold">个人中心</h1>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">基本信息</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">用户ID</div>
-                <div className="text-sm break-all">{user?.id || '-'}</div>
-              </div>
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">角色</div>
-                <div className="text-sm">{role || 'user'}</div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">邮箱</div>
-              <div className="text-sm break-all">{user?.email || '-'}</div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">存储空间</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-sm">已用 {fmtBytes(quota.used)} / 配额 {quota.total ? fmtBytes(quota.total) : '未设置'}</div>
-            <div className="h-2 w-full rounded bg-muted overflow-hidden">
-              <div className="h-2 bg-primary" style={{ width: `${percent}%` }} />
-            </div>
-            <div className="text-xs text-muted-foreground">使用率 {percent}%</div>
-            <div className="text-xs text-muted-foreground">配额数据将在新的上传控制面接入后实时更新。</div>
-          </CardContent>
-        </Card>
-      </div>
-
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">会话安全</CardTitle>
-        </CardHeader>
-        <CardContent>
+        <CardHeader><CardTitle className="text-base">账户</CardTitle></CardHeader>
+        <CardContent className="space-y-2 text-sm">
+          <div>{user?.email ?? '-'}</div>
+          <div>{role ?? 'user'}</div>
           <Button variant="destructive" onClick={onLogout}>退出登录</Button>
         </CardContent>
       </Card>
 
       <Card>
-        <CardHeader>
-          <CardTitle className="text-base">上传文件</CardTitle>
-        </CardHeader>
+        <CardHeader><CardTitle className="text-base">上传文件</CardTitle></CardHeader>
         <CardContent>
-          {/* 简易上传面板 */}
-          <UploadPanel onCompleted={() => { /* 可选：完成后刷新用量 */ }} />
+          <UploadPanel onCompleted={() => void loadFiles()} />
         </CardContent>
       </Card>
+
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between">
-            <CardTitle className="text-base">我的上传</CardTitle>
-            <Button variant="outline" onClick={()=>loadMyFiles()} disabled={filesLoading}>刷新</Button>
+            <CardTitle className="text-base">我的文件</CardTitle>
+            <Button variant="outline" disabled={loading} onClick={() => void loadFiles()}>刷新</Button>
           </div>
         </CardHeader>
-        <CardContent>
-          {myFiles.length === 0 ? (
-            <div className="text-sm text-muted-foreground">暂无上传内容</div>
-          ) : (
-            <div className="text-sm">
-              <div className="grid grid-cols-5 gap-2 text-muted-foreground mb-2">
-                <div>文件名</div>
-                <div>大小 / 类型</div>
-                <div>版本</div>
-                <div>更新时间</div>
-                <div className="text-right">操作</div>
+        <CardContent className="space-y-3">
+          {error ? <div className="text-sm text-destructive">{error}</div> : null}
+          {!loading && !error && files.length === 0 ? <div className="text-sm text-muted-foreground">暂无文件</div> : null}
+          {files.map((file) => (
+            <div key={file.id} className="grid gap-2 border-b py-3 md:grid-cols-[1fr_auto_auto_auto] md:items-center">
+              <div>
+                <div className="font-medium">{file.name}</div>
+                <div className="text-xs text-muted-foreground">
+                  {file.currentVersion
+                    ? `${formatCompactBytes(Number(file.currentVersion.sizeBytes))} · v${file.currentVersion.version} · ${file.currentVersion.mimeType}`
+                    : '文件尚未生成可用版本'}
+                </div>
               </div>
-              {myFiles.map(f => (
-                <div key={f.id} className="grid grid-cols-5 gap-2 py-1 border-b last:border-b-0 items-center">
-                  <div className="truncate" title={f.name}>
-                    <a className="text-primary hover:underline" href={`/api/v1/storage/files/${f.id}/download`}>
-                      {f.name}
-                    </a>
-                  </div>
-                  <div>{fmtBytes(f.size||0)}{f.mimeType?` · ${f.mimeType}`:''}</div>
-                  <div>{typeof f.version === 'number' ? f.version : '-'}</div>
-                  <div>{new Date(f.updatedAt).toLocaleString()}</div>
-                  <div className="flex justify-end gap-2">
-                    <Button size="sm" variant="outline" onClick={()=>previewFile(f)}>
-                      预览
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={()=>navigator.clipboard?.writeText(`${window.location.origin}/api/v1/storage/files/${f.id}/download-direct?ttl=600`)}>
-                      复制下载链接
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={()=>openVersions(f)}>
-                      版本历史
-                    </Button>
-                  </div>
-                </div>
-              ))}
-              {filesCursor && (
-                <div className="mt-3">
-                  <Button variant="outline" onClick={()=>loadMyFiles(filesCursor!)} disabled={filesLoading}>加载更多</Button>
-                </div>
-              )}
+              <div className="text-xs text-muted-foreground">{new Date(file.updatedAt).toLocaleString()}</div>
+              <Button variant="outline" disabled={!file.currentVersion} onClick={() => void openVersions(file)}>版本</Button>
+              <Button disabled={!file.currentVersion} onClick={() => void downloadFile(file)}>下载</Button>
             </div>
-          )}
+          ))}
+          {nextCursor ? <Button variant="outline" disabled={loading} onClick={() => void loadFiles(nextCursor)}>加载更多</Button> : null}
         </CardContent>
       </Card>
-      <Dialog open={!!verOpenFor} onOpenChange={(o)=>{ if(!o){ setVerOpenFor(null); setVersions([]) } }}>
+
+      <Dialog open={versionFile !== null} onOpenChange={(open) => { if (!open) { setVersionFile(null); setVersions([]) } }}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>版本历史 {verOpenFor ? `- ${verOpenFor.name}` : ''}</DialogTitle>
-          </DialogHeader>
-          <div className="text-sm space-y-2">
-            {verLoading ? (
-              <div className="text-muted-foreground">加载中...</div>
-            ) : versions.length === 0 ? (
-              <div className="text-muted-foreground">暂无版本</div>
-            ) : (
-              <div className="space-y-1">
-                <div className="grid grid-cols-4 gap-2 text-muted-foreground">
-                  <div>版本</div>
-                  <div>大小</div>
-                  <div>创建时间</div>
-                  <div className="text-right">操作</div>
-                </div>
-                {versions.map(v => (
-                  <div key={v.id} className="grid grid-cols-4 gap-2 py-1 border-b last:border-b-0 items-center">
-                    <div>{v.version}</div>
-                    <div>{fmtBytes(v.size)}</div>
-                    <div>{new Date(v.createdAt).toLocaleString()}</div>
-                    <div className="text-right">
-                      <Button size="sm" variant="outline" onClick={()=>restoreVersion(v)}>回滚</Button>
-                    </div>
-                  </div>
-                ))}
+          <DialogHeader><DialogTitle>{versionFile?.name} 的版本</DialogTitle></DialogHeader>
+          <div className="space-y-2 text-sm">
+            {versions.length === 0 ? <div className="text-muted-foreground">暂无版本</div> : null}
+            {versions.map((version) => (
+              <div key={version.id} className="grid grid-cols-3 gap-2 border-b py-2">
+                <div>v{version.version}</div>
+                <div>{formatCompactBytes(Number(version.sizeBytes))}</div>
+                <div>{new Date(version.createdAt).toLocaleString()}</div>
               </div>
-            )}
+            ))}
           </div>
         </DialogContent>
       </Dialog>
-
-
-
     </div>
-
-
   )
 }

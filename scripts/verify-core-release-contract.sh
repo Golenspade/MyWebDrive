@@ -28,7 +28,7 @@ reject_pattern() {
   if grep -Eiq -- "$pattern" "$file"; then fail "$message"; fi
 }
 
-for file in "$COMPOSE_FILE" "$DEPLOY_SCRIPT" "$ROLLBACK_SCRIPT" "$CI_FILE" "$PACKAGE_FILE" "$MAKEFILE" "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile"; do
+for file in "$COMPOSE_FILE" "$DEPLOY_SCRIPT" "$ROLLBACK_SCRIPT" "$CI_FILE" "$PACKAGE_FILE" "$MAKEFILE" "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/nginx.conf"; do
   require_file "$file"
 done
 
@@ -129,7 +129,7 @@ require_pattern 'exit 75' "$DEPLOY_SCRIPT" 'deploy.sh must fail concurrent deplo
 require_pattern 'exec .*deploy\.sh.*--manifest' "$ROLLBACK_SCRIPT" 'rollback.sh must use deploy manifest mode'
 
 reject_pattern '\|\|[[:space:]]*true|--no-frozen-lockfile|SQLite|sqlite|services/(auth|user|metadata|sharing)|api-gateway' "$CI_FILE" 'CI contains a best-effort, mutable install, SQLite, or split-control-plane path'
-for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/storage/Dockerfile' '--read-only' '--tmpfs' 'id -u'; do
+for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'test-core-cutover-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' '--read-only' '--tmpfs' 'id -u'; do
   require_pattern "$pattern" "$CI_FILE" "CI is missing required gate: $pattern"
 done
 
@@ -144,5 +144,9 @@ for dockerfile in "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/s
   require_pattern '^USER node$' "$dockerfile" "$(basename "$(dirname "$dockerfile")") Dockerfile must run as node"
   reject_pattern ':[[:space:]]*latest([[:space:]]|$)' "$dockerfile" 'Dockerfile base images must not use latest'
 done
+
+require_pattern '^USER node$' "$ROOT_DIR/frontend/cruip-landing/Dockerfile" 'web Dockerfile must run as node'
+require_pattern '^USER nginx$' "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" 'nginx Dockerfile must run as nginx'
+reject_pattern 'API_BASE_URL|rewrites|gateway' "$ROOT_DIR/frontend/cruip-landing/next.config.js" 'frontend must use same-origin API routes'
 
 printf 'core release contract: ok\n'
