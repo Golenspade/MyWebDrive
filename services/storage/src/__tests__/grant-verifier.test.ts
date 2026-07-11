@@ -1,4 +1,6 @@
 import { createHmac, randomUUID } from 'node:crypto'
+import { once } from 'node:events'
+import { createConnection } from 'node:net'
 import { Readable } from 'node:stream'
 
 import express from 'express'
@@ -125,7 +127,8 @@ describe('storage API grant boundary', () => {
   test('binds upload intent, object key and maxBytes and enqueues completion once', async () => {
     const deps = dependencies()
     deps.queue.freezeAndEnqueue.mockResolvedValue({
-      enqueued: true, id: '1-0', expectedSize: 5n, generation: '7',
+      enqueued: true, id: '1-0', expectedSize: 5n,
+      generation: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
     })
     const uploadGrant = token(
       claims({
@@ -156,6 +159,7 @@ describe('storage API grant boundary', () => {
     }))
     expect(deps.queue.freezeAndEnqueue).toHaveBeenCalledWith({
       uploadIntentId, objectKey, parts: 1, maxBytes: 5n,
+      generation: expect.stringMatching(/^[0-9a-f-]{36}$/),
     })
   })
 
@@ -198,5 +202,34 @@ describe('storage API grant boundary', () => {
     expect(deps.queue.releasePart).toHaveBeenCalledWith(expect.objectContaining({
       uploadIntentId, partNumber: 1, sizeBytes: 5n,
     }))
+  })
+
+  test('aborted short request destroys the stream and releases its reservation', async () => {
+    const deps = dependencies()
+    const uploadGrant = token(claims({
+      purpose: 'upload', uploadIntentId, maxBytes: '5',
+      exp: Math.floor(Date.now() / 1000) + 300,
+    }))
+    const app = express().use(createStorageApi({ ...deps, grantSecret: secret }))
+    const server = app.listen(0, '127.0.0.1')
+    await once(server, 'listening')
+    const address = server.address()
+    if (!address || typeof address === 'string') throw new Error('missing test address')
+    const socket = createConnection({ host: '127.0.0.1', port: address.port })
+    socket.on('error', () => undefined)
+    await once(socket, 'connect')
+    socket.write(
+      `PUT /api/v1/storage/uploads/${objectKey}/parts/1 HTTP/1.1\r\n` +
+      `Host: 127.0.0.1\r\nAuthorization: Bearer ${uploadGrant}\r\n` +
+      'Content-Type: application/octet-stream\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhi',
+    )
+    socket.end()
+    try {
+      await vi.waitFor(() => expect(deps.queue.releasePart).toHaveBeenCalledOnce(), { timeout: 1_000 })
+      expect(deps.storage.deletePart).toHaveBeenCalledWith(objectKey, 1)
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
   })
 })

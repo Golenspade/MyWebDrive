@@ -7,6 +7,7 @@ const redisUrl = process.env.STORAGE_TEST_REDIS_URL
 const integration = describe.runIf(Boolean(redisUrl))
 const uploadIntentId = '126b455f-b9e7-49b9-aab6-4cb1ff971328'
 const objectKey = '5dd0d998-ec26-4fbd-9589-eca8aa9a9311'
+const generation = '16232aef-1f26-4bb4-98ba-ccc72d7f3915'
 
 integration('finalization queue with real Redis', () => {
   let redis: Redis
@@ -27,7 +28,7 @@ integration('finalization queue with real Redis', () => {
     expect(await first.commitPart({ uploadIntentId, partNumber: 1, sizeBytes: 11n, reservationId: 'concurrent-a' })).toBe('committed')
     const results = await Promise.all(
       Array.from({ length: 10 }, () => first.freezeAndEnqueue({
-        uploadIntentId, objectKey, parts: 1, maxBytes: 11n,
+        uploadIntentId, objectKey, parts: 1, maxBytes: 11n, generation,
       })),
     )
     expect(results.filter((result) => result.enqueued)).toHaveLength(1)
@@ -35,7 +36,7 @@ integration('finalization queue with real Redis', () => {
     expect(await redis.xlen('storage:finalize')).toBe(1)
 
     const [read] = await first.read(1, 50)
-    expect(read).toMatchObject({ uploadIntentId, objectKey, parts: 1, expectedSize: 11n })
+    expect(read).toMatchObject({ uploadIntentId, objectKey, parts: 1, expectedSize: 11n, generation })
     expect((await redis.xpending('storage:finalize', 'storage-workers'))[0]).toBe(1)
 
     const second = new FinalizationQueue(redis as unknown as StreamRedis, 'worker-b')
@@ -62,13 +63,13 @@ integration('finalization queue with real Redis', () => {
     const queue = new FinalizationQueue(redis as unknown as StreamRedis, 'worker-ledger')
     expect(await queue.reservePart({ uploadIntentId, objectKey, partNumber: 1, sizeBytes: 3n, maxBytes: 5n, reservationId: 'reserve-a' })).toBe('reserved')
     expect(await queue.commitPart({ uploadIntentId, partNumber: 1, sizeBytes: 3n, reservationId: 'reserve-a' })).toBe('committed')
-    await expect(queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 1, maxBytes: 5n })).rejects.toThrow('size_mismatch')
+    await expect(queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 1, maxBytes: 5n, generation })).rejects.toThrow('size_mismatch')
     expect(await queue.reservePart({ uploadIntentId, objectKey, partNumber: 1, sizeBytes: 3n, maxBytes: 5n, reservationId: 'reserve-b' })).toBe('exists')
     expect(await queue.reservePart({ uploadIntentId, objectKey, partNumber: 2, sizeBytes: 3n, maxBytes: 5n, reservationId: 'reserve-c' })).toBe('too_large')
     expect(await queue.reservePart({ uploadIntentId, objectKey, partNumber: 2, sizeBytes: 2n, maxBytes: 5n, reservationId: 'reserve-d' })).toBe('reserved')
     expect(await queue.commitPart({ uploadIntentId, partNumber: 2, sizeBytes: 2n, reservationId: 'reserve-d' })).toBe('committed')
-    const first = await queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 2, maxBytes: 5n })
-    const replay = await queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 2, maxBytes: 5n })
+    const first = await queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 2, maxBytes: 5n, generation })
+    const replay = await queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 2, maxBytes: 5n, generation: 'e4983ebf-91a9-427b-bd9f-fad43bc3b1b0' })
     expect(first).toMatchObject({ enqueued: true, expectedSize: 5n })
     expect(replay).toEqual({ ...first, enqueued: false })
     expect(await queue.reservePart({ uploadIntentId, objectKey, partNumber: 3, sizeBytes: 1n, maxBytes: 5n, reservationId: 'reserve-e' })).toBe('frozen')
@@ -84,6 +85,6 @@ integration('finalization queue with real Redis', () => {
     expect(await queue.reservePart({ uploadIntentId: intent, objectKey: key, partNumber: 2, sizeBytes: 1n, maxBytes: max, reservationId: 'big-b' })).toBe('reserved')
     expect(await queue.commitPart({ uploadIntentId: intent, partNumber: 2, sizeBytes: 1n, reservationId: 'big-b' })).toBe('committed')
     expect(await queue.reservePart({ uploadIntentId: intent, objectKey: key, partNumber: 3, sizeBytes: 1n, maxBytes: max, reservationId: 'big-c' })).toBe('too_large')
-    await expect(queue.freezeAndEnqueue({ uploadIntentId: intent, objectKey: key, parts: 2, maxBytes: max })).resolves.toMatchObject({ expectedSize: max })
+    await expect(queue.freezeAndEnqueue({ uploadIntentId: intent, objectKey: key, parts: 2, maxBytes: max, generation })).resolves.toMatchObject({ expectedSize: max, generation })
   })
 })

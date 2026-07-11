@@ -1,13 +1,15 @@
 import { createHash } from 'node:crypto'
 import { Readable, Transform } from 'node:stream'
 
-import type { ObjectStorage } from './types.js'
+import { ObjectIntegrityError, type ObjectStorage } from './types.js'
 
 export interface OssClient {
   putStream(key: string, body: Readable): Promise<unknown>
   getStream(key: string): Promise<{ stream: Readable }>
-  head(key: string): Promise<{ contentLength?: number | string; res?: { headers?: Record<string, unknown> } }>
+  head(key: string): Promise<{ contentLength?: number | string; generation?: string; res?: { headers?: Record<string, unknown> } }>
   delete(key: string): Promise<unknown>
+  /** Atomically server-side copies or renames tempKey to finalKey with generation metadata. */
+  publishTemp(tempKey: string, finalKey: string, generation: string): Promise<void>
   getBucketInfo?(): Promise<unknown>
 }
 
@@ -19,6 +21,10 @@ function valid(objectKey: string, part?: number): void {
   if (part !== undefined && (!Number.isInteger(part) || part < 1 || part > 100_000)) {
     throw new Error('invalid part number')
   }
+}
+
+function validGeneration(generation: string): void {
+  if (!UUID_PATTERN.test(generation)) throw new Error('invalid upload generation')
 }
 
 function sizeOf(value: Awaited<ReturnType<OssClient['head']>>): bigint {
@@ -65,9 +71,14 @@ export class OssObjectStorage implements ObjectStorage {
     return { complete: true, sizeBytes }
   }
 
-  async completeObject(objectKey: string, parts: number): Promise<{ sizeBytes: bigint; sha256: string }> {
+  async completeObject(objectKey: string, parts: number, generation: string, expectedSize: bigint): Promise<{ sizeBytes: bigint; sha256: string }> {
+    validGeneration(generation)
+    const stagingKey = this.key(`staging/${objectKey}/${generation}`)
     const existing = await this.stat(objectKey)
     if (existing) {
+      if (existing.generation !== generation || existing.sizeBytes !== expectedSize) {
+        throw new ObjectIntegrityError()
+      }
       const hash = createHash('sha256')
       let sizeBytes = 0n
       for await (const chunk of await this.openRead(objectKey)) {
@@ -75,6 +86,8 @@ export class OssObjectStorage implements ObjectStorage {
         hash.update(bytes)
         sizeBytes += BigInt(bytes.length)
       }
+      if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
+      await this.client.delete(stagingKey).catch(() => undefined)
       return { sizeBytes, sha256: hash.digest('hex') }
     }
     const inspected = await this.inspectParts(objectKey, parts)
@@ -96,7 +109,15 @@ export class OssObjectStorage implements ObjectStorage {
         callback(null, chunk)
       },
     })
-    await this.client.putStream(this.fileKey(objectKey), Readable.from(chunks()).pipe(hashing))
+    try {
+      await this.client.putStream(stagingKey, Readable.from(chunks()).pipe(hashing))
+      if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
+      await this.client.publishTemp(stagingKey, this.fileKey(objectKey), generation)
+      await this.client.delete(stagingKey)
+    } catch (error) {
+      await this.client.delete(stagingKey).catch(() => undefined)
+      throw error
+    }
     return { sizeBytes, sha256: hash.digest('hex') }
   }
 
@@ -105,10 +126,14 @@ export class OssObjectStorage implements ObjectStorage {
     return (await this.client.getStream(this.fileKey(objectKey))).stream
   }
 
-  async stat(objectKey: string): Promise<{ sizeBytes: bigint } | null> {
+  async stat(objectKey: string): Promise<{ sizeBytes: bigint; generation?: string } | null> {
     valid(objectKey)
     try {
-      return { sizeBytes: sizeOf(await this.client.head(this.fileKey(objectKey))) }
+      const metadata = await this.client.head(this.fileKey(objectKey))
+      return {
+        sizeBytes: sizeOf(metadata),
+        ...(metadata.generation ? { generation: metadata.generation } : {}),
+      }
     } catch (error) {
       if ([404, 'NoSuchKey'].includes((error as { status?: number; code?: string }).status ?? (error as { code?: string }).code ?? '')) return null
       throw error

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto'
 import { Readable, Transform } from 'node:stream'
 
-import type { Client } from 'minio'
+import { CopyDestinationOptions, CopySourceOptions, type Client } from 'minio'
 
-import type { ObjectStorage } from './types.js'
+import { ObjectIntegrityError, type ObjectStorage } from './types.js'
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -13,6 +13,10 @@ function valid(objectKey: string, part?: number): void {
   if (part !== undefined && (!Number.isInteger(part) || part < 1 || part > 100_000)) {
     throw new Error('invalid part number')
   }
+}
+
+function validGeneration(generation: string): void {
+  if (!UUID_PATTERN.test(generation)) throw new Error('invalid upload generation')
 }
 
 export class MinioObjectStorage implements ObjectStorage {
@@ -48,9 +52,14 @@ export class MinioObjectStorage implements ObjectStorage {
     return { complete: true, sizeBytes }
   }
 
-  async completeObject(objectKey: string, parts: number): Promise<{ sizeBytes: bigint; sha256: string }> {
+  async completeObject(objectKey: string, parts: number, generation: string, expectedSize: bigint): Promise<{ sizeBytes: bigint; sha256: string }> {
+    validGeneration(generation)
+    const stagingKey = `staging/${objectKey}/${generation}`
     const existing = await this.stat(objectKey)
     if (existing) {
+      if (existing.generation !== generation || existing.sizeBytes !== expectedSize) {
+        throw new ObjectIntegrityError()
+      }
       const hash = createHash('sha256')
       let sizeBytes = 0n
       for await (const chunk of await this.openRead(objectKey)) {
@@ -58,6 +67,8 @@ export class MinioObjectStorage implements ObjectStorage {
         hash.update(bytes)
         sizeBytes += BigInt(bytes.length)
       }
+      if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
+      await this.client.removeObject(this.bucket, stagingKey).catch(() => undefined)
       return { sizeBytes, sha256: hash.digest('hex') }
     }
     const inspected = await this.inspectParts(objectKey, parts)
@@ -79,11 +90,23 @@ export class MinioObjectStorage implements ObjectStorage {
         callback(null, chunk)
       },
     })
-    await this.client.putObject(
-      this.bucket,
-      this.fileKey(objectKey),
-      Readable.from(chunks()).pipe(hashing),
-    )
+    try {
+      await this.client.putObject(this.bucket, stagingKey, Readable.from(chunks()).pipe(hashing))
+      if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
+      await this.client.copyObject(
+        new CopySourceOptions({ Bucket: this.bucket, Object: stagingKey }),
+        new CopyDestinationOptions({
+          Bucket: this.bucket,
+          Object: this.fileKey(objectKey),
+          MetadataDirective: 'REPLACE',
+          UserMetadata: { 'storage-generation': generation },
+        }),
+      )
+      await this.client.removeObject(this.bucket, stagingKey)
+    } catch (error) {
+      await this.client.removeObject(this.bucket, stagingKey).catch(() => undefined)
+      throw error
+    }
     return { sizeBytes, sha256: hash.digest('hex') }
   }
 
@@ -92,11 +115,15 @@ export class MinioObjectStorage implements ObjectStorage {
     return this.client.getObject(this.bucket, this.fileKey(objectKey))
   }
 
-  async stat(objectKey: string): Promise<{ sizeBytes: bigint } | null> {
+  async stat(objectKey: string): Promise<{ sizeBytes: bigint; generation?: string } | null> {
     valid(objectKey)
     try {
       const metadata = await this.client.statObject(this.bucket, this.fileKey(objectKey))
-      return { sizeBytes: BigInt(metadata.size) }
+      const generation = String(
+        metadata.metaData?.['storage-generation'] ??
+        metadata.metaData?.['x-amz-meta-storage-generation'] ?? '',
+      )
+      return { sizeBytes: BigInt(metadata.size), ...(generation ? { generation } : {}) }
     } catch (error) {
       if (['NotFound', 'NoSuchKey'].includes((error as { code?: string }).code ?? '')) return null
       throw error

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { Transform, type TransformCallback } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
 
 import express from 'express'
 
@@ -37,6 +38,7 @@ type CompletionQueue = {
     objectKey: string
     parts: number
     maxBytes: bigint
+    generation: string
   }): Promise<{ enqueued: boolean; id: string; expectedSize: bigint; generation: string }>
 }
 
@@ -123,6 +125,9 @@ export function createStorageApi(deps: ApiDependencies): express.Router {
     }
     const reservationId = randomUUID()
     let reserved = false
+    let transferController: AbortController | undefined
+    let transferPromise: Promise<void> | undefined
+    let persistPromise: Promise<void> | undefined
     try {
       const status = await deps.queue.reservePart({
         uploadIntentId: grant.uploadIntentId,
@@ -136,8 +141,10 @@ export function createStorageApi(deps: ApiDependencies): express.Router {
       if (status !== 'reserved') return res.status(409).json({ error: 'upload generation frozen' })
       reserved = true
       const limiter = new ByteLimit(sizeBytes)
-      req.pipe(limiter)
-      await deps.storage.writePart(grant.objectKey, partNumber, limiter)
+      transferController = new AbortController()
+      transferPromise = pipeline(req, limiter, { signal: transferController.signal })
+      persistPromise = deps.storage.writePart(grant.objectKey, partNumber, limiter)
+      await Promise.all([transferPromise, persistPromise])
       if (limiter.byteCount !== sizeBytes) throw new Error('content-length mismatch')
       const committed = await deps.queue.commitPart({
         uploadIntentId: grant.uploadIntentId,
@@ -148,6 +155,11 @@ export function createStorageApi(deps: ApiDependencies): express.Router {
       if (committed !== 'committed') throw new Error('upload reservation lost')
       return res.status(204).end()
     } catch (error) {
+      transferController?.abort()
+      if (!req.complete) req.destroy()
+      await Promise.allSettled([transferPromise, persistPromise].filter(
+        (pending): pending is Promise<void> => pending !== undefined,
+      ))
       if (reserved) {
         try {
           await deps.storage.deletePart(grant.objectKey, partNumber)
@@ -190,6 +202,7 @@ export function createStorageApi(deps: ApiDependencies): express.Router {
           objectKey: grant.objectKey,
           parts,
           maxBytes: grant.maxBytes,
+          generation: randomUUID(),
         })
         return res.status(202).json({ enqueued: queued.enqueued })
       } catch (error) {

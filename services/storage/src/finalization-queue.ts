@@ -111,14 +111,13 @@ if total == '0' or total ~= redis.call('HGET', KEYS[1], 'total') or greater(tota
   return {'mismatch'}
 end
 if total ~= ARGV[3] then return {'size_mismatch'} end
-local generation = tostring(redis.call('INCR', KEYS[3]))
 local id = redis.call('XADD', KEYS[2], '*',
   'uploadIntentId', ARGV[4], 'objectKey', ARGV[1], 'parts', ARGV[2],
-  'expectedSize', total, 'generation', generation)
+  'expectedSize', total, 'generation', ARGV[5])
 redis.call('HSET', KEYS[1], 'frozen', '1', 'jobId', id,
-  'expectedSize', total, 'generation', generation, 'parts', ARGV[2])
-redis.call('EXPIRE', KEYS[1], ARGV[5])
-return {'enqueued', id, total, generation}
+  'expectedSize', total, 'generation', ARGV[5], 'parts', ARGV[2])
+redis.call('EXPIRE', KEYS[1], ARGV[6])
+return {'enqueued', id, total, ARGV[5]}
 `
 
 const DEAD_LETTER_AND_ACK = `
@@ -150,7 +149,7 @@ function job(entry: unknown): FinalizationJob | null {
     parts < 1 ||
     parts > 100_000
     || !/^[1-9]\d*$/.test(value.expectedSize ?? '')
-    || !/^[1-9]\d*$/.test(value.generation ?? '')
+    || !UUID_PATTERN.test(value.generation ?? '')
   ) return null
   return {
     id: entry[0],
@@ -228,12 +227,14 @@ export class FinalizationQueue {
     objectKey: string
     parts: number
     maxBytes: bigint
+    generation: string
   }): Promise<{ enqueued: boolean; id: string; expectedSize: bigint; generation: string }> {
+    if (!UUID_PATTERN.test(input.generation)) throw new Error('invalid upload generation')
     const result = await this.redis.eval(
-      FREEZE_AND_ENQUEUE, 3,
-      `storage:upload:${input.uploadIntentId}`, STREAM, 'storage:upload:generation',
+      FREEZE_AND_ENQUEUE, 2,
+      `storage:upload:${input.uploadIntentId}`, STREAM,
       input.objectKey, String(input.parts), input.maxBytes.toString(), input.uploadIntentId,
-      String(DEDUPE_TTL_SECONDS),
+      input.generation, String(DEDUPE_TTL_SECONDS),
     )
     if (!Array.isArray(result) || !['enqueued', 'replay'].includes(String(result[0]))) {
       const status = Array.isArray(result) ? String(result[0]) : 'unavailable'

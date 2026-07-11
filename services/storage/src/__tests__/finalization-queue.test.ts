@@ -20,20 +20,20 @@ describe('finalization Redis Stream contract', () => {
   test('reads new jobs and reclaims pending jobs through the storage-workers group', async () => {
     const client = redis()
     vi.mocked(client.xreadgroup).mockResolvedValue([
-      [finalizationQueueContract.stream, [['171-0', ['uploadIntentId', uploadIntentId, 'objectKey', objectKey, 'parts', '2', 'expectedSize', '11', 'generation', '7']]]],
+      [finalizationQueueContract.stream, [['171-0', ['uploadIntentId', uploadIntentId, 'objectKey', objectKey, 'parts', '2', 'expectedSize', '11', 'generation', '16232aef-1f26-4bb4-98ba-ccc72d7f3915']]]],
     ])
     vi.mocked(client.xautoclaim).mockResolvedValueOnce([
       '171-0',
-      [['170-0', ['uploadIntentId', uploadIntentId, 'objectKey', objectKey, 'parts', '2', 'expectedSize', '11', 'generation', '7']]],
+      [['170-0', ['uploadIntentId', uploadIntentId, 'objectKey', objectKey, 'parts', '2', 'expectedSize', '11', 'generation', '16232aef-1f26-4bb4-98ba-ccc72d7f3915']]],
       [],
     ]).mockResolvedValueOnce(['0-0', [], []])
     const queue = new FinalizationQueue(client, 'worker-a')
     await expect(queue.read()).resolves.toEqual([{
-      id: '171-0', uploadIntentId, objectKey, parts: 2, expectedSize: 11n, generation: '7',
+      id: '171-0', uploadIntentId, objectKey, parts: 2, expectedSize: 11n, generation: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
     }])
     await expect(queue.reclaim()).resolves.toEqual([{
       id: '170-0', uploadIntentId, objectKey, parts: 2,
-      expectedSize: 11n, generation: '7',
+      expectedSize: 11n, generation: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
     }])
     await queue.reclaim()
     expect(client.xreadgroup).toHaveBeenCalledWith(
@@ -52,13 +52,13 @@ describe('finalization Redis Stream contract', () => {
       .mockResolvedValueOnce(['reserved'])
       .mockResolvedValueOnce(['committed'])
       .mockResolvedValueOnce(['exists'])
-      .mockResolvedValueOnce(['enqueued', '171-0', '3', '9'])
+      .mockResolvedValueOnce(['enqueued', '171-0', '3', '16232aef-1f26-4bb4-98ba-ccc72d7f3915'])
     const queue = new FinalizationQueue(client, 'worker-a')
 
     await expect(queue.reservePart({ uploadIntentId, objectKey, partNumber: 1, sizeBytes: 3n, maxBytes: 3n, reservationId: 'r1' })).resolves.toBe('reserved')
     await expect(queue.commitPart({ uploadIntentId, partNumber: 1, sizeBytes: 3n, reservationId: 'r1' })).resolves.toBe('committed')
     await expect(queue.reservePart({ uploadIntentId, objectKey, partNumber: 1, sizeBytes: 3n, maxBytes: 3n, reservationId: 'r2' })).resolves.toBe('exists')
-    await expect(queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 1, maxBytes: 3n })).resolves.toEqual({ enqueued: true, id: '171-0', expectedSize: 3n, generation: '9' })
+    await expect(queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 1, maxBytes: 3n, generation: '16232aef-1f26-4bb4-98ba-ccc72d7f3915' })).resolves.toEqual({ enqueued: true, id: '171-0', expectedSize: 3n, generation: '16232aef-1f26-4bb4-98ba-ccc72d7f3915' })
     expect(vi.mocked(client.eval).mock.calls.every((call) => call[0].toString().includes('storage:finalize') || call[0].toString().includes('HSET'))).toBe(true)
   })
 

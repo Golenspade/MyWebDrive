@@ -36,7 +36,7 @@ async function main(): Promise<void> {
   app.get('/live', (_req, res) => res.json({ status: 'live', service: 'storage-worker' }))
   app.get('/ready', async (_req, res) => {
     try {
-      if (!workerState.isAlive()) throw new Error('worker loop unavailable')
+      if (!workerState.isReady()) throw new Error('worker loop unavailable')
       await Promise.all([runtime.queue.ready(), runtime.storage.ready()])
       return res.json({ status: 'ready', service: 'storage-worker' })
     } catch {

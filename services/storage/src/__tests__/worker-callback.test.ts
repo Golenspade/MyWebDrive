@@ -10,7 +10,7 @@ const job = {
   objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
   parts: 2,
   expectedSize: 11n,
-  generation: '7',
+  generation: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
 }
 const secret = 'core-callback-test-secret-at-least-32-bytes'
 
@@ -93,18 +93,25 @@ describe('finalization worker callback contract', () => {
     expect(subject.storage.deleteObject).not.toHaveBeenCalled()
   })
 
-  test('does not callback or ack when composed bytes differ from frozen expectedSize', async () => {
+  test('deletes a mismatched final and atomically dead-letters integrity failure without callback', async () => {
     const subject = deps([200])
     subject.storage.completeObject.mockResolvedValueOnce({ sizeBytes: 10n, sha256: 'a'.repeat(64) })
-    await expect(processFinalizationJob(job, {
+    await processFinalizationJob(job, {
       ...subject,
       callbackSecret: secret,
       now: () => new Date(),
       sleep: vi.fn(async (_milliseconds: number) => undefined),
-    })).rejects.toThrow('finalized size mismatch')
+    })
     expect(subject.callback).not.toHaveBeenCalled()
     expect(subject.queue.ack).not.toHaveBeenCalled()
     expect(subject.storage.deleteParts).not.toHaveBeenCalled()
+    expect(subject.storage.deleteObject).toHaveBeenCalledWith(job.objectKey)
+    expect(subject.queue.deadLetter).toHaveBeenCalledWith({
+      id: job.id,
+      uploadIntentId: job.uploadIntentId,
+      objectKey: job.objectKey,
+      errorCode: 'integrity_mismatch',
+    })
   })
 
   test('leaves accepted job pending when part cleanup fails', async () => {
