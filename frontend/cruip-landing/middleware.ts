@@ -5,7 +5,7 @@ export function middleware(req: NextRequest) {
   const url = req.nextUrl
   // Normalize Chinese alias to ascii routes
   if (url.pathname === '/注册') {
-    url.pathname = '/signup'
+    url.pathname = '/signin'
     return NextResponse.redirect(url)
   }
   if (url.pathname === '/登录') {
@@ -18,4 +18,3 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: ['/注册', '/登录']
 }
-

@@ -26,6 +26,9 @@ class PasswordlessAuthSourceContractTest(unittest.TestCase):
         self.assertIn('/auth/me', auth_surface)
         self.assertIn('/auth/logout', auth_surface)
         self.assertIn('bootstrap', auth_store)
+        self.assertIn('CookieMutationCoordinator', auth_store)
+        self.assertIn('runSingleFlight', auth_store)
+        self.assertIn('closeAndLogout', auth_store)
 
     def test_api_client_sends_cookie_and_single_flights_refresh(self) -> None:
         api_client = source('lib/api/client.ts')
@@ -60,6 +63,25 @@ class PasswordlessAuthSourceContractTest(unittest.TestCase):
         self.assertNotIn('invitation', signup.lower())
         self.assertNotIn('invitation', menubar.lower())
         self.assertNotIn('invitation', admin_api.lower())
+
+    def test_every_onboarding_entry_uses_passwordless_signin(self) -> None:
+        getting_started = source('content/getting-started.mdx')
+        header = source('components/ui/header.tsx')
+        cta = source('components/cta.tsx')
+        readme = source('README.md')
+        register_alias = source('app/register/page.tsx')
+        chinese_register_alias = source('app/注册/page.tsx')
+        middleware = source('middleware.ts')
+        onboarding = getting_started + header + cta + readme
+
+        self.assertNotIn('/signup', onboarding)
+        self.assertNotIn('密码', getting_started)
+        self.assertIn('/signin', getting_started)
+        self.assertIn('邮箱验证码', onboarding)
+        self.assertIn('首次验证', onboarding)
+        self.assertIn("redirect('/signin')", register_alias)
+        self.assertIn("redirect('/signin')", chinese_register_alias)
+        self.assertNotIn("url.pathname = '/signup'", middleware)
 
     def test_notification_stream_never_places_bearer_in_query_string(self) -> None:
         notifications = source('app/admin/notifications/page.tsx')

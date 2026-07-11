@@ -30,7 +30,7 @@ export default function Header() {
             </li>
             <li>
               <Button asChild variant="default" size="sm">
-                <Link href="/signup">注册</Link>
+                <Link href="/signin">邮箱验证码注册</Link>
               </Button>
             </li>
           </ul>

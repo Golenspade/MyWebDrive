@@ -3,6 +3,7 @@
 import { create } from 'zustand'
 import { authApi, type AuthUser, type EmailChallenge } from '@/lib/api/auth'
 import { apiClient } from '@/lib/api/client'
+import { CookieMutationCoordinator } from '@/lib/auth/cookie-mutation-coordinator'
 
 type Role = 'user' | 'admin'
 
@@ -22,6 +23,11 @@ type AuthState = {
 
 let bootstrapPromise: Promise<void> | null = null
 let authEpoch = 0
+const cookieMutations = new CookieMutationCoordinator()
+
+function refreshCookieSession() {
+  return cookieMutations.runSingleFlight('refresh', () => authApi.refresh())
+}
 
 function signedOutState() {
   return {
@@ -49,10 +55,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   verifyEmailCode: async ({ challengeId, email: rawEmail, code }) => {
     const email = rawEmail.trim().toLowerCase()
-    const attemptEpoch = ++authEpoch
     set({ isLoading: true })
     try {
-      const session = await authApi.verifyEmail({ challengeId, email, code })
+      const verified = await cookieMutations.runSingleFlight(`verify:${challengeId}`, async () => {
+        const attemptEpoch = ++authEpoch
+        const session = await authApi.verifyEmail({ challengeId, email, code })
+        return { attemptEpoch, session }
+      })
+      const { attemptEpoch, session } = verified
       if (authEpoch !== attemptEpoch) return
       set({
         accessToken: session.accessToken,
@@ -72,7 +82,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     const startingEpoch = authEpoch
     bootstrapPromise = (async () => {
       try {
-        const session = await authApi.refresh()
+        const session = await refreshCookieSession()
         if (authEpoch !== startingEpoch) return
         set({ accessToken: session.accessToken })
         const user = await authApi.me()
@@ -96,7 +106,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     authEpoch += 1
     set({ ...signedOutState(), hasHydrated: true })
     try {
-      await authApi.logout()
+      await cookieMutations.closeAndLogout(() => authApi.logout())
     } catch {
       // Local session state must still be cleared if the network is unavailable.
     }
@@ -105,7 +115,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   refreshAccessToken: async () => {
     const startingEpoch = authEpoch
-    const session = await authApi.refresh()
+    const session = await refreshCookieSession()
     if (authEpoch !== startingEpoch) throw new Error('Session changed during refresh')
     set({ accessToken: session.accessToken })
     return session.accessToken
