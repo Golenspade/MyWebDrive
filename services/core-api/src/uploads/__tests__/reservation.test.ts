@@ -92,6 +92,8 @@ integration('quota reservations and upload intents', () => {
 
   beforeEach(async () => {
     now = new Date('2026-07-11T08:00:00.000Z')
+    await prisma.outboxEvent.deleteMany()
+    await prisma.fileVersion.deleteMany()
     await prisma.quotaLedgerEntry.deleteMany()
     await prisma.quotaReservation.deleteMany()
     await prisma.uploadIntent.deleteMany()

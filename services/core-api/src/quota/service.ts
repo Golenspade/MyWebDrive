@@ -1,7 +1,10 @@
 import { Prisma, type PrismaClient } from '@prisma/client'
 
 const EXPIRY_RELEASE_BATCH_SIZE = 50
-const MAX_TRANSACTION_ATTEMPTS = 5
+// A worker fan-out can legitimately deliver all ten completion retries at
+// once. Leave enough room for each serializable contender to observe the
+// committed idempotent result instead of surfacing a transient 503.
+const MAX_TRANSACTION_ATTEMPTS = 12
 
 type TransactionClient = Prisma.TransactionClient
 

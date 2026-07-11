@@ -4,6 +4,7 @@ import type Redis from 'ioredis'
 
 import type { EmailSender } from './identity/email-sender.js'
 import { createIdentityRouter } from './identity/router.js'
+import { createFilesRouter } from './files/router.js'
 import { createUploadRouter } from './uploads/router.js'
 
 export type { EmailSender, SendOtpInput } from './identity/email-sender.js'
@@ -21,7 +22,7 @@ export type CoreDependencies = {
     production: boolean
     defaultUserQuotaBytes: bigint
   }
-  storage?: { grantSecret: string }
+  storage?: { grantSecret: string; callbackSecret?: string }
 }
 
 declare global {
@@ -46,16 +47,17 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
     defaultUserQuotaBytes: 0n,
   }
 
-  app.use(
-    express.json({
-      verify: (req, _res, buffer) => {
-        if (INTERNAL_COMPLETION_PATH.test((req.url ?? '').split('?')[0] ?? '')) {
-          const request = req as express.Request
-          request.rawBody = Buffer.from(buffer)
-        }
-      },
-    }),
-  )
+  const jsonParser = express.json()
+  const callbackParser = express.raw({ type: 'application/json' })
+  app.use((req, res, next) => {
+    if (!INTERNAL_COMPLETION_PATH.test((req.url ?? '').split('?')[0] ?? '')) {
+      return jsonParser(req, res, next)
+    }
+    return callbackParser(req, res, (error) => {
+      if (!error && Buffer.isBuffer(req.body)) req.rawBody = Buffer.from(req.body)
+      return next(error)
+    })
+  })
 
   app.get('/live', (_req, res) => res.json({ status: 'live', service: 'core-api' }))
   app.get('/ready', async (_req, res) => {
@@ -97,7 +99,16 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
         deps.storage?.grantSecret ??
         process.env.STORAGE_GRANT_SECRET ??
         'development-only-storage-grant-secret',
+      callbackSecret:
+        deps.storage?.callbackSecret ??
+        process.env.CORE_CALLBACK_SECRET ??
+        'development-only-core-callback-secret',
     }),
+  )
+
+  app.use(
+    '/api/v1',
+    createFilesRouter({ prisma: deps.prisma, sessionSecret: identity.sessionSecret }),
   )
 
   return app

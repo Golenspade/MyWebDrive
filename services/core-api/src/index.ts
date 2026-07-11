@@ -30,7 +30,10 @@ const app = createCoreApp({
     production: config.nodeEnv === 'production',
     defaultUserQuotaBytes: config.defaultUserQuotaBytes,
   },
-  storage: { grantSecret: config.storageGrantSecret },
+  storage: {
+    grantSecret: config.storageGrantSecret,
+    callbackSecret: config.callbackSecret,
+  },
 })
 
 app.listen(config.port)

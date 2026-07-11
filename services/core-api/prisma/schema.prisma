@@ -75,17 +75,20 @@ model UploadIntent {
   sizeBytes      BigInt
   mimeType       String
   parentId       String?
+  targetFileId   String?
   status         String            @default("created")
   expiresAt      DateTime
   completedAt    DateTime?
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
   user           User              @relation(fields: [userId], references: [id])
+  targetFile     File?             @relation("UploadIntentTarget", fields: [targetFileId], references: [id])
   reservation    QuotaReservation?
   fileVersion    FileVersion?
 
   @@unique([userId, idempotencyKey])
   @@index([userId, status])
+  @@index([targetFileId])
 }
 
 model QuotaReservation {
@@ -116,20 +119,21 @@ model QuotaLedgerEntry {
 }
 
 model File {
-  id          String       @id @default(uuid())
-  ownerId     String
-  parentId    String?
-  name        String
-  type        String
-  deletedAt   DateTime?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
-  owner       User         @relation(fields: [ownerId], references: [id])
-  parent      File?        @relation("FileTree", fields: [parentId], references: [id])
-  children    File[]       @relation("FileTree")
-  versions    FileVersion[]
-  shares      Share[]
-  publication Publication?
+  id            String         @id @default(uuid())
+  ownerId       String
+  parentId      String?
+  name          String
+  type          String
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  owner         User           @relation(fields: [ownerId], references: [id])
+  parent        File?          @relation("FileTree", fields: [parentId], references: [id])
+  children      File[]         @relation("FileTree")
+  versions      FileVersion[]
+  uploadIntents UploadIntent[] @relation("UploadIntentTarget")
+  shares        Share[]
+  publication   Publication?
 
   @@index([ownerId, parentId, deletedAt])
 }
@@ -151,19 +155,19 @@ model FileVersion {
 }
 
 model Share {
-  id            String   @id @default(uuid())
-  token         String   @unique
+  id            String    @id @default(uuid())
+  token         String    @unique
   fileId        String
   ownerId       String
   passwordHash  String?
   expiresAt     DateTime?
   maxDownloads  Int?
-  downloadCount Int      @default(0)
-  isActive      Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  file          File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
-  owner         User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  downloadCount Int       @default(0)
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  file          File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
 
   @@index([ownerId, isActive])
 }

@@ -71,6 +71,8 @@ integration('passwordless identity routes', () => {
     await redis.flushdb()
     await prisma.refreshSession.deleteMany()
     await prisma.emailOtpChallenge.deleteMany()
+    await prisma.outboxEvent.deleteMany()
+    await prisma.fileVersion.deleteMany()
     await prisma.quotaLedgerEntry.deleteMany()
     await prisma.quotaReservation.deleteMany()
     await prisma.uploadIntent.deleteMany()
