@@ -41,7 +41,12 @@ function claims(overrides: Record<string, unknown> = {}): Record<string, unknown
 
 function dependencies() {
   const storage: ObjectStorage = {
-    writePart: vi.fn(async (_objectKey: string, _partNumber: number, body: Readable) => {
+    writePart: vi.fn(async (
+      _objectKey: string,
+      _partNumber: number,
+      body: Readable,
+      _expectedSize: bigint,
+    ) => {
       for await (const _chunk of body) { /* consume the request stream */ }
     }),
     completeObject: vi.fn(),
@@ -154,6 +159,12 @@ describe('storage API grant boundary', () => {
     expect(deps.queue.reservePart).toHaveBeenCalledWith(expect.objectContaining({
       uploadIntentId, objectKey, partNumber: 1, sizeBytes: 5n, maxBytes: 5n,
     }))
+    expect(deps.storage.writePart).toHaveBeenCalledWith(
+      objectKey,
+      1,
+      expect.any(Readable),
+      5n,
+    )
     expect(deps.queue.commitPart).toHaveBeenCalledWith(expect.objectContaining({
       uploadIntentId, partNumber: 1, sizeBytes: 5n,
     }))

@@ -143,7 +143,7 @@ export function createStorageApi(deps: ApiDependencies): express.Router {
       const limiter = new ByteLimit(sizeBytes)
       transferController = new AbortController()
       transferPromise = pipeline(req, limiter, { signal: transferController.signal })
-      persistPromise = deps.storage.writePart(grant.objectKey, partNumber, limiter)
+      persistPromise = deps.storage.writePart(grant.objectKey, partNumber, limiter, sizeBytes)
       await Promise.all([transferPromise, persistPromise])
       if (limiter.byteCount !== sizeBytes) throw new Error('content-length mismatch')
       const committed = await deps.queue.commitPart({

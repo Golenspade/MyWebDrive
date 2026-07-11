@@ -1,13 +1,12 @@
 import { createHash } from 'node:crypto'
 import { Readable, Transform } from 'node:stream'
 
-import { CopyDestinationOptions, CopySourceOptions, type Client } from 'minio'
+import type { Client } from 'minio'
 
 import { ObjectIntegrityError, type ObjectStorage } from './types.js'
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
-const MINIO_SINGLE_COPY_MAX_BYTES = 5n * 1024n * 1024n * 1024n
 const MINIO_MULTIPART_PART_BYTES = 64 * 1024 * 1024
 
 function valid(objectKey: string, part?: number): void {
@@ -21,33 +20,32 @@ function validGeneration(generation: string): void {
   if (!UUID_PATTERN.test(generation)) throw new Error('invalid upload generation')
 }
 
-async function verifyMinioPublication(
+async function verifyMinioUpload(
   client: Client,
   bucket: string,
-  finalKey: string,
-  generation: string,
+  key: string,
   expectedSize: bigint,
+  metadata: Readonly<Record<string, string>>,
 ): Promise<void> {
-  const published = await client.statObject(bucket, finalKey)
-  const publishedGeneration = String(
-    published.metaData?.['storage-generation'] ??
-    published.metaData?.['x-amz-meta-storage-generation'] ?? '',
-  )
-  if (BigInt(published.size) !== expectedSize || publishedGeneration !== generation) {
-    throw new ObjectIntegrityError()
+  const published = await client.statObject(bucket, key)
+  if (BigInt(published.size) !== expectedSize) throw new ObjectIntegrityError()
+  for (const [name, value] of Object.entries(metadata)) {
+    const normalized = name.toLowerCase().replace(/^x-amz-meta-/, '')
+    const actual = published.metaData?.[normalized] ??
+      published.metaData?.[`x-amz-meta-${normalized}`]
+    if (String(actual ?? '') !== value) throw new ObjectIntegrityError()
   }
 }
 
-export async function publishMinioMultipart(
+export async function uploadMinioStreamAtomic(
   client: Client,
   bucket: string,
-  stagingKey: string,
-  finalKey: string,
-  generation: string,
+  key: string,
+  source: Readable,
   expectedSize: bigint,
+  metadata: Readonly<Record<string, string>> = {},
   partSizeBytes = MINIO_MULTIPART_PART_BYTES,
 ): Promise<void> {
-  validGeneration(generation)
   if (
     expectedSize < 1n ||
     !Number.isSafeInteger(partSizeBytes) ||
@@ -59,10 +57,10 @@ export async function publishMinioMultipart(
   let uploadId: string | undefined
   let completed = false
   try {
-    uploadId = await client.initiateNewMultipartUpload(bucket, finalKey, {
-      'X-Amz-Meta-storage-generation': generation,
-    })
-    const source = await client.getObject(bucket, stagingKey)
+    const uploadHeaders = Object.fromEntries(
+      Object.entries(metadata).map(([name, value]) => [`X-Amz-Meta-${name}`, value]),
+    )
+    uploadId = await client.initiateNewMultipartUpload(bucket, key, uploadHeaders)
     const etags: Array<{ part: number; etag: string }> = []
     let partNumber = 1
     let totalBytes = 0n
@@ -74,7 +72,7 @@ export async function publishMinioMultipart(
       const result = await client.uploadPart(
         {
           bucketName: bucket,
-          objectName: finalKey,
+          objectName: key,
           uploadID: uploadId!,
           partNumber,
           headers: {
@@ -109,53 +107,24 @@ export async function publishMinioMultipart(
     }
     if (totalBytes !== expectedSize) throw new ObjectIntegrityError()
     if (bufferedBytes > 0) await uploadBufferedPart()
-    await client.completeMultipartUpload(bucket, finalKey, uploadId, etags)
+    await client.completeMultipartUpload(bucket, key, uploadId, etags)
     completed = true
   } catch (error) {
     if (uploadId && !completed) {
-      await client.abortMultipartUpload(bucket, finalKey, uploadId).catch(() => undefined)
+      await client.abortMultipartUpload(bucket, key, uploadId).catch(() => undefined)
     }
     throw error
   }
 
-  await verifyMinioPublication(client, bucket, finalKey, generation, expectedSize)
-}
-
-export async function publishMinioStaging(
-  client: Client,
-  bucket: string,
-  stagingKey: string,
-  finalKey: string,
-  generation: string,
-  sizeBytes: bigint,
-): Promise<void> {
-  validGeneration(generation)
-  if (sizeBytes < 1n) throw new ObjectIntegrityError()
-  if (sizeBytes <= MINIO_SINGLE_COPY_MAX_BYTES) {
-    await client.copyObject(
-      new CopySourceOptions({ Bucket: bucket, Object: stagingKey }),
-      new CopyDestinationOptions({
-        Bucket: bucket,
-        Object: finalKey,
-        MetadataDirective: 'REPLACE',
-        UserMetadata: { 'storage-generation': generation },
-      }),
-    )
-    await verifyMinioPublication(client, bucket, finalKey, generation, sizeBytes)
-    return
-  }
-  await publishMinioMultipart(
-    client,
-    bucket,
-    stagingKey,
-    finalKey,
-    generation,
-    sizeBytes,
-  )
+  await verifyMinioUpload(client, bucket, key, expectedSize, metadata)
 }
 
 export class MinioObjectStorage implements ObjectStorage {
-  constructor(private readonly client: Client, private readonly bucket: string) {}
+  constructor(
+    private readonly client: Client,
+    private readonly bucket: string,
+    private readonly multipartPartBytes = MINIO_MULTIPART_PART_BYTES,
+  ) {}
 
   private partKey(objectKey: string, part: number): string {
     return `parts/${objectKey}/${part}`
@@ -165,9 +134,22 @@ export class MinioObjectStorage implements ObjectStorage {
     return `files/${objectKey}`
   }
 
-  async writePart(objectKey: string, partNumber: number, body: Readable): Promise<void> {
+  async writePart(
+    objectKey: string,
+    partNumber: number,
+    body: Readable,
+    expectedSize: bigint,
+  ): Promise<void> {
     valid(objectKey, partNumber)
-    await this.client.putObject(this.bucket, this.partKey(objectKey, partNumber), body)
+    await uploadMinioStreamAtomic(
+      this.client,
+      this.bucket,
+      this.partKey(objectKey, partNumber),
+      body,
+      expectedSize,
+      {},
+      this.multipartPartBytes,
+    )
   }
 
   async inspectParts(objectKey: string, parts: number): Promise<{ complete: boolean; sizeBytes: bigint }> {
@@ -189,7 +171,6 @@ export class MinioObjectStorage implements ObjectStorage {
 
   async completeObject(objectKey: string, parts: number, generation: string, expectedSize: bigint): Promise<{ sizeBytes: bigint; sha256: string }> {
     validGeneration(generation)
-    const stagingKey = `staging/${objectKey}/${generation}`
     const existing = await this.stat(objectKey)
     if (existing) {
       if (existing.generation !== generation || existing.sizeBytes !== expectedSize) {
@@ -203,11 +184,11 @@ export class MinioObjectStorage implements ObjectStorage {
         sizeBytes += BigInt(bytes.length)
       }
       if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
-      await this.client.removeObject(this.bucket, stagingKey).catch(() => undefined)
       return { sizeBytes, sha256: hash.digest('hex') }
     }
     const inspected = await this.inspectParts(objectKey, parts)
     if (!inspected.complete) throw new Error('missing upload part')
+    if (inspected.sizeBytes !== expectedSize) throw new ObjectIntegrityError()
     const hash = createHash('sha256')
     let sizeBytes = 0n
     const self = this
@@ -225,22 +206,16 @@ export class MinioObjectStorage implements ObjectStorage {
         callback(null, chunk)
       },
     })
-    try {
-      await this.client.putObject(this.bucket, stagingKey, Readable.from(chunks()).pipe(hashing))
-      if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
-      await publishMinioStaging(
-        this.client,
-        this.bucket,
-        stagingKey,
-        this.fileKey(objectKey),
-        generation,
-        sizeBytes,
-      )
-      await this.client.removeObject(this.bucket, stagingKey)
-    } catch (error) {
-      await this.client.removeObject(this.bucket, stagingKey).catch(() => undefined)
-      throw error
-    }
+    await uploadMinioStreamAtomic(
+      this.client,
+      this.bucket,
+      this.fileKey(objectKey),
+      Readable.from(chunks()).pipe(hashing),
+      expectedSize,
+      { 'storage-generation': generation },
+      this.multipartPartBytes,
+    )
+    if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
     return { sizeBytes, sha256: hash.digest('hex') }
   }
 

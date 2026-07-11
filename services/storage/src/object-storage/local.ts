@@ -3,7 +3,7 @@ import { constants } from 'node:fs'
 import { access, lstat, mkdir, open, realpath, rename, rm, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { once } from 'node:events'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 import { finished, pipeline } from 'node:stream/promises'
 
 import { ObjectIntegrityError, type ObjectStorage } from './types.js'
@@ -173,8 +173,14 @@ export class LocalObjectStorage implements ObjectStorage {
     return candidate
   }
 
-  async writePart(objectKey: string, partNumber: number, body: Readable): Promise<void> {
+  async writePart(
+    objectKey: string,
+    partNumber: number,
+    body: Readable,
+    expectedSize: bigint,
+  ): Promise<void> {
     validateParts(partNumber)
+    if (expectedSize < 1n) throw new ObjectIntegrityError()
     const directory = await this.partDirectory(objectKey, true)
     const destination = path.join(directory, String(partNumber))
     await rejectLinkIfPresent(destination, false)
@@ -184,8 +190,16 @@ export class LocalObjectStorage implements ObjectStorage {
       constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | constants.O_NOFOLLOW,
       0o600,
     )
+    let sizeBytes = 0n
+    const counting = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        sizeBytes += BigInt(chunk.length)
+        callback(null, chunk)
+      },
+    })
     try {
-      await pipeline(body, handle.createWriteStream({ autoClose: true }))
+      await pipeline(body, counting, handle.createWriteStream({ autoClose: true }))
+      if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
       await rejectLinkIfPresent(directory, true)
       await rejectLinkIfPresent(destination, false)
       await rename(temporary, destination)

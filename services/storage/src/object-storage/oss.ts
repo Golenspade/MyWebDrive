@@ -50,9 +50,29 @@ export class OssObjectStorage implements ObjectStorage {
     return this.key(`files/${objectKey}`)
   }
 
-  async writePart(objectKey: string, partNumber: number, body: Readable): Promise<void> {
+  async writePart(
+    objectKey: string,
+    partNumber: number,
+    body: Readable,
+    expectedSize: bigint,
+  ): Promise<void> {
     valid(objectKey, partNumber)
-    await this.client.putStream(this.partKey(objectKey, partNumber), body)
+    if (expectedSize < 1n) throw new ObjectIntegrityError()
+    const key = this.partKey(objectKey, partNumber)
+    let sizeBytes = 0n
+    const counting = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        sizeBytes += BigInt(chunk.length)
+        callback(null, chunk)
+      },
+    })
+    try {
+      await this.client.putStream(key, body.pipe(counting))
+      if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
+    } catch (error) {
+      await this.client.delete(key).catch(() => undefined)
+      throw error
+    }
   }
 
   async inspectParts(objectKey: string, parts: number): Promise<{ complete: boolean; sizeBytes: bigint }> {

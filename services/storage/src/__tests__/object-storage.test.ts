@@ -41,7 +41,7 @@ describe('LocalObjectStorage containment and streaming', () => {
     `${objectKey}/../outside`,
   ])('rejects hostile object key %s before filesystem access', async (hostile) => {
     const storage = new LocalObjectStorage(await root())
-    await expect(storage.writePart(hostile, 1, Readable.from('owned'))).rejects.toThrow(
+    await expect(storage.writePart(hostile, 1, Readable.from('owned'), 5n)).rejects.toThrow(
       'invalid object key',
     )
     await expect(storage.openRead(hostile)).rejects.toThrow('invalid object key')
@@ -57,7 +57,7 @@ describe('LocalObjectStorage containment and streaming', () => {
     await writeFile(path.join(outside, 'final'), 'secret')
 
     const storage = new LocalObjectStorage(storageRoot)
-    await expect(storage.writePart(objectKey, 1, Readable.from('owned'))).rejects.toThrow(
+    await expect(storage.writePart(objectKey, 1, Readable.from('owned'), 5n)).rejects.toThrow(
       'unsafe storage path',
     )
     await expect(storage.openRead(objectKey)).rejects.toThrow('unsafe storage path')
@@ -85,9 +85,9 @@ describe('LocalObjectStorage containment and streaming', () => {
 
   test('writes parts idempotently, composes in order, hashes, stats and reads without whole-object buffering', async () => {
     const storage = new LocalObjectStorage(await root())
-    await storage.writePart(objectKey, 1, Readable.from(['wrong']))
-    await storage.writePart(objectKey, 1, Readable.from(['hello ']))
-    await storage.writePart(objectKey, 2, Readable.from(['world']))
+    await storage.writePart(objectKey, 1, Readable.from(['wrong']), 5n)
+    await storage.writePart(objectKey, 1, Readable.from(['hello ']), 6n)
+    await storage.writePart(objectKey, 2, Readable.from(['world']), 5n)
     expect(await storage.inspectParts(objectKey, 2)).toEqual({
       complete: true,
       sizeBytes: 11n,
@@ -106,10 +106,21 @@ describe('LocalObjectStorage containment and streaming', () => {
 
   test('does not publish a Local final when frozen expected size mismatches', async () => {
     const storage = new LocalObjectStorage(await root())
-    await storage.writePart(objectKey, 1, Readable.from('abc'))
+    await storage.writePart(objectKey, 1, Readable.from('abc'), 3n)
     await expect(storage.completeObject(objectKey, 1, generation, 4n)).rejects.toThrow(
       'object integrity mismatch',
     )
     await expect(storage.stat(objectKey)).resolves.toBeNull()
+  })
+
+  test('does not publish a Local part when its actual stream size mismatches', async () => {
+    const storage = new LocalObjectStorage(await root())
+    await expect(storage.writePart(objectKey, 1, Readable.from('abc'), 4n)).rejects.toThrow(
+      'object integrity mismatch',
+    )
+    await expect(storage.inspectParts(objectKey, 1)).resolves.toEqual({
+      complete: false,
+      sizeBytes: 0n,
+    })
   })
 })

@@ -1,7 +1,7 @@
 import type { Readable } from 'node:stream'
 
 export interface ObjectStorage {
-  writePart(objectKey: string, partNumber: number, body: Readable): Promise<void>
+  writePart(objectKey: string, partNumber: number, body: Readable, expectedSize: bigint): Promise<void>
   completeObject(objectKey: string, parts: number, generation: string, expectedSize: bigint): Promise<{ sizeBytes: bigint; sha256: string }>
   openRead(objectKey: string): Promise<Readable>
   stat(objectKey: string): Promise<{ sizeBytes: bigint; generation?: string } | null>
