@@ -65,6 +65,23 @@ expect_failure disabled-healthcheck "$FIXTURES/disabled-healthcheck.yml"
 awk '{ if ($0 ~ /node_modules.*prisma migrate deploy/) print "    command: [\"true\"] # prisma migrate deploy"; else print }' "$SOURCE_COMPOSE" > "$FIXTURES/fake-migrate.yml"
 expect_failure fake-migrate-command "$FIXTURES/fake-migrate.yml"
 
+awk '
+  $0 == "  core-api:" { core=1 }
+  core && !done && /^[[:space:]]+test:/ { print "      test: [\"NONE\"]"; done=1; next }
+  { print }
+' "$SOURCE_COMPOSE" > "$FIXTURES/wrong-health-command.yml"
+expect_failure wrong-health-command "$FIXTURES/wrong-health-command.yml"
+
+awk '
+  $0 == "  storage-api:" { storage=1 }
+  storage && !done && /^[[:space:]]+command:/ { print "    command: [\"node\", \"dist/index.js\", \"worker\"]"; done=1; next }
+  { print }
+' "$SOURCE_COMPOSE" > "$FIXTURES/wrong-storage-command.yml"
+expect_failure wrong-storage-command "$FIXTURES/wrong-storage-command.yml"
+
+sed 's#postgres:16.6-alpine3.21@#evil.example/postgres:16.6-alpine3.21@#' "$SOURCE_COMPOSE" > "$FIXTURES/evil-infra-repository.yml"
+expect_failure evil-infrastructure-repository "$FIXTURES/evil-infra-repository.yml"
+
 for operation in 'git reset --hard HEAD~1' 'rsync source destination' 'docker compose down -v' 'docker volume rm data' 'docker system prune --volumes' 'false || true'; do
   fixture="$FIXTURES/deploy-$(printf '%s' "$operation" | tr -cd 'a-z').sh"
   cp "$ROOT_DIR/infrastructure/alicloud/deploy.sh" "$fixture"
@@ -79,6 +96,10 @@ mkdir -p "$FIXTURES/fake-bin"
 cat > "$FIXTURES/fake-bin/docker" <<'EOF'
 #!/usr/bin/env bash
 printf 'CORE=%s STORAGE=%s WEB=%s NGINX=%s :: %s\n' "${CORE_API_IMAGE-}" "${STORAGE_IMAGE-}" "${WEB_IMAGE-}" "${NGINX_IMAGE-}" "$*" >> "$DOCKER_CALL_LOG"
+if [[ -n "${DOCKER_BLOCK_FILE-}" && "$1" == compose && "$2" == version ]]; then
+  : > "$DOCKER_ENTERED_FILE"
+  while [[ ! -f "$DOCKER_BLOCK_FILE" ]]; do sleep 0.05; done
+fi
 if [[ "$1" == image && "$2" == inspect ]]; then
   tag_ref=${!#}
   repository=${tag_ref%:"${IMAGE_TAG}"}
@@ -130,6 +151,51 @@ PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIV
 code=$?
 set -e
 [[ $code -ne 0 && ! -s "$FIXTURES/docker.log" ]] || { printf 'missing rollback history did not fail before Docker mutation\n' >&2; exit 1; }
+
+rollback_fixture="$FIXTURES/rollback-tag-check"
+mkdir -p "$rollback_fixture/bin" "$rollback_fixture/state/history"
+cp "$ROOT_DIR/infrastructure/alicloud/rollback.sh" "$rollback_fixture/rollback.sh"
+cp "$SOURCE_COMPOSE" "$rollback_fixture/docker-compose.core.yml"
+printf '%s\n' '#!/usr/bin/env bash' ': > "$ROLLBACK_EXEC_MARKER"' > "$rollback_fixture/deploy.sh"
+chmod +x "$rollback_fixture/rollback.sh" "$rollback_fixture/deploy.sh"
+requested_tag=sha-2222222222222222222222222222222222222222
+wrong_tag=sha-3333333333333333333333333333333333333333
+printf 'IMAGE_TAG=%s\n' "$wrong_tag" > "$rollback_fixture/state/history/20260711T000000Z-$requested_tag-1.manifest"
+set +e
+ROLLBACK_EXEC_MARKER="$rollback_fixture/exec-marker" DEPLOY_STATE_DIR="$rollback_fixture/state" "$rollback_fixture/rollback.sh" "$requested_tag" >/dev/null 2>&1
+code=$?
+set -e
+[[ $code -ne 0 && ! -e "$rollback_fixture/exec-marker" ]] || { printf 'rollback did not validate manifest tag before exec\n' >&2; exit 1; }
+
+first_tag=sha-0000000000000000000000000000000000000000
+second_tag=sha-1111111111111111111111111111111111111111
+concurrent_state="$FIXTURES/concurrent-state"
+: > "$FIXTURES/first-docker.log"
+: > "$FIXTURES/second-docker.log"
+rm -f "$FIXTURES/docker-entered" "$FIXTURES/release-docker"
+PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/first-docker.log" DOCKER_BLOCK_FILE="$FIXTURES/release-docker" DOCKER_ENTERED_FILE="$FIXTURES/docker-entered" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$concurrent_state" "$ROOT_DIR/infrastructure/alicloud/deploy.sh" "$first_tag" >/dev/null &
+first_pid=$!
+for _ in $(seq 1 100); do [[ -f "$FIXTURES/docker-entered" ]] && break; sleep 0.05; done
+[[ -f "$FIXTURES/docker-entered" ]] || { printf 'first concurrent deploy did not enter Docker\n' >&2; kill "$first_pid"; exit 1; }
+set +e
+PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/second-docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$concurrent_state" "$ROOT_DIR/infrastructure/alicloud/deploy.sh" "$second_tag" >/dev/null 2>&1
+second_code=$?
+set -e
+: > "$FIXTURES/release-docker"
+wait "$first_pid"
+[[ $second_code -eq 75 ]] || { printf 'concurrent deploy did not fail with EX_TEMPFAIL\n' >&2; exit 1; }
+[[ ! -s "$FIXTURES/second-docker.log" ]] || { printf 'concurrent deploy reached Docker while lock was held\n' >&2; exit 1; }
+[[ ! -d "$concurrent_state/.deploy.lock" ]] || { printf 'deploy owner did not release its lock\n' >&2; exit 1; }
+mkdir "$concurrent_state/.deploy.lock"
+printf 'pid=stale:started=1970-01-01T00:00:00Z\n' > "$concurrent_state/.deploy.lock/owner"
+: > "$FIXTURES/second-docker.log"
+set +e
+PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/second-docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$concurrent_state" "$ROOT_DIR/infrastructure/alicloud/deploy.sh" "$second_tag" >/dev/null 2>&1
+stale_code=$?
+set -e
+[[ $stale_code -eq 75 && ! -s "$FIXTURES/second-docker.log" && -f "$concurrent_state/.deploy.lock/owner" ]] || { printf 'stale deploy lock was not handled fail-safe\n' >&2; exit 1; }
+rm -f "$concurrent_state/.deploy.lock/owner"
+rmdir "$concurrent_state/.deploy.lock"
 
 release_tag=sha-0123456789abcdef0123456789abcdef01234567
 state_dir="$FIXTURES/digest-state"

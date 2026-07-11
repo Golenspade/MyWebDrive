@@ -9,9 +9,35 @@ state_tmp=''
 current_tmp=''
 probe_tmp=''
 probe_dest=''
+lock_dir=''
+lock_owner=''
+lock_owner_tmp=''
+lock_acquired=0
 
 trap 'printf "deployment failed at line %s\n" "$LINENO" >&2' ERR
-trap 'for path in "$state_tmp" "$current_tmp" "$probe_tmp" "$probe_dest"; do [[ -z "$path" ]] || rm -f "$path"; done' EXIT
+
+cleanup() {
+  local code=$? path recorded_owner=''
+  trap - EXIT
+  for path in "$state_tmp" "$current_tmp" "$probe_tmp" "$probe_dest" "$lock_owner_tmp"; do
+    [[ -z "$path" ]] || rm -f "$path"
+  done
+  if (( lock_acquired )); then
+    if [[ -f "$lock_dir/owner" ]]; then recorded_owner=$(sed -n '1p' "$lock_dir/owner"); fi
+    if [[ "$recorded_owner" == "$lock_owner" ]]; then
+      rm -f "$lock_dir/owner"
+      if ! rmdir "$lock_dir"; then
+        printf 'deployment lock cleanup failed; manual inspection required: %s\n' "$lock_dir" >&2
+        (( code != 0 )) || code=74
+      fi
+    else
+      printf 'deployment lock ownership changed; refusing cleanup: %s\n' "$lock_dir" >&2
+      (( code != 0 )) || code=74
+    fi
+  fi
+  exit "$code"
+}
+trap cleanup EXIT
 
 validate_release_tag() {
   [[ "$1" =~ ^sha-[0-9a-f]{40}$ ]] || {
@@ -38,6 +64,20 @@ preflight_state_dir() {
   [[ "$(sed -n '1p' "$probe_dest")" == state-write-probe ]] || { printf 'deployment state probe verification failed\n' >&2; exit 73; }
   rm -f "$probe_dest"
   probe_dest=''
+}
+
+acquire_deploy_lock() {
+  lock_dir="$STATE_DIR/.deploy.lock"
+  lock_owner="pid=$$:started=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  if ! mkdir "$lock_dir"; then
+    printf 'another deployment holds %s; stale locks require manual inspection\n' "$lock_dir" >&2
+    exit 75
+  fi
+  lock_acquired=1
+  lock_owner_tmp="$lock_dir/.owner.$$"
+  printf '%s\n' "$lock_owner" > "$lock_owner_tmp"
+  mv "$lock_owner_tmp" "$lock_dir/owner"
+  lock_owner_tmp=''
 }
 
 parse_manifest() {
@@ -112,6 +152,7 @@ else
 fi
 
 preflight_state_dir
+acquire_deploy_lock
 if [[ "$mode" == manifest ]]; then
   parse_manifest "$manifest"
   [[ -z "$expected_manifest_tag" || "$IMAGE_TAG" == "$expected_manifest_tag" ]] || { printf 'release manifest tag does not match rollback target\n' >&2; exit 65; }

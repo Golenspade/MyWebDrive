@@ -834,6 +834,8 @@ Replace the remaining frontend data-plane calls in the same cutover commit: `lib
 
 Rollback restores the previous complete Core image set and never re-enables old service writes against the Core database. Restore rehearsal uses the pre-cutover snapshot in an isolated environment before production traffic switches.
 
+The runbook must document the fail-safe deployment lock at `${DEPLOY_STATE_DIR}/.deploy.lock`: never remove it automatically. An operator may archive and remove a stale lock only after confirming from its `owner` record and host process/container activity that no deploy or rollback is still running; the incident and selected release manifest must be recorded before retrying.
+
 - [ ] **Step 5: Run complete verification and commit**
 
 Run:

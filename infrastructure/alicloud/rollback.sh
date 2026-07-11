@@ -25,5 +25,21 @@ for candidate in "${matches[@]}"; do
   [[ "$candidate" -nt "$manifest" ]] && manifest=$candidate
 done
 
+manifest_tag=''
+manifest_tag_count=0
+while IFS= read -r line || [[ -n "$line" ]]; do
+  [[ "$line" == *=* ]] || { printf 'invalid release manifest line\n' >&2; exit 65; }
+  key=${line%%=*}
+  value=${line#*=}
+  if [[ "$key" == IMAGE_TAG ]]; then
+    manifest_tag=$value
+    manifest_tag_count=$((manifest_tag_count + 1))
+  fi
+done < "$manifest"
+[[ $manifest_tag_count -eq 1 && "$manifest_tag" =~ ^sha-[0-9a-f]{40}$ && "$manifest_tag" == "$TARGET_TAG" ]] || {
+  printf 'release manifest IMAGE_TAG does not match rollback target\n' >&2
+  exit 65
+}
+
 printf 'rolling back to immutable release %s from %s\n' "$TARGET_TAG" "$manifest"
 exec "$SCRIPT_DIR/deploy.sh" --manifest "$manifest" "$TARGET_TAG"

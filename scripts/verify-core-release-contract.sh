@@ -56,16 +56,35 @@ const services = config.services || {}
 const expected = ["core-api", "core-migrate", "minio", "minio-init", "nginx", "postgres", "redis", "storage-api", "storage-worker", "web"]
 const actual = Object.keys(services).sort()
 function assert(ok, message) { if (!ok) throw new Error(message) }
+function same(actual, expected) { return JSON.stringify(actual) === JSON.stringify(expected) }
 assert(JSON.stringify(actual) === JSON.stringify(expected), `services must be exactly ${expected.join(",")}`)
 for (const [name, service] of Object.entries(services)) {
   assert(!service.build, `${name} must not build from source in production compose`)
   for (const mount of service.volumes || []) assert(mount.type !== "bind", `${name} contains a bind mount`)
   assert(typeof service.image === "string" && !service.image.endsWith(":latest"), `${name} must have a non-latest image`)
 }
-for (const name of ["postgres", "redis", "minio", "minio-init"]) assert(/@sha256:[0-9a-f]{64}$/.test(services[name].image), `${name} image must be pinned by digest`)
-for (const name of ["postgres", "redis", "minio", "core-api", "storage-api", "storage-worker", "web", "nginx"]) {
+const infrastructureImages = {
+  postgres: "postgres:16.6-alpine3.21@sha256:1d04b9ba1d4996401f2552b51beda8187f175c0645c091e4781134fc9c9a3eef",
+  redis: "redis:7.4.2-alpine3.21@sha256:02419de7eddf55aa5bcf49efb74e88fa8d931b4d77c07eff8a6b2144472b6952",
+  minio: "minio/minio:RELEASE.2025-04-22T22-12-26Z@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e",
+  "minio-init": "minio/mc:RELEASE.2025-04-16T18-13-26Z@sha256:aead63c77f9db9107f1696fb08ecb0faeda23729cde94b0f663edf4fe09728e3",
+}
+for (const [name, image] of Object.entries(infrastructureImages)) assert(services[name].image === image, `${name} image is not the approved tag and digest`)
+const healthchecks = {
+  postgres: { test: ["CMD-SHELL", "pg_isready -U mywebdrive -d mywebdrive_core"], interval: "5s", timeout: "3s", retries: 20 },
+  redis: { test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"], interval: "5s", timeout: "3s", retries: 20 },
+  minio: { test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"], interval: "5s", timeout: "3s", retries: 20 },
+  "core-api": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:8080/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
+  "storage-api": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:7084/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
+  "storage-worker": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:7085/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
+  web: { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:4323/'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "10s", timeout: "5s", retries: 12 },
+  nginx: { test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"], interval: "10s", timeout: "5s", retries: 12 },
+}
+for (const [name, expectedHealth] of Object.entries(healthchecks)) {
   const health = services[name].healthcheck
-  assert(health && health.disable !== true && Array.isArray(health.test) && health.test.length > 0, `${name} needs an enabled healthcheck`)
+  assert(health && health.disable !== true, `${name} needs an enabled healthcheck`)
+  assert(same(health.test, expectedHealth.test), `${name} healthcheck command is invalid`)
+  assert(health.interval === expectedHealth.interval && health.timeout === expectedHealth.timeout && health.retries === expectedHealth.retries, `${name} healthcheck timing is invalid`)
 }
 for (const name of ["minio-init", "core-migrate", "core-api", "storage-api", "storage-worker", "web", "nginx"]) {
   const service = services[name]
@@ -73,15 +92,14 @@ for (const name of ["minio-init", "core-migrate", "core-api", "storage-api", "st
   assert((service.cap_drop || []).includes("ALL"), `${name} must drop all capabilities`)
   assert((service.security_opt || []).includes("no-new-privileges:true"), `${name} must set no-new-privileges`)
 }
-const migrate = (services["core-migrate"].command || []).join(" ")
-assert(/(^|\s)(\S*\/)?prisma\s+migrate\s+deploy(\s|$)/.test(migrate), "core-migrate must execute prisma migrate deploy")
+assert(same(services["core-migrate"].command, ["sh", "-c", "./node_modules/.bin/prisma migrate deploy"]), "core-migrate command is invalid")
+assert(same(services["storage-api"].command, ["node", "dist/index.js", "api"]), "storage-api command is invalid")
+assert(same(services["storage-worker"].command, ["node", "dist/index.js", "worker"]), "storage-worker command is invalid")
 assert(services["core-api"].depends_on?.["core-migrate"]?.condition === "service_completed_successfully", "core-api must wait for migration")
 for (const name of ["storage-api", "storage-worker"]) assert(services[name].depends_on?.["minio-init"]?.condition === "service_completed_successfully", `${name} must wait for minio-init`)
 assert(services["storage-worker"].depends_on?.["core-api"]?.condition === "service_healthy", "storage-worker must wait for Core")
-const init = (services["minio-init"].command || []).join(" ")
-assert(/mc alias set/.test(init) && /mc mb --ignore-existing/.test(init), "minio-init must idempotently create the bucket")
-assert(services["minio-init"].image.startsWith("minio/mc:") && !services["minio-init"].image.endsWith(":latest"), "minio-init must use pinned minio/mc")
-assert((services.minio.healthcheck.test || []).join(" ").includes("/minio/health/live"), "MinIO must use its live probe")
+assert(same(services["minio-init"].entrypoint, ["/bin/sh", "-c"]), "minio-init entrypoint is invalid")
+assert(same(services["minio-init"].command, ["mc alias set local http://minio:9000 \"$${MINIO_ROOT_USER}\" \"$${MINIO_ROOT_PASSWORD}\" && mc mb --ignore-existing \"local/$${MINIO_BUCKET}\""]), "minio-init command is invalid")
 const tag = process.env.IMAGE_TAG
 const registry = process.env.REGISTRY
 const expectedImages = {
@@ -106,6 +124,8 @@ require_pattern 'compose run --rm --no-deps core-migrate' "$DEPLOY_SCRIPT" 'depl
 require_pattern 'compose run --rm --no-deps minio-init' "$DEPLOY_SCRIPT" 'deploy.sh must initialize object storage'
 require_pattern '/version' "$DEPLOY_SCRIPT" 'deploy.sh must verify Core build metadata'
 require_pattern 'current.env' "$DEPLOY_SCRIPT" 'deploy.sh must record current release state'
+require_pattern 'mkdir "\$lock_dir"' "$DEPLOY_SCRIPT" 'deploy.sh must acquire an atomic state lock'
+require_pattern 'exit 75' "$DEPLOY_SCRIPT" 'deploy.sh must fail concurrent deployment with EX_TEMPFAIL'
 require_pattern 'exec .*deploy\.sh.*--manifest' "$ROLLBACK_SCRIPT" 'rollback.sh must use deploy manifest mode'
 
 reject_pattern '\|\|[[:space:]]*true|--no-frozen-lockfile|SQLite|sqlite|services/(auth|user|metadata|sharing)|api-gateway' "$CI_FILE" 'CI contains a best-effort, mutable install, SQLite, or split-control-plane path'
