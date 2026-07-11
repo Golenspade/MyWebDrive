@@ -14,7 +14,7 @@
     "migrate:dev": "prisma migrate dev",
     "migrate:deploy": "prisma migrate deploy",
     "db:push": "prisma db push",
-    "test": "vitest run src"
+    "test:legacy": "vitest run src"
   },
   "dependencies": {
     "@mywebdrive/common": "workspace:*",

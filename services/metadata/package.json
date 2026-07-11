@@ -16,7 +16,7 @@
     "migrate:deploy": "prisma migrate deploy",
     "catalog:import": "tsx src/scripts/catalog-import.ts",
     "catalog:scan": "tsx src/scripts/catalog-scan.ts",
-    "test": "vitest run --coverage"
+    "test:legacy": "vitest run --coverage"
   },
   "dependencies": {
     "@mywebdrive/common": "workspace:*",

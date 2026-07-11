@@ -1,0 +1,12 @@
+.git
+.github
+.codex
+.superpowers
+**/.env
+**/.env.*
+**/node_modules
+**/.next
+**/dist
+**/*.tsbuildinfo
+**/prisma/client
+coverage

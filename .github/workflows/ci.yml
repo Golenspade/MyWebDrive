@@ -1,87 +1,92 @@
-name: CI
+name: Core release CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [main, master]
   pull_request:
-    branches: [ "**" ]
 
 jobs:
-  # Backend build and test
-  backend:
-    runs-on: ubuntu-latest
-    name: Backend (Node.js)
+  core-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16.6-alpine3.21
+        env:
+          POSTGRES_DB: mywebdrive_core_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d mywebdrive_core_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+      redis:
+        image: redis:7.4.2-alpine3.21
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      CORE_TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/mywebdrive_core_test?schema=public
+      CORE_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/mywebdrive_core_test?schema=public
+      REDIS_URL: redis://127.0.0.1:6379/0
+      CORE_TEST_REDIS_URL: redis://127.0.0.1:6379/0
+      STORAGE_TEST_REDIS_URL: redis://127.0.0.1:6379/1
+      POSTGRES_PASSWORD: contract-test-password
+      REDIS_PASSWORD: contract-test-password
+      MINIO_ROOT_USER: contract-test-user
+      MINIO_ROOT_PASSWORD: contract-test-password
+      CORE_SESSION_SECRET: contract-core-session-secret-0000000000000001
+      OTP_PEPPER: contract-otp-pepper-secret-000000000000000001
+      STORAGE_GRANT_SECRET: contract-storage-grant-secret-00000000000001
+      CORE_CALLBACK_SECRET: contract-core-callback-secret-0000000000001
+      EMAIL_PROVIDER_URL: https://mail.invalid
+      EMAIL_PROVIDER_TOKEN: contract-email-token
+      REGISTRY: registry.invalid
+      IMAGE_TAG: ci-contract
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Enable corepack (pnpm)
+      - name: Setup Node and pnpm
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.18.3
+
+      - name: Enable pnpm
         run: |
           corepack enable
           corepack prepare pnpm@9.7.0 --activate
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'pnpm'
+      - name: Install locked dependencies
+        run: pnpm install --frozen-lockfile
 
-      - name: Install deps (pnpm workspace)
-        run: pnpm -w install --no-frozen-lockfile
+      - name: Apply Core migrations
+        run: pnpm --filter core-api exec prisma migrate deploy
 
-      - name: Build all packages/services
-        run: pnpm -r --filter ./packages/** --filter ./services/** build
+      - name: Build workspace
+        run: pnpm run build:all
 
-      - name: Prisma generate (all services)
-        run: pnpm -r --filter ./services/** prisma:generate || true
+      - name: Typecheck workspace
+        run: pnpm run typecheck
 
-      - name: Prisma migrate deploy (sqlite in-repo)
-        shell: bash
+      - name: Lint workspace
+        run: pnpm run lint:all
+
+      - name: Test Core, Storage and frontend
+        run: pnpm run test:all
+
+      - name: Enforce immutable release contract
         run: |
-          set -e
-          mkdir -p .ci
-          echo "auth & user"
-          (cd services/auth && DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
-          (cd services/user && DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
-          echo "metadata"
-          (cd services/metadata && METADATA_DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
-          echo "storage"
-          (cd services/storage && STORAGE_DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
-          echo "sharing"
-          (cd services/sharing && SHARING_DATABASE_URL="file:./prisma/ci.db" npx prisma migrate deploy || npx prisma db push || true)
+          bash scripts/verify-core-release-contract.sh infrastructure/alicloud/docker-compose.core.yml
+          bash scripts/test-core-release-contract.sh
 
-      - name: Tests (best-effort)
-        run: pnpm -r test || true
-
-  # Frontend build and lint
-  frontend:
-    runs-on: ubuntu-latest
-    name: Frontend (Next.js)
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Enable corepack (pnpm)
-        run: |
-          corepack enable
-          corepack prepare pnpm@9.7.0 --activate
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'pnpm'
-
-      - name: Install deps (all packages)
-        run: pnpm install --no-frozen-lockfile
-
-      - name: Build frontend
-        run: pnpm --filter ./frontend/cruip-landing build
-
-      - name: Lint frontend
-        run: pnpm --filter ./frontend/cruip-landing lint || true
-
-      - name: Type check frontend
-        run: pnpm --filter ./frontend/cruip-landing typecheck || true
+      - name: Validate production compose
+        run: docker compose -f infrastructure/alicloud/docker-compose.core.yml config -q

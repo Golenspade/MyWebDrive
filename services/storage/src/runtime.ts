@@ -11,6 +11,10 @@ import { MinioObjectStorage } from './object-storage/minio.js'
 import { OssObjectStorage } from './object-storage/oss.js'
 import type { ObjectStorage } from './object-storage/types.js'
 
+export async function connectRuntimeRedis(redis: Pick<Redis, 'connect'>): Promise<void> {
+  await redis.connect()
+}
+
 function required(name: string): string {
   const value = process.env[name]
   if (!value) throw new Error(`${name} must be set`)

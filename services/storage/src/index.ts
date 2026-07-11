@@ -2,7 +2,7 @@ import express from 'express'
 import helmet from 'helmet'
 
 import { createStorageApi } from './api.js'
-import { createApiRuntime, createWorkerRuntime } from './runtime.js'
+import { connectRuntimeRedis, createApiRuntime, createWorkerRuntime } from './runtime.js'
 import { runWorker, WorkerLoopState } from './worker.js'
 
 async function main(): Promise<void> {
@@ -16,6 +16,7 @@ async function main(): Promise<void> {
 
   if (command === 'api') {
     const runtime = createApiRuntime()
+    await connectRuntimeRedis(runtime.redis)
     app.use(
       createStorageApi({
         storage: runtime.storage,
@@ -32,6 +33,7 @@ async function main(): Promise<void> {
   }
 
   const runtime = createWorkerRuntime()
+  await connectRuntimeRedis(runtime.redis)
   const workerState = new WorkerLoopState()
   app.get('/live', (_req, res) => res.json({ status: 'live', service: 'storage-worker' }))
   app.get('/ready', async (_req, res) => {

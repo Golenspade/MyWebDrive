@@ -8,9 +8,12 @@
   },
   "scripts": {
     "build": "tsc -b",
-    "build:all": "pnpm -r --filter ./packages/** --filter ./services/** --filter ./apps/** build",
+    "build:all": "pnpm --filter './packages/*' --filter './services/*' --filter './apps/*' --filter './frontend/*' run build",
+    "test:all": "pnpm --if-present --filter './services/*' --filter './apps/*' --filter './frontend/*' run test",
+    "test:legacy": "pnpm --if-present --filter './services/auth' --filter './services/user' --filter './services/metadata' --filter './services/sharing' --filter './services/api-gateway-node' run test:legacy",
+    "lint:all": "pnpm --if-present --filter './services/*' --filter './apps/*' --filter './frontend/*' run lint",
     "typecheck": "tsc -b --pretty false",
-    "clean": "pnpm -r run clean || true",
+    "clean": "pnpm -r --if-present run clean",
     "dev": "pnpm -C frontend/cruip-landing dev"
   },
   "devDependencies": {

@@ -1,0 +1,226 @@
+name: mywebdrive-core
+
+services:
+  postgres:
+    image: postgres:16.6-alpine3.21
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: mywebdrive_core
+      POSTGRES_USER: mywebdrive
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mywebdrive -d mywebdrive_core"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  redis:
+    image: redis:7.4.2-alpine3.21
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD is required}"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD is required}
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: ["server", "/data"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    restart: "no"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+    environment:
+      MC_CONFIG_DIR: /tmp/.mc
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:-mywebdrive}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 "$${MINIO_ROOT_USER}" "$${MINIO_ROOT_PASSWORD}"
+        && mc mb --ignore-existing "local/$${MINIO_BUCKET}"
+    depends_on:
+      minio:
+        condition: service_healthy
+
+  core-migrate:
+    image: ${REGISTRY:?REGISTRY is required}/mywebdrive-core-api:${IMAGE_TAG:?IMAGE_TAG is required}
+    command: ["sh", "-c", "./node_modules/.bin/prisma migrate deploy"]
+    restart: "no"
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+    environment:
+      CORE_DATABASE_URL: ${CORE_DATABASE_URL:?CORE_DATABASE_URL is required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  core-api:
+    image: ${REGISTRY:?REGISTRY is required}/mywebdrive-core-api:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+    environment:
+      NODE_ENV: production
+      CORE_PORT: "8080"
+      CORE_DATABASE_URL: ${CORE_DATABASE_URL:?CORE_DATABASE_URL is required}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      CORE_SESSION_SECRET: ${CORE_SESSION_SECRET:?CORE_SESSION_SECRET is required}
+      OTP_PEPPER: ${OTP_PEPPER:?OTP_PEPPER is required}
+      STORAGE_GRANT_SECRET: ${STORAGE_GRANT_SECRET:?STORAGE_GRANT_SECRET is required}
+      CORE_CALLBACK_SECRET: ${CORE_CALLBACK_SECRET:?CORE_CALLBACK_SECRET is required}
+      EMAIL_PROVIDER_URL: ${EMAIL_PROVIDER_URL:?EMAIL_PROVIDER_URL is required}
+      EMAIL_PROVIDER_TOKEN: ${EMAIL_PROVIDER_TOKEN:?EMAIL_PROVIDER_TOKEN is required}
+      DEFAULT_USER_QUOTA_BYTES: ${DEFAULT_USER_QUOTA_BYTES:-10737418240}
+      CORE_ADMIN_EMAILS: ${CORE_ADMIN_EMAILS:-}
+      GIT_SHA: ${GIT_SHA:-unknown}
+      BUILD_ID: ${IMAGE_TAG:?IMAGE_TAG is required}
+    depends_on:
+      core-migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  storage-api:
+    image: ${REGISTRY:?REGISTRY is required}/mywebdrive-storage:${IMAGE_TAG:?IMAGE_TAG is required}
+    command: ["node", "dist/index.js", "api"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+    environment: &storage-environment
+      STORAGE_ADAPTER: minio
+      STORAGE_PORT: "7084"
+      STORAGE_WORKER_PORT: "7085"
+      REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
+      STORAGE_GRANT_SECRET: ${STORAGE_GRANT_SECRET:?STORAGE_GRANT_SECRET is required}
+      CORE_CALLBACK_SECRET: ${CORE_CALLBACK_SECRET:?CORE_CALLBACK_SECRET is required}
+      CORE_API_URL: http://core-api:8080
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:?MINIO_ROOT_USER is required}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
+      MINIO_BUCKET: ${MINIO_BUCKET:-mywebdrive}
+    depends_on:
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7084/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  storage-worker:
+    image: ${REGISTRY:?REGISTRY is required}/mywebdrive-storage:${IMAGE_TAG:?IMAGE_TAG is required}
+    command: ["node", "dist/index.js", "worker"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+    environment: *storage-environment
+    depends_on:
+      core-api:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:7085/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    image: ${REGISTRY:?REGISTRY is required}/mywebdrive-web:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+    environment:
+      NODE_ENV: production
+      PORT: "4323"
+    depends_on:
+      core-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4323/').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  nginx:
+    image: ${REGISTRY:?REGISTRY is required}/mywebdrive-nginx:${IMAGE_TAG:?IMAGE_TAG is required}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /var/cache/nginx:uid=101,gid=101,mode=0755
+      - /var/run:uid=101,gid=101,mode=0755
+      - /tmp:uid=101,gid=101,mode=1777
+    ports:
+      - "${HTTP_PORT:-80}:8080"
+    depends_on:
+      core-api:
+        condition: service_healthy
+      storage-api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  postgres-data:
+  redis-data:
+  minio-data:

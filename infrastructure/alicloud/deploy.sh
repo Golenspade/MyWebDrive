@@ -1,90 +1,83 @@
-#!/bin/bash
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# 阿里云部署脚本
-# 使用方法: ./deploy.sh [环境] [版本]
-# 例如: ./deploy.sh production v1.0.0
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+COMPOSE_FILE="$SCRIPT_DIR/docker-compose.core.yml"
+ENV_FILE=${MYWEBDRIVE_ENV_FILE:-"$SCRIPT_DIR/.env"}
+STATE_DIR=${DEPLOY_STATE_DIR:-/var/lib/mywebdrive/releases}
+IMAGE_TAG=${1:-}
+state_tmp=''
+current_tmp=''
 
-set -e
+trap 'printf "deployment failed at line %s\n" "$LINENO" >&2' ERR
+trap '[[ -z "$state_tmp" ]] || rm -f "$state_tmp"; [[ -z "$current_tmp" ]] || rm -f "$current_tmp"' EXIT
 
-# 默认参数
-ENVIRONMENT=${1:-production}
-VERSION=${2:-latest}
-COMPOSE_FILE="docker-compose.node.yml"
-
-echo "🚀 开始部署 MyWebDrive 到阿里云..."
-echo "环境: $ENVIRONMENT"
-echo "版本: $VERSION"
-
-# 检查必要的文件
-if [ ! -f ".env" ]; then
-    echo "❌ 错误: .env 文件不存在，请先复制 env.example 为 .env 并配置"
-    exit 1
+if [[ -z "$IMAGE_TAG" || "$IMAGE_TAG" == latest ]]; then
+  printf 'usage: %s <immutable-image-tag> (latest is forbidden)\n' "$0" >&2
+  exit 64
 fi
-
-if [ ! -f "$COMPOSE_FILE" ]; then
-    echo "❌ 错误: $COMPOSE_FILE 文件不存在"
-    exit 1
+if [[ ! "$IMAGE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+  printf 'invalid immutable image tag: %s\n' "$IMAGE_TAG" >&2
+  exit 64
 fi
+[[ -r "$ENV_FILE" ]] || { printf 'environment file is missing or unreadable: %s\n' "$ENV_FILE" >&2; exit 66; }
+[[ "$STATE_DIR" == /* ]] || { printf 'DEPLOY_STATE_DIR must be an absolute path\n' >&2; exit 64; }
+command -v docker >/dev/null
+docker compose version >/dev/null
 
-# 创建必要的数据目录
-echo "📁 创建数据目录..."
-sudo mkdir -p /data/{sqlite,redis,minio}
-sudo chmod 755 /data/{sqlite,redis,minio}
+export IMAGE_TAG
+compose() {
+  docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+}
 
-# 设置版本环境变量
-export VERSION=$VERSION
-
-# Node 版 compose 基于本地源码运行，无需拉取镜像
-echo "📦 跳过镜像拉取（Node 版 compose 使用本地 workspace）"
-
-# 停止现有服务
-echo "🛑 停止现有服务..."
-docker-compose -f $COMPOSE_FILE down --remove-orphans
-
-# 启动服务
-echo "🔄 启动服务 (Node 版)..."
-docker-compose -f $COMPOSE_FILE up -d
-
-# 等待服务启动
-echo "⏳ 等待服务启动..."
-sleep 30
-
-# 运行 Prisma 生成与迁移（best-effort）
-echo "🧭 生成 Prisma 客户端并执行 migrate deploy..."
-for svc in auth user metadata storage sharing; do
-  echo "   > prisma migrate for $svc"
-  docker-compose -f $COMPOSE_FILE exec -T $svc sh -lc \
-    "corepack enable && corepack prepare pnpm@9.7.0 --activate && \
-     pnpm --filter ./services/$svc prisma:generate && \
-     (pnpm --filter ./services/$svc run migrate:deploy || pnpm --filter ./services/$svc run db:push || true)" || true
-done
-
-# 健康检查（Node 端口）
-echo "🔍 执行健康检查..."
-services=("api-gateway-node:9080" "auth:7081" "user:7082" "metadata:7083" "storage:7084" "sharing:7085")
-
-for service in "${services[@]}"; do
-    service_name=$(echo $service | cut -d: -f1)
-    port=$(echo $service | cut -d: -f2)
-    
-    if curl -f -s "http://localhost:$port/health" > /dev/null; then
-        echo "✅ $service_name 健康检查通过"
-    else
-        echo "❌ $service_name 健康检查失败"
-        docker-compose -f $COMPOSE_FILE logs $service_name
+wait_healthy() {
+  local service=$1 deadline container status
+  deadline=$((SECONDS + 180))
+  while (( SECONDS < deadline )); do
+    container=$(compose ps -q "$service")
+    if [[ -n "$container" ]]; then
+      status=$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container")
+      [[ "$status" == healthy ]] && return 0
+      [[ "$status" == exited || "$status" == dead ]] && break
     fi
-done
+    sleep 2
+  done
+  compose logs --tail=100 "$service" >&2
+  printf 'service did not become healthy: %s\n' "$service" >&2
+  return 1
+}
 
-# 显示运行状态
-echo "📊 服务状态:"
-docker-compose -f $COMPOSE_FILE ps
+compose config -q
+compose pull postgres redis minio minio-init core-migrate core-api storage-api storage-worker web nginx
+compose up -d --no-deps postgres redis minio
+for service in postgres redis minio; do wait_healthy "$service"; done
+compose run --rm --no-deps minio-init
+compose run --rm --no-deps core-migrate
+compose up -d --no-deps core-api storage-api storage-worker web nginx
+for service in core-api storage-api storage-worker web nginx; do wait_healthy "$service"; done
 
-echo "🎉 部署完成!"
-echo ""
-echo "📋 访问信息:"
-echo "  - 前端应用: http://localhost"
-echo "  - API网关: http://localhost:9080"
-echo "  - MinIO控制台: http://localhost:9001"
-echo ""
-echo "📝 查看日志: docker-compose -f $COMPOSE_FILE logs -f [服务名]"
-echo "🛑 停止服务: docker-compose -f $COMPOSE_FILE down"
+compose exec -T -e EXPECTED_BUILD_ID="$IMAGE_TAG" core-api node -e \
+  "fetch('http://127.0.0.1:8080/version').then(async r=>{if(!r.ok)throw Error('version endpoint failed');const v=await r.json();if(v.buildId!==process.env.EXPECTED_BUILD_ID)throw Error('buildId mismatch')}).catch(e=>{console.error(e.message);process.exit(1)})"
+
+mkdir -p "$STATE_DIR/history"
+[[ -w "$STATE_DIR" && -w "$STATE_DIR/history" ]] || { printf 'deployment state directory is not writable: %s\n' "$STATE_DIR" >&2; exit 73; }
+state_tmp=$(mktemp "$STATE_DIR/.release.XXXXXX")
+deployed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+history_stamp=$(date -u +%Y%m%dT%H%M%SZ)
+{
+  printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG"
+  printf 'DEPLOYED_AT=%s\n' "$deployed_at"
+  for service in postgres redis minio core-api storage-api storage-worker web nginx; do
+    container=$(compose ps -q "$service")
+    digest=$(docker inspect --format '{{.Image}}' "$container")
+    printf '%s=%s\n' "$service" "$digest"
+  done
+} > "$state_tmp"
+history_file="$STATE_DIR/history/$history_stamp-$IMAGE_TAG-$$.env"
+mv "$state_tmp" "$history_file"
+state_tmp=''
+current_tmp=$(mktemp "$STATE_DIR/.current.XXXXXX")
+cp "$history_file" "$current_tmp"
+mv "$current_tmp" "$STATE_DIR/current.env"
+current_tmp=''
+printf 'deployed immutable release %s\n' "$IMAGE_TAG"
