@@ -1,17 +1,50 @@
 import os from 'node:os'
 
+import OSS from 'ali-oss'
 import Redis from 'ioredis'
 import { Client as MinioClient } from 'minio'
 
 import { FinalizationQueue, type StreamRedis } from './finalization-queue.js'
+import { AliOssClient } from './object-storage/ali-oss-client.js'
 import { LocalObjectStorage } from './object-storage/local.js'
 import { MinioObjectStorage } from './object-storage/minio.js'
+import { OssObjectStorage } from './object-storage/oss.js'
 import type { ObjectStorage } from './object-storage/types.js'
 
 function required(name: string): string {
   const value = process.env[name]
   if (!value) throw new Error(`${name} must be set`)
   return value
+}
+
+function requiredFrom(env: NodeJS.ProcessEnv, name: string): string {
+  const value = env[name]
+  if (!value) throw new Error(`${name} must be set`)
+  return value
+}
+
+function optionalBoolean(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
+  const value = env[name]
+  if (value === undefined) return fallback
+  if (value === 'true') return true
+  if (value === 'false') return false
+  throw new Error(`${name} must be true or false`)
+}
+
+export function parseAliOssConfig(
+  env: NodeJS.ProcessEnv,
+): ConstructorParameters<typeof OSS>[0] & { bucket: string } {
+  return {
+    region: requiredFrom(env, 'OSS_REGION'),
+    accessKeyId: requiredFrom(env, 'OSS_ACCESS_KEY_ID'),
+    accessKeySecret: requiredFrom(env, 'OSS_ACCESS_KEY_SECRET'),
+    bucket: requiredFrom(env, 'OSS_BUCKET'),
+    ...(env.OSS_ENDPOINT ? { endpoint: env.OSS_ENDPOINT } : {}),
+    secure: optionalBoolean(env, 'OSS_SECURE', true),
+    ...(env.OSS_INTERNAL === undefined
+      ? {}
+      : { internal: optionalBoolean(env, 'OSS_INTERNAL', false) }),
+  }
 }
 
 function secret(name: string): string {
@@ -40,14 +73,19 @@ function minioStorage(): ObjectStorage {
   return new MinioObjectStorage(client, required('MINIO_BUCKET'))
 }
 
+function aliOssStorage(): ObjectStorage {
+  const config = parseAliOssConfig(process.env)
+  const client = new OSS(config)
+  return new OssObjectStorage(new AliOssClient(client, config.bucket))
+}
+
 function baseRuntime() {
   const adapter = process.env.STORAGE_ADAPTER ?? 'local'
   let storage: ObjectStorage
   if (adapter === 'local') storage = new LocalObjectStorage(process.env.STORAGE_PATH ?? 'storage')
   else if (adapter === 'minio') storage = minioStorage()
-  else if (adapter === 'oss') {
-    throw new Error('OSS runtime requires an injected OssClient adapter')
-  } else throw new Error('STORAGE_ADAPTER must be local, minio or oss')
+  else if (adapter === 'oss') storage = aliOssStorage()
+  else throw new Error('STORAGE_ADAPTER must be local, minio or oss')
 
   const redis = new Redis(required('REDIS_URL'), {
     enableOfflineQueue: false,

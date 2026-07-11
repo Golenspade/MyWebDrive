@@ -19,6 +19,27 @@ function validGeneration(generation: string): void {
   if (!UUID_PATTERN.test(generation)) throw new Error('invalid upload generation')
 }
 
+export async function publishMinioStaging(
+  client: Client,
+  bucket: string,
+  stagingKey: string,
+  finalKey: string,
+  generation: string,
+  sizeBytes: bigint,
+): Promise<void> {
+  validGeneration(generation)
+  if (sizeBytes < 1n) throw new ObjectIntegrityError()
+  await client.composeObject(
+    new CopyDestinationOptions({
+      Bucket: bucket,
+      Object: finalKey,
+      MetadataDirective: 'REPLACE',
+      UserMetadata: { 'storage-generation': generation },
+    }),
+    [new CopySourceOptions({ Bucket: bucket, Object: stagingKey })],
+  )
+}
+
 export class MinioObjectStorage implements ObjectStorage {
   constructor(private readonly client: Client, private readonly bucket: string) {}
 
@@ -93,14 +114,13 @@ export class MinioObjectStorage implements ObjectStorage {
     try {
       await this.client.putObject(this.bucket, stagingKey, Readable.from(chunks()).pipe(hashing))
       if (sizeBytes !== expectedSize) throw new ObjectIntegrityError()
-      await this.client.copyObject(
-        new CopySourceOptions({ Bucket: this.bucket, Object: stagingKey }),
-        new CopyDestinationOptions({
-          Bucket: this.bucket,
-          Object: this.fileKey(objectKey),
-          MetadataDirective: 'REPLACE',
-          UserMetadata: { 'storage-generation': generation },
-        }),
+      await publishMinioStaging(
+        this.client,
+        this.bucket,
+        stagingKey,
+        this.fileKey(objectKey),
+        generation,
+        sizeBytes,
       )
       await this.client.removeObject(this.bucket, stagingKey)
     } catch (error) {
