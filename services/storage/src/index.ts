@@ -3,7 +3,7 @@ import helmet from 'helmet'
 
 import { createStorageApi } from './api.js'
 import { createApiRuntime, createWorkerRuntime } from './runtime.js'
-import { runWorker } from './worker.js'
+import { runWorker, WorkerLoopState } from './worker.js'
 
 async function main(): Promise<void> {
   const command = process.argv[2]
@@ -32,9 +32,11 @@ async function main(): Promise<void> {
   }
 
   const runtime = createWorkerRuntime()
+  const workerState = new WorkerLoopState()
   app.get('/live', (_req, res) => res.json({ status: 'live', service: 'storage-worker' }))
   app.get('/ready', async (_req, res) => {
     try {
+      if (!workerState.isAlive()) throw new Error('worker loop unavailable')
       await Promise.all([runtime.queue.ready(), runtime.storage.ready()])
       return res.json({ status: 'ready', service: 'storage-worker' })
     } catch {
@@ -43,19 +45,24 @@ async function main(): Promise<void> {
   })
   const server = app.listen(runtime.workerPort)
   const controller = new AbortController()
-  const stop = () => {
-    controller.abort()
-    server.close(() => void runtime.redis.quit())
-  }
+  const stop = () => controller.abort()
   process.once('SIGTERM', stop)
   process.once('SIGINT', stop)
-  await runWorker({
-    storage: runtime.storage,
-    queue: runtime.queue,
-    callbackSecret: runtime.callbackSecret,
-    coreApiUrl: runtime.coreApiUrl,
-    signal: controller.signal,
-  })
+  try {
+    await runWorker({
+      storage: runtime.storage,
+      queue: runtime.queue,
+      callbackSecret: runtime.callbackSecret,
+      coreApiUrl: runtime.coreApiUrl,
+      signal: controller.signal,
+      state: workerState,
+    })
+  } finally {
+    process.off('SIGTERM', stop)
+    process.off('SIGINT', stop)
+    await new Promise<void>((resolve) => server.close(() => resolve()))
+    await runtime.redis.quit().catch(() => runtime.redis.disconnect())
+  }
 }
 
 main().catch((error: unknown) => {

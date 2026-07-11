@@ -15,7 +15,7 @@ type CallbackRequest = {
 type CallbackResponse = { status: number; body: string }
 
 type JobDependencies = {
-  storage: Pick<ObjectStorage, 'completeObject' | 'deleteObject'>
+  storage: Pick<ObjectStorage, 'completeObject' | 'deleteObject' | 'deleteParts'>
   queue: Pick<FinalizationQueue, 'ack' | 'deadLetter'>
   callback: (request: CallbackRequest) => Promise<CallbackResponse>
   callbackSecret: string
@@ -28,6 +28,7 @@ export async function processFinalizationJob(
   deps: JobDependencies,
 ): Promise<void> {
   const completion = await deps.storage.completeObject(job.objectKey, job.parts)
+  if (completion.sizeBytes !== job.expectedSize) throw new Error('finalized size mismatch')
   const rawBody = Buffer.from(
     JSON.stringify({
       objectKey: job.objectKey,
@@ -56,6 +57,7 @@ export async function processFinalizationJob(
     }
 
     if (response.status >= 200 && response.status < 300) {
+      await deps.storage.deleteParts(job.objectKey, job.parts)
       await deps.queue.ack(job.id)
       return
     }
@@ -88,9 +90,26 @@ export function createCoreCallback(coreApiUrl: string): JobDependencies['callbac
           'x-core-signature': request.signature,
         },
         body: new Uint8Array(request.rawBody),
+        signal: AbortSignal.timeout(10_000),
       },
     )
     return { status: response.status, body: await response.text() }
+  }
+}
+
+export class WorkerLoopState {
+  private running = false
+
+  markRunning(): void {
+    this.running = true
+  }
+
+  markStopped(): void {
+    this.running = false
+  }
+
+  isAlive(): boolean {
+    return this.running
   }
 }
 
@@ -102,24 +121,37 @@ export async function runWorker(input: {
   signal?: AbortSignal
   now?: () => Date
   sleep?: (milliseconds: number) => Promise<void>
+  state?: WorkerLoopState
 }): Promise<void> {
   const now = input.now ?? (() => new Date())
   const sleep = input.sleep ?? ((milliseconds) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)))
   const callback = createCoreCallback(input.coreApiUrl)
-  await input.queue.ensureGroup()
-  while (!input.signal?.aborted) {
-    const reclaimed = await input.queue.reclaim()
-    const jobs = reclaimed.length > 0 ? reclaimed : await input.queue.read()
-    for (const job of jobs) {
-      if (input.signal?.aborted) return
-      await processFinalizationJob(job, {
-        storage: input.storage,
-        queue: input.queue,
-        callback,
-        callbackSecret: input.callbackSecret,
-        now,
-        sleep,
-      }).catch(() => undefined)
+  const state = input.state ?? new WorkerLoopState()
+  try {
+    await input.queue.ensureGroup()
+    state.markRunning()
+    while (!input.signal?.aborted) {
+      let jobs: FinalizationJob[]
+      try {
+        const reclaimed = await input.queue.reclaim()
+        jobs = reclaimed.length > 0 ? reclaimed.slice(0, 1) : (await input.queue.read(1)).slice(0, 1)
+      } catch {
+        await sleep(1_000)
+        continue
+      }
+      for (const job of jobs) {
+        if (input.signal?.aborted) return
+        await processFinalizationJob(job, {
+          storage: input.storage,
+          queue: input.queue,
+          callback,
+          callbackSecret: input.callbackSecret,
+          now,
+          sleep,
+        }).catch(() => undefined)
+      }
     }
+  } finally {
+    state.markStopped()
   }
 }

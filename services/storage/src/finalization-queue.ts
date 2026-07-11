@@ -10,6 +10,8 @@ export type FinalizationJob = {
   uploadIntentId: string
   objectKey: string
   parts: number
+  expectedSize: bigint
+  generation: string
 }
 
 export interface StreamRedis {
@@ -21,13 +23,102 @@ export interface StreamRedis {
   xack(...args: Array<string | number>): Promise<unknown>
 }
 
-const ENQUEUE_ONCE = `
-local existing = redis.call('GET', KEYS[2])
-if existing then return {0, existing} end
-local id = redis.call('XADD', KEYS[1], '*',
-  'uploadIntentId', ARGV[1], 'objectKey', ARGV[2], 'parts', ARGV[3])
-redis.call('SET', KEYS[2], id, 'EX', ARGV[4])
-return {1, id}
+const DECIMAL_FUNCTIONS = `
+local function normalize(value)
+  value = string.gsub(value, '^0+', '')
+  if value == '' then return '0' end
+  return value
+end
+local function add(a, b)
+  a = normalize(a); b = normalize(b)
+  local i = string.len(a); local j = string.len(b); local carry = 0; local out = ''
+  while i > 0 or j > 0 or carry > 0 do
+    local da = i > 0 and tonumber(string.sub(a, i, i)) or 0
+    local db = j > 0 and tonumber(string.sub(b, j, j)) or 0
+    local sum = da + db + carry
+    out = tostring(sum % 10) .. out
+    carry = math.floor(sum / 10); i = i - 1; j = j - 1
+  end
+  return normalize(out)
+end
+local function subtract(a, b)
+  local i = string.len(a); local j = string.len(b); local borrow = 0; local out = ''
+  while i > 0 do
+    local da = tonumber(string.sub(a, i, i)) - borrow
+    local db = j > 0 and tonumber(string.sub(b, j, j)) or 0
+    if da < db then da = da + 10; borrow = 1 else borrow = 0 end
+    out = tostring(da - db) .. out; i = i - 1; j = j - 1
+  end
+  return normalize(out)
+end
+local function greater(a, b)
+  a = normalize(a); b = normalize(b)
+  if string.len(a) ~= string.len(b) then return string.len(a) > string.len(b) end
+  return a > b
+end
+`
+
+const RESERVE_PART = `${DECIMAL_FUNCTIONS}
+local objectKey = redis.call('HGET', KEYS[1], 'objectKey')
+local maxBytes = redis.call('HGET', KEYS[1], 'maxBytes')
+if objectKey and (objectKey ~= ARGV[1] or maxBytes ~= ARGV[4]) then return {'mismatch'} end
+if redis.call('HGET', KEYS[1], 'frozen') == '1' then return {'frozen'} end
+local field = 'part:' .. ARGV[2]
+if redis.call('HEXISTS', KEYS[1], field) == 1 then return {'exists'} end
+local total = redis.call('HGET', KEYS[1], 'total') or '0'
+local nextTotal = add(total, ARGV[3])
+if greater(nextTotal, ARGV[4]) then return {'too_large'} end
+redis.call('HSET', KEYS[1], 'objectKey', ARGV[1], 'maxBytes', ARGV[4],
+  'total', nextTotal, field, 'r:' .. ARGV[3] .. ':' .. ARGV[5])
+redis.call('EXPIRE', KEYS[1], ARGV[6])
+return {'reserved'}
+`
+
+const COMMIT_PART = `
+local field = 'part:' .. ARGV[1]
+local expected = 'r:' .. ARGV[2] .. ':' .. ARGV[3]
+if redis.call('HGET', KEYS[1], field) ~= expected then return {'mismatch'} end
+redis.call('HSET', KEYS[1], field, 'c:' .. ARGV[2])
+return {'committed'}
+`
+
+const RELEASE_PART = `${DECIMAL_FUNCTIONS}
+local field = 'part:' .. ARGV[1]
+local expected = 'r:' .. ARGV[2] .. ':' .. ARGV[3]
+if redis.call('HGET', KEYS[1], field) ~= expected then return 0 end
+local total = redis.call('HGET', KEYS[1], 'total') or ARGV[2]
+redis.call('HDEL', KEYS[1], field)
+redis.call('HSET', KEYS[1], 'total', subtract(total, ARGV[2]))
+return 1
+`
+
+const FREEZE_AND_ENQUEUE = `${DECIMAL_FUNCTIONS}
+if redis.call('HGET', KEYS[1], 'objectKey') ~= ARGV[1] or
+   redis.call('HGET', KEYS[1], 'maxBytes') ~= ARGV[3] then return {'mismatch'} end
+if redis.call('HGET', KEYS[1], 'frozen') == '1' then
+  return {'replay', redis.call('HGET', KEYS[1], 'jobId'),
+    redis.call('HGET', KEYS[1], 'expectedSize'), redis.call('HGET', KEYS[1], 'generation')}
+end
+local total = '0'
+for part = 1, tonumber(ARGV[2]) do
+  local value = redis.call('HGET', KEYS[1], 'part:' .. tostring(part))
+  if not value then return {'incomplete'} end
+  local size = string.match(value, '^c:(%d+)$')
+  if not size then return {'incomplete'} end
+  total = add(total, size)
+end
+if total == '0' or total ~= redis.call('HGET', KEYS[1], 'total') or greater(total, ARGV[3]) then
+  return {'mismatch'}
+end
+if total ~= ARGV[3] then return {'size_mismatch'} end
+local generation = tostring(redis.call('INCR', KEYS[3]))
+local id = redis.call('XADD', KEYS[2], '*',
+  'uploadIntentId', ARGV[4], 'objectKey', ARGV[1], 'parts', ARGV[2],
+  'expectedSize', total, 'generation', generation)
+redis.call('HSET', KEYS[1], 'frozen', '1', 'jobId', id,
+  'expectedSize', total, 'generation', generation, 'parts', ARGV[2])
+redis.call('EXPIRE', KEYS[1], ARGV[5])
+return {'enqueued', id, total, generation}
 `
 
 const DEAD_LETTER_AND_ACK = `
@@ -58,12 +149,16 @@ function job(entry: unknown): FinalizationJob | null {
     !Number.isInteger(parts) ||
     parts < 1 ||
     parts > 100_000
+    || !/^[1-9]\d*$/.test(value.expectedSize ?? '')
+    || !/^[1-9]\d*$/.test(value.generation ?? '')
   ) return null
   return {
     id: entry[0],
     uploadIntentId: value.uploadIntentId!,
     objectKey: value.objectKey!,
     parts,
+    expectedSize: BigInt(value.expectedSize!),
+    generation: value.generation!,
   }
 }
 
@@ -75,24 +170,81 @@ function entriesFromRead(value: unknown): FinalizationJob[] {
 }
 
 export class FinalizationQueue {
+  private reclaimCursor = '0-0'
   constructor(
     private readonly redis: StreamRedis,
     private readonly consumer: string,
   ) {}
 
-  async enqueueOnce(input: Omit<FinalizationJob, 'id'>): Promise<{ enqueued: boolean; id: string }> {
+  async reservePart(input: {
+    uploadIntentId: string
+    objectKey: string
+    partNumber: number
+    sizeBytes: bigint
+    maxBytes: bigint
+    reservationId: string
+  }): Promise<'reserved' | 'exists' | 'frozen' | 'too_large' | 'mismatch'> {
     const result = await this.redis.eval(
-      ENQUEUE_ONCE,
-      2,
-      STREAM,
-      `storage:finalize:enqueued:${input.uploadIntentId}`,
-      input.uploadIntentId,
-      input.objectKey,
-      String(input.parts),
+      RESERVE_PART, 1, `storage:upload:${input.uploadIntentId}`,
+      input.objectKey, String(input.partNumber), input.sizeBytes.toString(),
+      input.maxBytes.toString(), input.reservationId, String(DEDUPE_TTL_SECONDS),
+    )
+    const status = Array.isArray(result) ? result[0] : null
+    if (!['reserved', 'exists', 'frozen', 'too_large', 'mismatch'].includes(String(status))) {
+      throw new Error('upload ledger unavailable')
+    }
+    return String(status) as 'reserved' | 'exists' | 'frozen' | 'too_large' | 'mismatch'
+  }
+
+  async commitPart(input: {
+    uploadIntentId: string
+    partNumber: number
+    sizeBytes: bigint
+    reservationId: string
+  }): Promise<'committed' | 'mismatch'> {
+    const result = await this.redis.eval(
+      COMMIT_PART, 1, `storage:upload:${input.uploadIntentId}`,
+      String(input.partNumber), input.sizeBytes.toString(), input.reservationId,
+    )
+    const status = Array.isArray(result) ? String(result[0]) : ''
+    if (status !== 'committed' && status !== 'mismatch') throw new Error('upload ledger unavailable')
+    return status
+  }
+
+  async releasePart(input: {
+    uploadIntentId: string
+    partNumber: number
+    sizeBytes: bigint
+    reservationId: string
+  }): Promise<void> {
+    await this.redis.eval(
+      RELEASE_PART, 1, `storage:upload:${input.uploadIntentId}`,
+      String(input.partNumber), input.sizeBytes.toString(), input.reservationId,
+    )
+  }
+
+  async freezeAndEnqueue(input: {
+    uploadIntentId: string
+    objectKey: string
+    parts: number
+    maxBytes: bigint
+  }): Promise<{ enqueued: boolean; id: string; expectedSize: bigint; generation: string }> {
+    const result = await this.redis.eval(
+      FREEZE_AND_ENQUEUE, 3,
+      `storage:upload:${input.uploadIntentId}`, STREAM, 'storage:upload:generation',
+      input.objectKey, String(input.parts), input.maxBytes.toString(), input.uploadIntentId,
       String(DEDUPE_TTL_SECONDS),
     )
-    if (!Array.isArray(result) || typeof result[1] !== 'string') throw new Error('queue unavailable')
-    return { enqueued: Number(result[0]) === 1, id: result[1] }
+    if (!Array.isArray(result) || !['enqueued', 'replay'].includes(String(result[0]))) {
+      const status = Array.isArray(result) ? String(result[0]) : 'unavailable'
+      throw new Error(`upload freeze ${status}`)
+    }
+    return {
+      enqueued: result[0] === 'enqueued',
+      id: String(result[1]),
+      expectedSize: BigInt(String(result[2])),
+      generation: String(result[3]),
+    }
   }
 
   async ensureGroup(): Promise<void> {
@@ -103,7 +255,7 @@ export class FinalizationQueue {
     }
   }
 
-  async read(count = 10, blockMilliseconds = 5_000): Promise<FinalizationJob[]> {
+  async read(count = 1, blockMilliseconds = 5_000): Promise<FinalizationJob[]> {
     const value = await this.redis.xreadgroup(
       'GROUP', GROUP, this.consumer,
       'COUNT', count,
@@ -113,11 +265,12 @@ export class FinalizationQueue {
     return entriesFromRead(value)
   }
 
-  async reclaim(minIdleMilliseconds = 30_000, count = 10): Promise<FinalizationJob[]> {
+  async reclaim(minIdleMilliseconds = 120_000, count = 1): Promise<FinalizationJob[]> {
     const value = await this.redis.xautoclaim(
-      STREAM, GROUP, this.consumer, minIdleMilliseconds, '0-0', 'COUNT', count,
+      STREAM, GROUP, this.consumer, minIdleMilliseconds, this.reclaimCursor, 'COUNT', count,
     )
     if (!Array.isArray(value) || !Array.isArray(value[1])) return []
+    this.reclaimCursor = typeof value[0] === 'string' ? value[0] : '0-0'
     return value[1].map(job).filter((entry): entry is FinalizationJob => entry !== null)
   }
 

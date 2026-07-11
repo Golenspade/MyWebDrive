@@ -9,6 +9,8 @@ const job = {
   uploadIntentId: '126b455f-b9e7-49b9-aab6-4cb1ff971328',
   objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
   parts: 2,
+  expectedSize: 11n,
+  generation: '7',
 }
 const secret = 'core-callback-test-secret-at-least-32-bytes'
 
@@ -16,6 +18,7 @@ function deps(statuses: number[]) {
   const storage = {
     completeObject: vi.fn(async () => ({ sizeBytes: 11n, sha256: 'a'.repeat(64) })),
     deleteObject: vi.fn(),
+    deleteParts: vi.fn(async () => undefined),
   }
   const callback = vi.fn(async (_input: unknown) => ({ status: statuses.shift() ?? 503, body: '{}' }))
   const queue = {
@@ -50,6 +53,7 @@ describe('finalization worker callback contract', () => {
         .digest('hex'),
     )
     expect(subject.queue.ack).toHaveBeenCalledWith(job.id)
+    expect(subject.storage.deleteParts).toHaveBeenCalledWith(job.objectKey, job.parts)
     expect(subject.storage.deleteObject).not.toHaveBeenCalled()
   })
 
@@ -85,6 +89,33 @@ describe('finalization worker callback contract', () => {
       objectKey: job.objectKey,
       errorCode: 'core_conflict',
     })
+    expect(subject.queue.ack).not.toHaveBeenCalled()
+    expect(subject.storage.deleteObject).not.toHaveBeenCalled()
+  })
+
+  test('does not callback or ack when composed bytes differ from frozen expectedSize', async () => {
+    const subject = deps([200])
+    subject.storage.completeObject.mockResolvedValueOnce({ sizeBytes: 10n, sha256: 'a'.repeat(64) })
+    await expect(processFinalizationJob(job, {
+      ...subject,
+      callbackSecret: secret,
+      now: () => new Date(),
+      sleep: vi.fn(async (_milliseconds: number) => undefined),
+    })).rejects.toThrow('finalized size mismatch')
+    expect(subject.callback).not.toHaveBeenCalled()
+    expect(subject.queue.ack).not.toHaveBeenCalled()
+    expect(subject.storage.deleteParts).not.toHaveBeenCalled()
+  })
+
+  test('leaves accepted job pending when part cleanup fails', async () => {
+    const subject = deps([200])
+    subject.storage.deleteParts.mockRejectedValueOnce(new Error('cleanup unavailable'))
+    await expect(processFinalizationJob(job, {
+      ...subject,
+      callbackSecret: secret,
+      now: () => new Date(),
+      sleep: vi.fn(async (_milliseconds: number) => undefined),
+    })).rejects.toThrow('cleanup unavailable')
     expect(subject.queue.ack).not.toHaveBeenCalled()
     expect(subject.storage.deleteObject).not.toHaveBeenCalled()
   })

@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
-import type { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 
-import { CopyDestinationOptions, CopySourceOptions, type Client } from 'minio'
+import type { Client } from 'minio'
 
 import type { ObjectStorage } from './types.js'
 
@@ -39,7 +39,9 @@ export class MinioObjectStorage implements ObjectStorage {
         const metadata = await this.client.statObject(this.bucket, this.partKey(objectKey, part))
         sizeBytes += BigInt(metadata.size)
       } catch (error) {
-        if ((error as { code?: string }).code === 'NotFound') return { complete: false, sizeBytes }
+        if (['NotFound', 'NoSuchKey'].includes((error as { code?: string }).code ?? '')) {
+          return { complete: false, sizeBytes }
+        }
         throw error
       }
     }
@@ -47,24 +49,41 @@ export class MinioObjectStorage implements ObjectStorage {
   }
 
   async completeObject(objectKey: string, parts: number): Promise<{ sizeBytes: bigint; sha256: string }> {
+    const existing = await this.stat(objectKey)
+    if (existing) {
+      const hash = createHash('sha256')
+      let sizeBytes = 0n
+      for await (const chunk of await this.openRead(objectKey)) {
+        const bytes = Buffer.from(chunk as Uint8Array)
+        hash.update(bytes)
+        sizeBytes += BigInt(bytes.length)
+      }
+      return { sizeBytes, sha256: hash.digest('hex') }
+    }
     const inspected = await this.inspectParts(objectKey, parts)
     if (!inspected.complete) throw new Error('missing upload part')
-    await this.client.composeObject(
-      new CopyDestinationOptions({ Bucket: this.bucket, Object: this.fileKey(objectKey) }),
-      Array.from({ length: parts }, (_, index) =>
-        new CopySourceOptions({
-          Bucket: this.bucket,
-          Object: this.partKey(objectKey, index + 1),
-        }),
-      ),
-    )
     const hash = createHash('sha256')
     let sizeBytes = 0n
-    for await (const chunk of await this.openRead(objectKey)) {
-      const bytes = Buffer.from(chunk as Uint8Array)
-      hash.update(bytes)
-      sizeBytes += BigInt(bytes.length)
+    const self = this
+    async function* chunks() {
+      for (let part = 1; part <= parts; part += 1) {
+        for await (const chunk of await self.client.getObject(self.bucket, self.partKey(objectKey, part))) {
+          yield chunk
+        }
+      }
     }
+    const hashing = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        hash.update(chunk)
+        sizeBytes += BigInt(chunk.length)
+        callback(null, chunk)
+      },
+    })
+    await this.client.putObject(
+      this.bucket,
+      this.fileKey(objectKey),
+      Readable.from(chunks()).pipe(hashing),
+    )
     return { sizeBytes, sha256: hash.digest('hex') }
   }
 
@@ -79,7 +98,7 @@ export class MinioObjectStorage implements ObjectStorage {
       const metadata = await this.client.statObject(this.bucket, this.fileKey(objectKey))
       return { sizeBytes: BigInt(metadata.size) }
     } catch (error) {
-      if ((error as { code?: string }).code === 'NotFound') return null
+      if (['NotFound', 'NoSuchKey'].includes((error as { code?: string }).code ?? '')) return null
       throw error
     }
   }
@@ -87,6 +106,20 @@ export class MinioObjectStorage implements ObjectStorage {
   async deleteObject(objectKey: string): Promise<void> {
     valid(objectKey)
     await this.client.removeObject(this.bucket, this.fileKey(objectKey))
+  }
+
+  async deletePart(objectKey: string, partNumber: number): Promise<void> {
+    valid(objectKey, partNumber)
+    await this.client.removeObject(this.bucket, this.partKey(objectKey, partNumber))
+  }
+
+  async deleteParts(objectKey: string, parts: number): Promise<void> {
+    valid(objectKey, parts)
+    const failures = await this.client.removeObjects(
+      this.bucket,
+      Array.from({ length: parts }, (_, index) => this.partKey(objectKey, index + 1)),
+    )
+    if (failures.length > 0) throw new Error('part cleanup failed')
   }
 
   async ready(): Promise<void> {

@@ -1,5 +1,5 @@
 import { Readable } from 'node:stream'
-import { mkdtemp, mkdir, readFile, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 
@@ -11,7 +11,7 @@ const objectKey = '5dd0d998-ec26-4fbd-9589-eca8aa9a9311'
 const roots: string[] = []
 
 async function root(): Promise<string> {
-  const value = await mkdtemp(path.join(tmpdir(), 'storage-object-test-'))
+  const value = await mkdtemp(path.join(await realpath(tmpdir()), 'storage-object-test-'))
   roots.push(value)
   return value
 }
@@ -63,6 +63,18 @@ describe('LocalObjectStorage containment and streaming', () => {
     expect(await readFile(path.join(outside, 'final'), 'utf8')).toBe('secret')
   })
 
+  test('rejects STORAGE_PATH itself and any configured ancestor symlink', async () => {
+    const base = await root()
+    const outside = await root()
+    const rootLink = path.join(base, 'storage-link')
+    await symlink(outside, rootLink)
+    await expect(new LocalObjectStorage(rootLink).ready()).rejects.toThrow('unsafe storage path')
+
+    const ancestorLink = path.join(base, 'ancestor-link')
+    await symlink(outside, ancestorLink)
+    await expect(new LocalObjectStorage(path.join(ancestorLink, 'nested')).ready()).rejects.toThrow('unsafe storage path')
+  })
+
   test('writes parts idempotently, composes in order, hashes, stats and reads without whole-object buffering', async () => {
     const storage = new LocalObjectStorage(await root())
     await storage.writePart(objectKey, 1, Readable.from(['wrong']))
@@ -80,5 +92,7 @@ describe('LocalObjectStorage containment and streaming', () => {
     })
     expect(await storage.stat(objectKey)).toEqual({ sizeBytes: 11n })
     expect(await streamText(await storage.openRead(objectKey))).toBe('hello world')
+    await storage.deleteParts(objectKey, 2)
+    await expect(storage.inspectParts(objectKey, 2)).resolves.toEqual({ complete: false, sizeBytes: 0n })
   })
 })

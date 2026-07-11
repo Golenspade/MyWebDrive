@@ -33,6 +33,21 @@ async function ensureSafeRoot(root: string): Promise<void> {
   await realpath(root)
 }
 
+async function rejectSymlinkChain(candidate: string): Promise<void> {
+  const absolute = path.resolve(candidate)
+  const parsed = path.parse(absolute)
+  let current = parsed.root
+  for (const segment of absolute.slice(parsed.root.length).split(path.sep).filter(Boolean)) {
+    current = path.join(current, segment)
+    try {
+      if ((await lstat(current)).isSymbolicLink()) throw new Error('unsafe storage path')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+  }
+}
+
 async function rejectLinkIfPresent(candidate: string, directory: boolean): Promise<void> {
   try {
     const metadata = await lstat(candidate)
@@ -51,16 +66,21 @@ async function safeReadable(filePath: string): Promise<Readable> {
 }
 
 export class LocalObjectStorage implements ObjectStorage {
+  private readonly storageRoot: string
   private readonly filesRoot: string
   private readonly partsRoot: string
 
   constructor(storageRoot: string) {
     const resolved = path.resolve(storageRoot)
+    this.storageRoot = resolved
     this.filesRoot = path.join(resolved, 'files')
     this.partsRoot = path.join(resolved, 'parts')
   }
 
   private async roots(): Promise<void> {
+    await rejectSymlinkChain(this.storageRoot)
+    await mkdir(this.storageRoot, { recursive: true })
+    await rejectSymlinkChain(this.storageRoot)
     await ensureSafeRoot(this.filesRoot)
     await ensureSafeRoot(this.partsRoot)
   }
@@ -131,6 +151,17 @@ export class LocalObjectStorage implements ObjectStorage {
 
   async completeObject(objectKey: string, parts: number): Promise<{ sizeBytes: bigint; sha256: string }> {
     validateParts(parts)
+    const existing = await this.stat(objectKey)
+    if (existing) {
+      const hash = createHash('sha256')
+      let sizeBytes = 0n
+      for await (const chunk of await this.openRead(objectKey)) {
+        const bytes = Buffer.from(chunk as Uint8Array)
+        hash.update(bytes)
+        sizeBytes += BigInt(bytes.length)
+      }
+      return { sizeBytes, sha256: hash.digest('hex') }
+    }
     const inspected = await this.inspectParts(objectKey, parts)
     if (!inspected.complete) throw new Error('missing upload part')
     const directory = await this.partDirectory(objectKey, false)
@@ -188,6 +219,24 @@ export class LocalObjectStorage implements ObjectStorage {
     await unlink(candidate).catch((error: NodeJS.ErrnoException) => {
       if (error.code !== 'ENOENT') throw error
     })
+  }
+
+  async deletePart(objectKey: string, partNumber: number): Promise<void> {
+    validateParts(partNumber)
+    const directory = await this.partDirectory(objectKey, false)
+    await rejectLinkIfPresent(directory, true)
+    const candidate = path.join(directory, String(partNumber))
+    await rejectLinkIfPresent(candidate, false)
+    await unlink(candidate).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error
+    })
+  }
+
+  async deleteParts(objectKey: string, parts: number): Promise<void> {
+    validateParts(parts)
+    const directory = await this.partDirectory(objectKey, false)
+    await rejectLinkIfPresent(directory, true)
+    await rm(directory, { recursive: true, force: true })
   }
 
   async ready(): Promise<void> {

@@ -1,5 +1,7 @@
-import express from 'express'
+import { randomUUID } from 'node:crypto'
 import { Transform, type TransformCallback } from 'node:stream'
+
+import express from 'express'
 
 import { verifyStorageGrant } from './grants/verifier.js'
 import type { ObjectStorage } from './object-storage/types.js'
@@ -10,10 +12,32 @@ type GrantRedis = {
 }
 
 type CompletionQueue = {
-  enqueueOnce(input: { uploadIntentId: string; objectKey: string; parts: number }): Promise<{
-    enqueued: boolean
-    id: string
-  }>
+  reservePart(input: {
+    uploadIntentId: string
+    objectKey: string
+    partNumber: number
+    sizeBytes: bigint
+    maxBytes: bigint
+    reservationId: string
+  }): Promise<'reserved' | 'exists' | 'frozen' | 'too_large' | 'mismatch'>
+  commitPart(input: {
+    uploadIntentId: string
+    partNumber: number
+    sizeBytes: bigint
+    reservationId: string
+  }): Promise<'committed' | 'mismatch'>
+  releasePart(input: {
+    uploadIntentId: string
+    partNumber: number
+    sizeBytes: bigint
+    reservationId: string
+  }): Promise<void>
+  freezeAndEnqueue(input: {
+    uploadIntentId: string
+    objectKey: string
+    parts: number
+    maxBytes: bigint
+  }): Promise<{ enqueued: boolean; id: string; expectedSize: bigint; generation: string }>
 }
 
 type ApiDependencies = {
@@ -31,6 +55,10 @@ class ByteLimit extends Transform {
 
   constructor(private readonly maximum: bigint) {
     super()
+  }
+
+  get byteCount(): bigint {
+    return this.seen
   }
 
   _transform(chunk: Buffer, _encoding: BufferEncoding, callback: TransformCallback): void {
@@ -86,15 +114,53 @@ export function createStorageApi(deps: ApiDependencies): express.Router {
     const partNumber = positivePart(req.params.partNumber ?? '')
     if (!partNumber) return res.status(400).json({ error: 'invalid part number' })
     const contentLength = req.headers['content-length']
-    if (contentLength && /^\d+$/.test(contentLength) && BigInt(contentLength) > grant.maxBytes) {
+    if (!contentLength || !/^[1-9]\d*$/.test(contentLength)) {
+      return res.status(411).json({ error: 'content-length required' })
+    }
+    const sizeBytes = BigInt(contentLength)
+    if (sizeBytes > grant.maxBytes) {
       return res.status(413).json({ error: 'payload too large' })
     }
+    const reservationId = randomUUID()
+    let reserved = false
     try {
-      const limiter = new ByteLimit(grant.maxBytes)
+      const status = await deps.queue.reservePart({
+        uploadIntentId: grant.uploadIntentId,
+        objectKey: grant.objectKey,
+        partNumber,
+        sizeBytes,
+        maxBytes: grant.maxBytes,
+        reservationId,
+      })
+      if (status === 'too_large') return res.status(413).json({ error: 'payload too large' })
+      if (status !== 'reserved') return res.status(409).json({ error: 'upload generation frozen' })
+      reserved = true
+      const limiter = new ByteLimit(sizeBytes)
       req.pipe(limiter)
       await deps.storage.writePart(grant.objectKey, partNumber, limiter)
+      if (limiter.byteCount !== sizeBytes) throw new Error('content-length mismatch')
+      const committed = await deps.queue.commitPart({
+        uploadIntentId: grant.uploadIntentId,
+        partNumber,
+        sizeBytes,
+        reservationId,
+      })
+      if (committed !== 'committed') throw new Error('upload reservation lost')
       return res.status(204).end()
     } catch (error) {
+      if (reserved) {
+        try {
+          await deps.storage.deletePart(grant.objectKey, partNumber)
+          await deps.queue.releasePart({
+            uploadIntentId: grant.uploadIntentId,
+            partNumber,
+            sizeBytes,
+            reservationId,
+          })
+        } catch {
+          return res.status(503).json({ error: 'upload cleanup unavailable' })
+        }
+      }
       if (error instanceof PayloadTooLargeError) {
         return res.status(413).json({ error: 'payload too large' })
       }
@@ -119,18 +185,20 @@ export function createStorageApi(deps: ApiDependencies): express.Router {
       const parts = typeof body?.parts === 'number' ? positivePart(String(body.parts)) : null
       if (!parts) return res.status(400).json({ error: 'invalid parts' })
       try {
-        const inspected = await deps.storage.inspectParts(grant.objectKey, parts)
-        if (!inspected.complete) return res.status(409).json({ error: 'missing upload part' })
-        if (inspected.sizeBytes < 1n || inspected.sizeBytes > grant.maxBytes) {
-          return res.status(413).json({ error: 'payload too large' })
-        }
-        const queued = await deps.queue.enqueueOnce({
+        const queued = await deps.queue.freezeAndEnqueue({
           uploadIntentId: grant.uploadIntentId,
           objectKey: grant.objectKey,
           parts,
+          maxBytes: grant.maxBytes,
         })
         return res.status(202).json({ enqueued: queued.enqueued })
-      } catch {
+      } catch (error) {
+        if (error instanceof Error && error.message.includes('incomplete')) {
+          return res.status(409).json({ error: 'missing upload part' })
+        }
+        if (error instanceof Error && error.message.includes('size_mismatch')) {
+          return res.status(409).json({ error: 'uploaded size mismatch' })
+        }
         return res.status(503).json({ error: 'queue unavailable' })
       }
     },

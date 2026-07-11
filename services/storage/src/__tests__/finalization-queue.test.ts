@@ -17,45 +17,49 @@ function redis(): StreamRedis {
 }
 
 describe('finalization Redis Stream contract', () => {
-  test('atomically deduplicates enqueue by upload intent', async () => {
-    const client = redis()
-    const queue = new FinalizationQueue(client, 'worker-a')
-    await expect(queue.enqueueOnce({ uploadIntentId, objectKey, parts: 2 })).resolves.toEqual({
-      enqueued: true,
-      id: '171-0',
-    })
-    expect(client.eval).toHaveBeenCalledWith(
-      expect.stringContaining("redis.call('XADD'"),
-      2,
-      finalizationQueueContract.stream,
-      `storage:finalize:enqueued:${uploadIntentId}`,
-      uploadIntentId,
-      objectKey,
-      '2',
-      expect.any(String),
-    )
-  })
-
   test('reads new jobs and reclaims pending jobs through the storage-workers group', async () => {
     const client = redis()
     vi.mocked(client.xreadgroup).mockResolvedValue([
-      [finalizationQueueContract.stream, [['171-0', ['uploadIntentId', uploadIntentId, 'objectKey', objectKey, 'parts', '2']]]],
+      [finalizationQueueContract.stream, [['171-0', ['uploadIntentId', uploadIntentId, 'objectKey', objectKey, 'parts', '2', 'expectedSize', '11', 'generation', '7']]]],
     ])
-    vi.mocked(client.xautoclaim).mockResolvedValue([
-      '0-0',
-      [['170-0', ['uploadIntentId', uploadIntentId, 'objectKey', objectKey, 'parts', '2']]],
+    vi.mocked(client.xautoclaim).mockResolvedValueOnce([
+      '171-0',
+      [['170-0', ['uploadIntentId', uploadIntentId, 'objectKey', objectKey, 'parts', '2', 'expectedSize', '11', 'generation', '7']]],
       [],
-    ])
+    ]).mockResolvedValueOnce(['0-0', [], []])
     const queue = new FinalizationQueue(client, 'worker-a')
-    await expect(queue.read()).resolves.toEqual([{ id: '171-0', uploadIntentId, objectKey, parts: 2 }])
-    await expect(queue.reclaim()).resolves.toEqual([{ id: '170-0', uploadIntentId, objectKey, parts: 2 }])
+    await expect(queue.read()).resolves.toEqual([{
+      id: '171-0', uploadIntentId, objectKey, parts: 2, expectedSize: 11n, generation: '7',
+    }])
+    await expect(queue.reclaim()).resolves.toEqual([{
+      id: '170-0', uploadIntentId, objectKey, parts: 2,
+      expectedSize: 11n, generation: '7',
+    }])
+    await queue.reclaim()
     expect(client.xreadgroup).toHaveBeenCalledWith(
-      'GROUP', 'storage-workers', 'worker-a', 'COUNT', 10, 'BLOCK', 5_000,
+      'GROUP', 'storage-workers', 'worker-a', 'COUNT', 1, 'BLOCK', 5_000,
       'STREAMS', 'storage:finalize', '>',
     )
     expect(client.xautoclaim).toHaveBeenCalledWith(
-      'storage:finalize', 'storage-workers', 'worker-a', 30_000, '0-0', 'COUNT', 10,
+      'storage:finalize', 'storage-workers', 'worker-a', 120_000, '0-0', 'COUNT', 1,
     )
+    expect(vi.mocked(client.xautoclaim).mock.calls[1]).toContain('171-0')
+  })
+
+  test('atomically reserves cumulative bytes, forbids overwrite and freezes one generation', async () => {
+    const client = redis()
+    vi.mocked(client.eval)
+      .mockResolvedValueOnce(['reserved'])
+      .mockResolvedValueOnce(['committed'])
+      .mockResolvedValueOnce(['exists'])
+      .mockResolvedValueOnce(['enqueued', '171-0', '3', '9'])
+    const queue = new FinalizationQueue(client, 'worker-a')
+
+    await expect(queue.reservePart({ uploadIntentId, objectKey, partNumber: 1, sizeBytes: 3n, maxBytes: 3n, reservationId: 'r1' })).resolves.toBe('reserved')
+    await expect(queue.commitPart({ uploadIntentId, partNumber: 1, sizeBytes: 3n, reservationId: 'r1' })).resolves.toBe('committed')
+    await expect(queue.reservePart({ uploadIntentId, objectKey, partNumber: 1, sizeBytes: 3n, maxBytes: 3n, reservationId: 'r2' })).resolves.toBe('exists')
+    await expect(queue.freezeAndEnqueue({ uploadIntentId, objectKey, parts: 1, maxBytes: 3n })).resolves.toEqual({ enqueued: true, id: '171-0', expectedSize: 3n, generation: '9' })
+    expect(vi.mocked(client.eval).mock.calls.every((call) => call[0].toString().includes('storage:finalize') || call[0].toString().includes('HSET'))).toBe(true)
   })
 
   test('dead-letter entries contain only opaque identifiers and an error code', async () => {

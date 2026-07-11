@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { Readable } from 'node:stream'
+import { Readable, Transform } from 'node:stream'
 
 import type { ObjectStorage } from './types.js'
 
@@ -66,6 +66,17 @@ export class OssObjectStorage implements ObjectStorage {
   }
 
   async completeObject(objectKey: string, parts: number): Promise<{ sizeBytes: bigint; sha256: string }> {
+    const existing = await this.stat(objectKey)
+    if (existing) {
+      const hash = createHash('sha256')
+      let sizeBytes = 0n
+      for await (const chunk of await this.openRead(objectKey)) {
+        const bytes = Buffer.from(chunk as Uint8Array)
+        hash.update(bytes)
+        sizeBytes += BigInt(bytes.length)
+      }
+      return { sizeBytes, sha256: hash.digest('hex') }
+    }
     const inspected = await this.inspectParts(objectKey, parts)
     if (!inspected.complete) throw new Error('missing upload part')
     const self = this
@@ -76,14 +87,16 @@ export class OssObjectStorage implements ObjectStorage {
         }
       }
     }
-    await this.client.putStream(this.fileKey(objectKey), Readable.from(chunks()))
     const hash = createHash('sha256')
     let sizeBytes = 0n
-    for await (const chunk of await this.openRead(objectKey)) {
-      const bytes = Buffer.from(chunk as Uint8Array)
-      hash.update(bytes)
-      sizeBytes += BigInt(bytes.length)
-    }
+    const hashing = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        hash.update(chunk)
+        sizeBytes += BigInt(chunk.length)
+        callback(null, chunk)
+      },
+    })
+    await this.client.putStream(this.fileKey(objectKey), Readable.from(chunks()).pipe(hashing))
     return { sizeBytes, sha256: hash.digest('hex') }
   }
 
@@ -105,6 +118,18 @@ export class OssObjectStorage implements ObjectStorage {
   async deleteObject(objectKey: string): Promise<void> {
     valid(objectKey)
     await this.client.delete(this.fileKey(objectKey))
+  }
+
+  async deletePart(objectKey: string, partNumber: number): Promise<void> {
+    valid(objectKey, partNumber)
+    await this.client.delete(this.partKey(objectKey, partNumber))
+  }
+
+  async deleteParts(objectKey: string, parts: number): Promise<void> {
+    valid(objectKey, parts)
+    for (let part = 1; part <= parts; part += 1) {
+      await this.client.delete(this.partKey(objectKey, part))
+    }
   }
 
   async ready(): Promise<void> {

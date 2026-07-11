@@ -6,6 +6,8 @@ export interface ObjectStorage {
   openRead(objectKey: string): Promise<Readable>
   stat(objectKey: string): Promise<{ sizeBytes: bigint } | null>
   deleteObject(objectKey: string): Promise<void>
+  deletePart(objectKey: string, partNumber: number): Promise<void>
+  deleteParts(objectKey: string, parts: number): Promise<void>
   inspectParts(objectKey: string, parts: number): Promise<{ complete: boolean; sizeBytes: bigint }>
   ready(): Promise<void>
 }
