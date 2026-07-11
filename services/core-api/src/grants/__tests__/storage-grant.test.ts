@@ -98,7 +98,7 @@ describe('storage grants', () => {
       label: 'future iat beyond clock skew',
       mutate: (payload: Record<string, unknown>, nowSeconds: number) => {
         payload.iat = nowSeconds + 31
-        payload.exp = nowSeconds + 300
+        payload.exp = nowSeconds + 331
       },
     },
     {
@@ -126,10 +126,10 @@ describe('storage grants', () => {
       },
     },
     {
-      label: 'expiry more than 300 seconds from verifier now',
+      label: 'expiry beyond the skew-adjusted verifier maximum',
       mutate: (payload: Record<string, unknown>, nowSeconds: number) => {
         payload.iat = nowSeconds + 30
-        payload.exp = nowSeconds + 301
+        payload.exp = nowSeconds + 331
       },
     },
     {
@@ -159,4 +159,32 @@ describe('storage grants', () => {
       'invalid storage grant',
     )
   })
+
+  test.each([1, 30])(
+    'accepts a full 300-second grant when the issuer clock leads by %s seconds',
+    (clockLeadSeconds) => {
+      const now = new Date('2026-07-11T08:00:00.000Z')
+      const nowSeconds = Math.floor(now.getTime() / 1000)
+      const secret = 'storage-grant-test-secret-at-least-32-bytes'
+      const issuedAt = nowSeconds + clockLeadSeconds
+      const token = signStorageGrant(
+        {
+          aud: 'storage-api',
+          purpose: 'upload',
+          objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
+          uploadIntentId: '126b455f-b9e7-49b9-aab6-4cb1ff971328',
+          maxBytes: '80',
+          jti: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
+          iat: issuedAt,
+          exp: issuedAt + 300,
+        },
+        secret,
+      )
+
+      expect(verifyStorageGrant(token, secret, now)).toMatchObject({
+        iat: issuedAt,
+        exp: issuedAt + 300,
+      })
+    },
+  )
 })

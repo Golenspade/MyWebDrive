@@ -145,7 +145,7 @@ export function verifyStorageGrant(
     payload.iat > nowSeconds + CLOCK_SKEW_SECONDS ||
     payload.exp <= payload.iat ||
     payload.exp > payload.iat + MAX_GRANT_SECONDS ||
-    payload.exp > nowSeconds + MAX_GRANT_SECONDS ||
+    payload.exp > nowSeconds + MAX_GRANT_SECONDS + CLOCK_SKEW_SECONDS ||
     payload.exp <= nowSeconds
   ) {
     throw new Error('invalid storage grant')
