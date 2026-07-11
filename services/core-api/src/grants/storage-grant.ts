@@ -2,11 +2,17 @@ import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 
 const AUDIENCE = 'storage-api'
 const MAX_GRANT_SECONDS = 300
+const DOWNLOAD_GRANT_SECONDS = 60
 const CLOCK_SKEW_SECONDS = 30
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const PURPOSES = new Set<string>([
   'upload',
+  'download-private',
+  'download-share',
+  'download-publication',
+])
+const DOWNLOAD_PURPOSES = new Set<string>([
   'download-private',
   'download-share',
   'download-publication',
@@ -37,6 +43,8 @@ type DownloadGrantInput = {
 }
 
 export type StorageGrantInput = UploadGrantInput | DownloadGrantInput
+
+export type DownloadStorageGrantInput = Omit<DownloadGrantInput, 'expiresAt'>
 
 function encode(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
@@ -96,6 +104,14 @@ export function issueStorageGrant(input: StorageGrantInput): string {
   })
   const signingInput = `${header}.${payload}`
   return `${signingInput}.${signature(signingInput, input.secret).toString('base64url')}`
+}
+
+export function issueDownloadStorageGrant(input: DownloadStorageGrantInput): string {
+  if (!DOWNLOAD_PURPOSES.has(input.purpose)) invalidInput()
+  return issueStorageGrant({
+    ...input,
+    expiresAt: new Date(input.now.getTime() + DOWNLOAD_GRANT_SECONDS * 1000),
+  })
 }
 
 export function verifyStorageGrant(

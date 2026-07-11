@@ -5,6 +5,7 @@ import type Redis from 'ioredis'
 import type { EmailSender } from './identity/email-sender.js'
 import { createIdentityRouter } from './identity/router.js'
 import { createFilesRouter } from './files/router.js'
+import { createSharingRouter } from './sharing/router.js'
 import { createUploadRouter } from './uploads/router.js'
 
 export type { EmailSender, SendOtpInput } from './identity/email-sender.js'
@@ -109,6 +110,20 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
   app.use(
     '/api/v1',
     createFilesRouter({ prisma: deps.prisma, sessionSecret: identity.sessionSecret }),
+  )
+
+  app.use(
+    '/api/v1',
+    createSharingRouter({
+      prisma: deps.prisma,
+      sessionSecret: identity.sessionSecret,
+      grantSecret:
+        deps.storage?.grantSecret ??
+        process.env.STORAGE_GRANT_SECRET ??
+        'development-only-storage-grant-secret',
+      now: deps.now,
+      randomBytes: deps.randomBytes,
+    }),
   )
 
   return app

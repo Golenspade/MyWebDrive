@@ -2,7 +2,11 @@ import { createHmac } from 'node:crypto'
 
 import { describe, expect, test } from 'vitest'
 
-import { issueStorageGrant, verifyStorageGrant } from '../storage-grant.js'
+import {
+  issueDownloadStorageGrant,
+  issueStorageGrant,
+  verifyStorageGrant,
+} from '../storage-grant.js'
 
 function decodePart(token: string, index: number): Record<string, unknown> {
   const value = token.split('.')[index]
@@ -22,6 +26,37 @@ function signStorageGrant(payload: Record<string, unknown>, secret: string): str
 }
 
 describe('storage grants', () => {
+  test.each([
+    'download-private',
+    'download-share',
+    'download-publication',
+  ] as const)('issues an exact 60-second %s grant', (purpose) => {
+    const now = new Date('2026-07-11T08:00:00.000Z')
+    const token = issueDownloadStorageGrant({
+      purpose,
+      objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
+      now,
+      secret: 'storage-grant-test-secret-at-least-32-bytes',
+    })
+
+    expect(decodePart(token, 1)).toMatchObject({
+      purpose,
+      iat: Math.floor(now.getTime() / 1000),
+      exp: Math.floor(now.getTime() / 1000) + 60,
+    })
+  })
+
+  test('rejects upload purpose at the download grant boundary', () => {
+    expect(() =>
+      issueDownloadStorageGrant({
+        purpose: 'upload' as 'download-private',
+        objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
+        now: new Date('2026-07-11T08:00:00.000Z'),
+        secret: 'storage-grant-test-secret-at-least-32-bytes',
+      }),
+    ).toThrow('invalid storage grant input')
+  })
+
   test('issues the exact upload grant contract with an independent secret', () => {
     const now = new Date('2026-07-11T08:00:00.000Z')
     const secret = 'storage-grant-test-secret-at-least-32-bytes'
