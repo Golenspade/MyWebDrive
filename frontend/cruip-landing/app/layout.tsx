@@ -64,6 +64,7 @@ export const metadata = {
 // Refresh working as expected.
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { AuthBootstrap } from "@/components/auth-bootstrap";
 
 export default function RootLayout({
   children,
@@ -76,6 +77,7 @@ export default function RootLayout({
         className={`${notoSansSC.variable} ${zcoolXiaoWei.variable} ${maShanZheng.variable} ${doto.variable} ${geist.variable} ${geistMono.variable} ${newsreader.variable} bg-nothing-bg text-nothing-primary font-sans antialiased`}
       >
         <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
+          <AuthBootstrap />
           <div className="flex min-h-screen flex-col">
             {children}
           </div>

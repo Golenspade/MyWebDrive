@@ -8,86 +8,71 @@ title: API 参考
 
 ## 🔐 认证 API
 
-### 用户注册
+### 请求邮箱验证码
 
 ```http
-POST /api/v1/auth/register
+POST /api/v1/auth/email/request
 ```
 
 **请求体**
 ```json
 {
-  "email": "user@example.com",
-  "password": "secure_password",
-  "name": "用户名"
+  "email": "user@example.com"
 }
 ```
 
 **响应**
 ```json
 {
-  "success": true,
-  "data": {
+  "challengeId": "challenge-id",
+  "expiresInSeconds": 600,
+  "resendAfterSeconds": 60
+}
+```
+
+### 校验邮箱验证码
+
+```http
+POST /api/v1/auth/email/verify
+```
+
+**请求体**
+```json
+{
+  "challengeId": "challenge-id",
+  "email": "user@example.com",
+  "code": "123456"
+}
+```
+
+**响应**
+```json
+{
+  "accessToken": "short-lived-access-token",
+  "expiresInSeconds": 900,
+  "user": {
     "id": "user_123",
     "email": "user@example.com",
-    "name": "用户名",
-    "createdAt": "2025-09-30T12:00:00Z"
+    "role": "user"
   }
 }
 ```
 
-### 用户登录
+响应同时通过 `Set-Cookie` 写入不可被 JavaScript 读取的刷新会话。
 
-```http
-POST /api/v1/auth/login
-```
-
-**请求体**
-```json
-{
-  "email": "user@example.com",
-  "password": "secure_password"
-}
-```
-
-**响应**
-```json
-{
-  "success": true,
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expiresIn": 3600,
-    "user": {
-      "id": "user_123",
-      "email": "user@example.com",
-      "name": "用户名"
-    }
-  }
-}
-```
-
-### 刷新令牌
+### 刷新会话
 
 ```http
 POST /api/v1/auth/refresh
 ```
 
-**请求体**
-```json
-{
-  "refreshToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-}
-```
+浏览器使用 `credentials: include` 自动携带刷新 Cookie；请求体为空。
 
 **响应**
 ```json
 {
-  "success": true,
-  "data": {
-    "accessToken": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
-    "expiresIn": 3600
-  }
+  "accessToken": "short-lived-access-token",
+  "expiresInSeconds": 900
 }
 ```
 
@@ -97,92 +82,21 @@ POST /api/v1/auth/refresh
 POST /api/v1/auth/logout
 ```
 
-**Headers**
+浏览器携带刷新 Cookie，服务端撤销会话并清除 Cookie。成功响应状态为 `204`。
+
+### 获取当前用户
+
 ```http
+GET /api/v1/auth/me
 Authorization: Bearer YOUR_ACCESS_TOKEN
 ```
 
 **响应**
 ```json
 {
-  "success": true,
-  "message": "登出成功"
-}
-```
-
-## 👤 用户 API
-
-### 获取当前用户信息
-
-```http
-GET /api/v1/users/me
-```
-
-**Headers**
-```http
-Authorization: Bearer YOUR_ACCESS_TOKEN
-```
-
-**响应**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "user_123",
-    "email": "user@example.com",
-    "name": "用户名",
-    "storageQuota": 10737418240,
-    "storageUsed": 1073741824,
-    "createdAt": "2025-09-30T12:00:00Z",
-    "updatedAt": "2025-09-30T12:00:00Z"
-  }
-}
-```
-
-### 更新用户信息
-
-```http
-PATCH /api/v1/users/me
-```
-
-**请求体**
-```json
-{
-  "name": "新用户名"
-}
-```
-
-**响应**
-```json
-{
-  "success": true,
-  "data": {
-    "id": "user_123",
-    "name": "新用户名",
-    "updatedAt": "2025-09-30T13:00:00Z"
-  }
-}
-```
-
-### 修改密码
-
-```http
-PATCH /api/v1/users/me/password
-```
-
-**请求体**
-```json
-{
-  "currentPassword": "old_password",
-  "newPassword": "new_password"
-}
-```
-
-**响应**
-```json
-{
-  "success": true,
-  "message": "密码修改成功"
+  "id": "user_123",
+  "email": "user@example.com",
+  "role": "user"
 }
 ```
 

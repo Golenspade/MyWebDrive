@@ -178,46 +178,66 @@ export default function NotificationsPage() {
   const refresh = () => load()
 
   const [live, setLive] = React.useState(false)
-  const esRef = React.useRef<EventSource | null>(null)
+  const streamAbortRef = React.useRef<AbortController | null>(null)
   React.useEffect(() => {
     if (!live) {
-      if (esRef.current) { esRef.current.close(); esRef.current = null }
+      streamAbortRef.current?.abort()
+      streamAbortRef.current = null
       return
     }
     if (!accessToken) return
-    const url = `/api/v1/admin/notifications/stream?access_token=${encodeURIComponent(accessToken)}`
-    const es = new EventSource(url)
-    esRef.current = es
-    es.addEventListener('snapshot', (evt: MessageEvent) => {
+    const controller = new AbortController()
+    streamAbortRef.current = controller
+
+    const consumeStream = async () => {
       try {
-        const arr = JSON.parse(String(evt.data)) as NotificationItem[]
-        if (Array.isArray(arr)) {
-          // only set if local list is empty to avoid flicker
-          if (dataLengthRef.current === 0) {
-            // not calling setData here because it's internal to hook; trigger reload
-            void load()
+        const response = await fetch('/api/v1/admin/notifications/stream', {
+          credentials: 'include',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: controller.signal,
+        })
+        if (!response.ok || !response.body) throw new Error('Notification stream unavailable')
+
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read()
+          if (done) break
+          buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n')
+          let boundary = buffer.indexOf('\n\n')
+          while (boundary >= 0) {
+            const frame = buffer.slice(0, boundary)
+            buffer = buffer.slice(boundary + 2)
+            boundary = buffer.indexOf('\n\n')
+
+            let event = 'message'
+            const data: string[] = []
+            for (const line of frame.split('\n')) {
+              if (line.startsWith('event:')) event = line.slice(6).trim()
+              if (line.startsWith('data:')) data.push(line.slice(5).trimStart())
+            }
+            if (!data.length) continue
+            try {
+              const payload = JSON.parse(data.join('\n')) as NotificationItem | NotificationItem[]
+              if (event === 'notification' || (event === 'snapshot' && dataLengthRef.current === 0)) {
+                if (Array.isArray(payload) || (payload && typeof payload === 'object')) void load()
+              }
+            } catch {
+              // Malformed frames are ignored; the normal list refresh remains authoritative.
+            }
           }
         }
-      } catch {
-        // 忽略格式错误的 SSE 快照数据
+      } catch (error) {
+        if (!controller.signal.aborted) console.warn('Notification stream closed', error)
       }
-    })
-    es.addEventListener('notification', (evt: MessageEvent) => {
-      try {
-        // 只要数据格式正确就触发一次刷新
-        JSON.parse(String(evt.data)) as NotificationItem
-        // optimistic prepend (client-only)
-        // we don't have direct setData, so trigger reload for correctness
-        void load()
-      } catch {
-        // 忽略格式错误的 SSE 通知数据，保底通过定时刷新获取
-      }
-    })
-    es.onerror = () => {
-      es.close()
-      esRef.current = null
     }
-    return () => { es.close(); esRef.current = null }
+
+    void consumeStream()
+    return () => {
+      controller.abort()
+      if (streamAbortRef.current === controller) streamAbortRef.current = null
+    }
   }, [live, accessToken, load])
 
   return (

@@ -5,10 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useProtected } from '@/lib/hooks/use-protected'
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { apiClient } from '@/lib/api/client'
-import { usersApi } from '@/lib/api/users'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Input } from '@/components/ui/input'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
 import { userFilesApi, userFileVersionsApi, type FileItem, type FileVersion } from '@/lib/api/files'
 
@@ -21,9 +19,7 @@ import UploadPanel from '@/components/upload/upload-panel'
 export default function AccountPage() {
   const { ready } = useProtected('user')
   const router = useRouter()
-  const { user, role, accessToken, logout } = useAuthStore()
-  const [profile, setProfile] = useState(user)
-  const [nameInput, setNameInput] = useState(user?.name || '')
+  const { user, role, logout } = useAuthStore()
   const [myFiles, setMyFiles] = useState<FileItem[]>([])
   const [filesCursor, setFilesCursor] = useState<string | null>(null)
   const [filesLoading, setFilesLoading] = useState(false)
@@ -57,9 +53,7 @@ export default function AccountPage() {
   }
   async function previewFile(f: FileItem){
     try{
-      const token = (typeof window!=='undefined' ? localStorage.getItem('accessToken') : accessToken) || accessToken || ''
-      const r = await fetch(`/api/v1/files/${f.id}/preview`, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
-      if (!r.ok) { alert('预览失败'); return }
+      const r = await apiClient.raw(`/files/${f.id}/preview`)
       const blob = await r.blob()
       const url = URL.createObjectURL(blob)
       const w = window.open('about:blank')
@@ -69,44 +63,15 @@ export default function AccountPage() {
       alert('预览失败')
     }
   }
-
-
-
-  const [saving, setSaving] = useState(false)
-  const [, setLoading] = useState(false)
-
   useEffect(() => {
     if (!ready) return
-    ;(async () => {
-      try {
-        setLoading(true)
-        const me = await usersApi.me()
-        setProfile(me)
-        if (!nameInput) setNameInput(me.name || '')
-        await loadMyFiles()
-      } finally {
-        setLoading(false)
-      }
-    })()
-  }, [ready, loadMyFiles, nameInput])
-
-  async function saveName() {
-    if (!nameInput || nameInput.trim().length < 2) return
-    setSaving(true)
-    try {
-      await apiClient.patch('/users/me', { name: nameInput.trim() })
-      // 简化：直接刷新 me
-      const me = await usersApi.me()
-      setProfile(me)
-    } finally {
-      setSaving(false)
-    }
-  }
+    void loadMyFiles()
+  }, [ready, loadMyFiles])
 
   const quota = useMemo(() => ({
-    used: Number(profile?.storageUsed || 0),
-    total: Number(profile?.storageQuota || 0),
-  }), [profile])
+    used: Number(user?.storageUsed || 0),
+    total: Number(user?.storageQuota || 0),
+  }), [user])
 
   const percent = useMemo(() => {
     const { used, total } = quota
@@ -116,12 +81,6 @@ export default function AccountPage() {
 
   function fmtBytes(n: number) {
     return formatCompactBytes(Number(n || 0))
-  }
-
-  async function copyToken() {
-    if (!accessToken) return
-    await navigator.clipboard.writeText(accessToken)
-    alert('已复制访问令牌到剪贴板')
   }
 
   async function onLogout() {
@@ -144,7 +103,7 @@ export default function AccountPage() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <div className="text-sm text-muted-foreground">用户ID</div>
-                <div className="text-sm break-all">{profile?.id || '-'}</div>
+                <div className="text-sm break-all">{user?.id || '-'}</div>
               </div>
               <div className="space-y-2">
                 <div className="text-sm text-muted-foreground">角色</div>
@@ -153,22 +112,8 @@ export default function AccountPage() {
             </div>
 
             <div className="space-y-2">
-              <div className="text-sm text-muted-foreground">昵称</div>
-              <div className="flex gap-2">
-                <Input value={nameInput} onChange={(e)=>setNameInput(e.target.value)} placeholder="请输入昵称（≥2个字符）" />
-                <Button onClick={saveName} disabled={saving || !nameInput || nameInput.trim().length<2}>保存</Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">创建时间</div>
-                <div className="text-sm">{profile?.createdAt ? new Date(profile.createdAt).toLocaleString() : '-'}</div>
-              </div>
-              <div className="space-y-2">
-                <div className="text-sm text-muted-foreground">更新时间</div>
-                <div className="text-sm">{profile?.updatedAt ? new Date(profile.updatedAt).toLocaleString() : '-'}</div>
-              </div>
+              <div className="text-sm text-muted-foreground">邮箱</div>
+              <div className="text-sm break-all">{user?.email || '-'}</div>
             </div>
           </CardContent>
         </Card>
@@ -183,27 +128,17 @@ export default function AccountPage() {
               <div className="h-2 bg-primary" style={{ width: `${percent}%` }} />
             </div>
             <div className="text-xs text-muted-foreground">使用率 {percent}%</div>
-            <Button variant="outline" onClick={async()=>{
-              const me = await usersApi.me(); setProfile(me)
-            }}>刷新用量</Button>
+            <div className="text-xs text-muted-foreground">配额数据将在新的上传控制面接入后实时更新。</div>
           </CardContent>
         </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">安全与访问</CardTitle>
+          <CardTitle className="text-base">会话安全</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="text-sm break-all">
-            <span className="text-muted-foreground mr-2">访问令牌</span>
-            <span className="font-mono">{accessToken ? `${accessToken.slice(0,12)}...${accessToken.slice(-8)}` : '未登录'}</span>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={copyToken} disabled={!accessToken}>复制令牌</Button>
-            <Button variant="outline" onClick={()=>window.location.href='/signin'}>重新登录</Button>
-            <Button variant="destructive" onClick={onLogout}>退出登录</Button>
-          </div>
+        <CardContent>
+          <Button variant="destructive" onClick={onLogout}>退出登录</Button>
         </CardContent>
       </Card>
 
@@ -308,4 +243,3 @@ export default function AccountPage() {
 
   )
 }
-

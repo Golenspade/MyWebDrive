@@ -1,9 +1,9 @@
-// API client with token injection, single-flight refresh, and unified error parsing
-// Style: 2-space indent, single quotes, no semicolons
+// API client with bearer injection, cookie sessions and single-flight refresh.
 
 export class ApiError extends Error {
   status: number
   code: string
+
   constructor(status: number, code: string, message: string) {
     super(message)
     this.name = 'ApiError'
@@ -14,7 +14,7 @@ export class ApiError extends Error {
 
 type AuthHandlers = {
   getToken: () => string | null
-  refreshToken: () => Promise<string>
+  refreshSession: () => Promise<string>
   onAuthError: () => void
 }
 
@@ -28,28 +28,27 @@ class ApiClient {
   }
 
   async get<T>(endpoint: string, options: RequestInit = {}) {
-    return this.request<T>(endpoint, { ...options, method: 'GET' })
+    return this.requestJson<T>(endpoint, { ...options, method: 'GET' })
   }
 
   async post<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
-    return this.request<T>(endpoint, {
+    return this.requestJson<T>(endpoint, {
       ...options,
       method: 'POST',
       body: data != null ? JSON.stringify(data) : undefined,
     })
   }
 
-async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
-    return this.request<T>(endpoint, {
+  async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
+    return this.requestJson<T>(endpoint, {
       ...options,
       method: 'PUT',
       body: data != null ? JSON.stringify(data) : undefined,
     })
   }
 
-
   async patch<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
-    return this.request<T>(endpoint, {
+    return this.requestJson<T>(endpoint, {
       ...options,
       method: 'PATCH',
       body: data != null ? JSON.stringify(data) : undefined,
@@ -57,47 +56,62 @@ async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
   }
 
   async delete<T>(endpoint: string, options: RequestInit = {}) {
-    return this.request<T>(endpoint, { ...options, method: 'DELETE' })
+    return this.requestJson<T>(endpoint, { ...options, method: 'DELETE' })
   }
 
   async postNoRetry<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
-    return this.request<T>(endpoint, {
+    return this.requestJson<T>(endpoint, {
       ...options,
       method: 'POST',
       body: data != null ? JSON.stringify(data) : undefined,
     }, true)
   }
 
-  private async request<T>(endpoint: string, options: RequestInit = {}, noRetry = false): Promise<T> {
+  async raw(endpoint: string, options: RequestInit = {}): Promise<Response> {
+    return this.requestResponse(endpoint, options)
+  }
+
+  private async requestJson<T>(
+    endpoint: string,
+    options: RequestInit = {},
+    noRetry = false,
+  ): Promise<T> {
+    const response = await this.requestResponse(endpoint, options, noRetry)
+    if (response.status === 204 || response.status === 205) return undefined as T
+    return response.json() as Promise<T>
+  }
+
+  private async requestResponse(
+    endpoint: string,
+    options: RequestInit = {},
+    noRetry = false,
+  ): Promise<Response> {
     const token = this.authHandlers?.getToken()
+    const hasBody = options.body != null
     const response = await fetch(`${this.baseUrl}${endpoint}`, {
       ...options,
+      credentials: 'include',
       headers: {
-        'Content-Type': 'application/json',
+        ...(hasBody && typeof options.body === 'string'
+          ? { 'Content-Type': 'application/json' }
+          : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
         ...(options.headers || {}),
       },
     })
 
-    if (response.status === 204 || response.status === 205) {
-      return undefined as T
-    }
+    if (response.ok) return response
 
-    if (!response.ok) {
-      const error = await this.parseError(response)
-      if (response.status === 401 && !noRetry && this.authHandlers) {
-        try {
-          await this.handleTokenRefresh()
-          return this.request<T>(endpoint, options, true)
-        } catch {
-          this.authHandlers.onAuthError()
-          throw error
-        }
+    if (response.status === 401 && !noRetry && this.authHandlers) {
+      try {
+        await this.handleTokenRefresh()
+        return this.requestResponse(endpoint, options, true)
+      } catch {
+        this.authHandlers.onAuthError()
       }
-      throw error
     }
 
-    return response.json()
+    throw await this.parseError(response)
   }
 
   private async parseError(response: Response): Promise<ApiError> {
@@ -116,7 +130,7 @@ async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
         }
       }
     } catch {
-      // ignore parse failure
+      // Preserve the HTTP status text when the response is not JSON.
     }
     return new ApiError(response.status, code, message)
   }
@@ -126,7 +140,7 @@ async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
     if (this.refreshPromise) return this.refreshPromise
     this.refreshPromise = (async () => {
       try {
-        await this.authHandlers!.refreshToken()
+        await this.authHandlers!.refreshSession()
       } finally {
         this.refreshPromise = null
       }
@@ -136,4 +150,3 @@ async put<T>(endpoint: string, data?: unknown, options: RequestInit = {}) {
 }
 
 export const apiClient = new ApiClient()
-

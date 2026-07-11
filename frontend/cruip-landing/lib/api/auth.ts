@@ -1,16 +1,35 @@
-// Auth API wrappers
-// Style: 2-space indent, single quotes, no semicolons
-
 import { apiClient } from './client'
 
-export type LoginRequest = { email: string; password: string }
-export type RegisterRequest = { name: string; email: string; password: string; invitationCode?: string }
-export type AuthResponse = { accessToken: string; refreshToken: string }
-
-export const authApi = {
-  login: (data: LoginRequest) => apiClient.post<AuthResponse>('/auth/login', data),
-  register: (data: RegisterRequest) => apiClient.post<AuthResponse>('/auth/register', data),
-  logout: () => apiClient.post<void>('/auth/logout'),
-  refresh: (refreshToken: string) => apiClient.postNoRetry<{ accessToken: string }>('/auth/refresh', { refreshToken }),
+export type AuthUser = {
+  id: string
+  email: string
+  role: 'user' | 'admin'
+  name?: string | null
+  storageQuota?: number
+  storageUsed?: number
+  createdAt?: string
+  updatedAt?: string
 }
 
+export type EmailChallenge = {
+  challengeId: string
+  expiresInSeconds: number
+  resendAfterSeconds: number
+}
+
+export type SessionResponse = {
+  accessToken: string
+  expiresInSeconds: number
+  user: AuthUser
+}
+
+export const authApi = {
+  requestEmail: (email: string) =>
+    apiClient.postNoRetry<EmailChallenge>('/auth/email/request', { email }),
+  verifyEmail: (data: { challengeId: string; email: string; code: string }) =>
+    apiClient.postNoRetry<SessionResponse>('/auth/email/verify', data),
+  refresh: () =>
+    apiClient.postNoRetry<{ accessToken: string; expiresInSeconds: number }>('/auth/refresh'),
+  me: () => apiClient.get<AuthUser>('/auth/me'),
+  logout: () => apiClient.postNoRetry<void>('/auth/logout'),
+}

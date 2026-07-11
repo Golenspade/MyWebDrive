@@ -4,40 +4,48 @@ title: 认证与授权
 
 # 认证与授权
 
-本页介绍 MyGO 平台的身份认证（Auth）与授权流程，包括登录、刷新令牌与鉴权要点。
+MyWebDrive 使用邮箱验证码登录。浏览器只在内存中保存短期访问令牌；长期刷新会话由 `HttpOnly` Cookie 管理，前端脚本无法读取。
 
-## 登录流程
+## 1. 请求验证码
 
 ```http
-POST /api/v1/auth/login
+POST /api/v1/auth/email/request
 Content-Type: application/json
 
-{ "email": "user@example.com", "password": "secure_password" }
+{ "email": "user@example.com" }
 ```
 
-返回示例：
+响应包含一次性的 `challengeId`、验证码有效期和重发等待时间。验证码由邮件上游发送。
 
-```json
+## 2. 校验验证码
+
+```http
+POST /api/v1/auth/email/verify
+Content-Type: application/json
+
 {
-  "accessToken": "...",
-  "refreshToken": "...",
-  "expiresIn": 3600
+  "challengeId": "challenge-id",
+  "email": "user@example.com",
+  "code": "123456"
 }
 ```
 
-## 使用访问令牌
+校验成功后响应返回 15 分钟有效的 `accessToken`，并通过 `Set-Cookie` 签发刷新会话。
 
-请求时携带：
+## 3. 使用和刷新会话
+
+受保护请求使用：
 
 ```http
 Authorization: Bearer YOUR_ACCESS_TOKEN
 ```
 
-## 刷新令牌
+访问令牌过期时，浏览器携带 Cookie 请求：
 
 ```http
 POST /api/v1/auth/refresh
-{ "refreshToken": "..." }
 ```
 
-更多端点与字段详见 API 参考页。
+请求体不包含任何长期令牌。刷新响应会轮换 Cookie，并返回新的短期访问令牌。
+
+当前用户使用 `GET /api/v1/auth/me` 查询；退出登录使用 `POST /api/v1/auth/logout` 撤销刷新会话。

@@ -1,4 +1,4 @@
-// Admin API wrappers (users management, invitations)
+// Admin API wrappers (user management)
 // Style: 2-space indent, single quotes, no semicolons
 
 import { apiClient } from './client'
@@ -18,24 +18,5 @@ export const adminApi = {
   },
   getUser: (id: string) => apiClient.get<AdminUser>(`/auth/admin/users/${id}`),
   setRole: (id: string, role: 'user' | 'admin') => apiClient.patch<{ id: string; role: 'user' | 'admin' }>(`/auth/admin/users/${id}/role`, { role }),
-}
-
-export type Invitation = {
-  id: string
-  code: string
-  issuedBy: string
-  issuedAt: string
-  expiresAt: string | null
-  usageLimit: number
-  usedCount: number
-  isActive: boolean
-  notes: string | null
-}
-
-export const invitationsApi = {
-  create: (data: { usageLimit?: number; expiresAt?: string; notes?: string }) => apiClient.post<Invitation>('/auth/invitations', data),
-  list: () => apiClient.get<Invitation[]>('/auth/invitations'),
-  get: (code: string) => apiClient.get<Invitation>(`/auth/invitations/${code}`),
-  revoke: (code: string) => apiClient.post<{ message: string }>(`/auth/invitations/${code}/revoke`),
 }
 

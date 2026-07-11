@@ -1,136 +1,122 @@
-// Auth state store with persist and API integration
-// Style: 2-space indent, single quotes, no semicolons
-
 'use client'
 
 import { create } from 'zustand'
-import { persist, createJSONStorage } from 'zustand/middleware'
-import { authApi } from '@/lib/api/auth'
-import { usersApi, type User } from '@/lib/api/users'
+import { authApi, type AuthUser, type EmailChallenge } from '@/lib/api/auth'
 import { apiClient } from '@/lib/api/client'
 
 type Role = 'user' | 'admin'
 
-type JwtPayload = {
-  role?: string | null
-}
-
-function parseJwt(token: string | null): JwtPayload | null {
-  if (!token) return null
-  const parts = token.split('.')
-  if (parts.length !== 3) return null
-  try {
-    const payload = atob(parts[1].replace(/-/g, '+').replace(/_/g, '/'))
-    const decoded = JSON.parse(decodeURIComponent(Array.prototype.map.call(payload, (c: string) => {
-      return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)
-    }).join('')))
-    if (!decoded || typeof decoded !== 'object') return null
-    return decoded as JwtPayload
-  } catch {
-    try {
-      const decoded = JSON.parse(atob(parts[1]))
-      if (!decoded || typeof decoded !== 'object') return null
-      return decoded as JwtPayload
-    } catch {
-      return null
-    }
-  }
-}
-
 type AuthState = {
-  user: User | null
+  user: AuthUser | null
   role: Role | null
   accessToken: string | null
-  refreshToken: string | null
   isAuthenticated: boolean
   isLoading: boolean
   hasHydrated: boolean
-
-  setHasHydrated: () => void
-  login: (email: string, password: string) => Promise<void>
-  register: (data: { name: string; email: string; password: string; invitationCode?: string }) => Promise<void>
+  requestEmailCode: (email: string) => Promise<EmailChallenge>
+  verifyEmailCode: (data: { challengeId: string; email: string; code: string }) => Promise<void>
+  bootstrap: () => Promise<void>
   logout: () => Promise<void>
-  refreshAccessToken: () => Promise<void>
+  refreshAccessToken: () => Promise<string>
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set, get) => ({
-      user: null,
-      role: null,
-      accessToken: null,
-      refreshToken: null,
-      isAuthenticated: false,
-      isLoading: false,
-      hasHydrated: false,
+let bootstrapPromise: Promise<void> | null = null
+let authEpoch = 0
 
-      setHasHydrated: () => set({ hasHydrated: true }),
+function signedOutState() {
+  return {
+    user: null,
+    role: null,
+    accessToken: null,
+    isAuthenticated: false,
+  } as const
+}
 
-      login: async (email, password) => {
-        set({ isLoading: true })
-        try {
-          const auth = await authApi.login({ email, password })
-          set({ accessToken: auth.accessToken, refreshToken: auth.refreshToken })
-          const me = await usersApi.me()
-          const decoded = parseJwt(auth.accessToken)
-          const role: Role = (decoded?.role as Role) || (me.role as Role) || 'user'
-          set({ user: me, role, isAuthenticated: true })
-        } finally {
-          set({ isLoading: false })
-        }
-      },
+export const useAuthStore = create<AuthState>((set, get) => ({
+  ...signedOutState(),
+  isLoading: false,
+  hasHydrated: false,
 
-      register: async (data) => {
-        set({ isLoading: true })
-        try {
-          const auth = await authApi.register(data)
-          set({ accessToken: auth.accessToken, refreshToken: auth.refreshToken })
-          const me = await usersApi.me()
-          const decoded = parseJwt(auth.accessToken)
-          const role: Role = (decoded?.role as Role) || (me.role as Role) || 'user'
-          set({ user: me, role, isAuthenticated: true })
-        } finally {
-          set({ isLoading: false })
-        }
-      },
-
-      logout: async () => {
-        try {
-          await authApi.logout()
-        } catch {
-          // 忽略登出接口错误，本地状态照常清空
-        }
-        set({ user: null, role: null, accessToken: null, refreshToken: null, isAuthenticated: false })
-      },
-
-      refreshAccessToken: async () => {
-        const rt = get().refreshToken
-        if (!rt) throw new Error('No refresh token')
-        const res = await authApi.refresh(rt)
-        set({ accessToken: res.accessToken })
-      },
-    }),
-    {
-      name: 'auth-store',
-      storage: createJSONStorage(() => localStorage),
-      partialize: (s) => ({ accessToken: s.accessToken, refreshToken: s.refreshToken, user: s.user, role: s.role, isAuthenticated: s.isAuthenticated }),
-      onRehydrateStorage: () => (state) => {
-        // after hydration, mark ready
-        state?.setHasHydrated()
-      },
+  requestEmailCode: async (rawEmail) => {
+    const email = rawEmail.trim().toLowerCase()
+    set({ isLoading: true })
+    try {
+      return await authApi.requestEmail(email)
+    } finally {
+      set({ isLoading: false })
     }
-  )
-)
+  },
 
-// Wire store to apiClient for token refresh & injection
+  verifyEmailCode: async ({ challengeId, email: rawEmail, code }) => {
+    const email = rawEmail.trim().toLowerCase()
+    const attemptEpoch = ++authEpoch
+    set({ isLoading: true })
+    try {
+      const session = await authApi.verifyEmail({ challengeId, email, code })
+      if (authEpoch !== attemptEpoch) return
+      set({
+        accessToken: session.accessToken,
+        user: session.user,
+        role: session.user.role,
+        isAuthenticated: true,
+        hasHydrated: true,
+      })
+    } finally {
+      set({ isLoading: false })
+    }
+  },
+
+  bootstrap: async () => {
+    if (get().hasHydrated) return
+    if (bootstrapPromise) return bootstrapPromise
+    const startingEpoch = authEpoch
+    bootstrapPromise = (async () => {
+      try {
+        const session = await authApi.refresh()
+        if (authEpoch !== startingEpoch) return
+        set({ accessToken: session.accessToken })
+        const user = await authApi.me()
+        if (authEpoch !== startingEpoch) return
+        set({
+          user,
+          role: user.role,
+          isAuthenticated: true,
+        })
+      } catch {
+        if (authEpoch === startingEpoch) set(signedOutState())
+      } finally {
+        set({ hasHydrated: true })
+        bootstrapPromise = null
+      }
+    })()
+    return bootstrapPromise
+  },
+
+  logout: async () => {
+    authEpoch += 1
+    set({ ...signedOutState(), hasHydrated: true })
+    try {
+      await authApi.logout()
+    } catch {
+      // Local session state must still be cleared if the network is unavailable.
+    }
+    if (typeof window !== 'undefined') window.location.assign('/signin')
+  },
+
+  refreshAccessToken: async () => {
+    const startingEpoch = authEpoch
+    const session = await authApi.refresh()
+    if (authEpoch !== startingEpoch) throw new Error('Session changed during refresh')
+    set({ accessToken: session.accessToken })
+    return session.accessToken
+  },
+}))
+
 apiClient.setAuthHandlers({
   getToken: () => useAuthStore.getState().accessToken,
-  refreshToken: async () => {
-    await useAuthStore.getState().refreshAccessToken()
-    return useAuthStore.getState().accessToken as string
-  },
+  refreshSession: () => useAuthStore.getState().refreshAccessToken(),
   onAuthError: () => {
-    useAuthStore.setState({ user: null, role: null, accessToken: null, refreshToken: null, isAuthenticated: false })
+    authEpoch += 1
+    useAuthStore.setState({ ...signedOutState(), hasHydrated: true })
   },
 })
-

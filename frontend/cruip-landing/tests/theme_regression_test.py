@@ -10,25 +10,9 @@ from playwright.sync_api import sync_playwright
 BASE_URL = os.environ.get('BASE_URL', 'http://127.0.0.1:4323')
 
 
-def admin_auth_state() -> dict:
+def admin_access_token() -> str:
     payload = base64.urlsafe_b64encode(json.dumps({'role': 'admin'}).encode()).decode().rstrip('=')
-    return {
-        'state': {
-            'accessToken': f'x.{payload}.x',
-            'refreshToken': 'test-refresh',
-            'user': {
-                'id': 'admin-1',
-                'name': 'Admin',
-                'email': 'admin@example.invalid',
-                'storageQuota': 0,
-                'storageUsed': 0,
-                'role': 'admin',
-            },
-            'role': 'admin',
-            'isAuthenticated': True,
-        },
-        'version': 0,
-    }
+    return f'x.{payload}.x'
 
 
 class ThemeRegressionTest(unittest.TestCase):
@@ -66,14 +50,18 @@ class ThemeRegressionTest(unittest.TestCase):
     def test_admin_and_portal_dialog_stay_dark_in_light_system(self) -> None:
         context = self.browser.new_context(color_scheme='light')
         page = context.new_page()
-        auth_state = admin_auth_state()
-        page.add_init_script(
-            "localStorage.setItem('auth-store', JSON.stringify(%s))" % json.dumps(auth_state)
-        )
 
         def handle_api(route) -> None:
             url = route.request.url
-            if '/api/v1/admin/users' in url:
+            if '/api/v1/auth/refresh' in url:
+                body = {'accessToken': admin_access_token(), 'expiresInSeconds': 900}
+            elif '/api/v1/auth/me' in url:
+                body = {
+                    'id': 'admin-1',
+                    'email': 'admin@example.invalid',
+                    'role': 'admin',
+                }
+            elif '/api/v1/admin/users' in url:
                 body = {
                     'items': [{
                         'id': 'user-1',

@@ -1,17 +1,11 @@
 "use client"
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { useAuthStore } from '@/lib/stores/auth-store'
 import { apiClient } from '@/lib/api/client'
-
-type MeStorage = {
-  storageUsed?: number | null
-  storageQuota?: number | null
-}
 
 type UploadSession = {
   id: string
@@ -60,21 +54,6 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
   const [draft, setDraft] = useState<DraftMetadata>({ channel: 'stable', os: 'any', arch: 'any' })
   const [savingDraft, setSavingDraft] = useState(false)
 
-  const token = useAuthStore((s) => s.accessToken)
-
-  // Optional: get quota to disable when no capacity
-  const [quota, setQuota] = useState<{ used: number; total: number } | null>(null)
-  useEffect(() => {
-    ;(async () => {
-      try {
-        const me = await apiClient.get<MeStorage>('/users/me')
-        setQuota({ used: Number(me.storageUsed||0), total: Number(me.storageQuota||0) })
-      } catch {
-        // 忽略配额获取失败，不阻塞上传主流程
-      }
-    })()
-  }, [])
-
   const fileInfo = useMemo(() => {
     if (!file) return null
     const fmt = (n: number) => {
@@ -109,19 +88,14 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
         const start = i * chunkSize
         const end = Math.min(file.size, start + chunkSize)
         const slice = file.slice(start, end)
-        const res = await fetch(`/api/v1/storage/uploads/${id}`, {
+        await apiClient.raw(`/storage/uploads/${id}`, {
           method: 'PATCH',
           headers: {
             'Content-Type': 'application/octet-stream',
             'X-Chunk-Index': String(i),
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
           },
           body: slice,
         })
-        if (!res.ok) {
-          const msg = await res.text().catch(() => '')
-          throw new Error(`分片上传失败 #${i}: ${res.status} ${msg}`)
-        }
         const pct = Math.round(((i + 1) / totalChunks) * 100)
         setProgress(pct)
         setStatus(`已上传 ${i + 1}/${totalChunks} 个分片`)
@@ -129,11 +103,10 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
 
       // 3) 完成合并（改为异步 finalize + 轮询）
       setStatus('合并文件…')
-      const finRes = await fetch(`/api/v1/storage/uploads/${id}/finalize`, {
+      const finRes = await apiClient.raw(`/storage/uploads/${id}/finalize`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
         body: '{}',
       })
@@ -147,10 +120,6 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
         setStatus('上传完成')
         onCompleted?.({ fileId: fin.fileId || id, fileName: file.name })
       } else {
-        if (!finRes.ok && finRes.status !== 202) {
-          const msg = await finRes.text().catch(()=>'')
-          throw new Error(`合并失败: ${finRes.status} ${msg}`)
-        }
         setStatus('合并进行中…（请不要关闭页面，可安全切换其他页面）')
         // 轮询状态：最多 ~10 分钟（300 次 * 2s）
         let done = false
@@ -346,17 +315,11 @@ export default function UploadPanel({ onCompleted, showPreMetadata = true, showP
       </div>
       )}
 
-      {/* Disable upload when no quota or missing name */}
-      {quota && quota.total > 0 && quota.used >= quota.total && (
-        <div className="text-xs text-red-600">您的存储配额已用尽，请联系管理员或释放空间</div>
-      )}
-
       <div className="flex items-center gap-2">
         <Input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-        <Button onClick={startUpload} disabled={!file || uploading || !draft.name || !!(quota && quota.total > 0 && quota.used >= quota.total)}>开始上传</Button>
+        <Button onClick={startUpload} disabled={!file || uploading || !draft.name}>开始上传</Button>
       </div>
 
     </div>
   )
 }
-

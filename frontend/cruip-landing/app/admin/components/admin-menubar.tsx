@@ -10,7 +10,6 @@ export function AdminMenubar() {
     { label: "概览", href: "/admin/overview" },
     { label: "存储面板", href: "/admin/storage" },
     { label: "用户管理", href: "/admin/users" },
-    { label: "邀请码", href: "/admin/invitations" },
     { label: "通知中心", href: "/admin/notifications" },
     { label: "发布管理", href: "/admin/publish" },
   ]
