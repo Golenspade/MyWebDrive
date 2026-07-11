@@ -3,21 +3,27 @@ set -Eeuo pipefail
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.core.yml"
+STATE_DIR=${DEPLOY_STATE_DIR:-/var/lib/mywebdrive/releases}
 TARGET_TAG=${1:-}
 
 trap 'printf "rollback failed at line %s\n" "$LINENO" >&2' ERR
 
-if [[ -z "$TARGET_TAG" || "$TARGET_TAG" == latest ]]; then
-  printf 'usage: %s <previous-immutable-image-tag> (latest is forbidden)\n' "$0" >&2
+[[ "$TARGET_TAG" =~ ^sha-[0-9a-f]{40}$ ]] || {
+  printf 'rollback tag must be content-addressed as sha-<40 lowercase hex>\n' >&2
   exit 64
-fi
-if [[ ! "$TARGET_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
-  printf 'invalid immutable image tag: %s\n' "$TARGET_TAG" >&2
-  exit 64
-fi
+}
+[[ "$STATE_DIR" == /* ]] || { printf 'DEPLOY_STATE_DIR must be an absolute path\n' >&2; exit 64; }
 [[ -f "$COMPOSE_FILE" ]] || { printf 'compose file is missing: %s\n' "$COMPOSE_FILE" >&2; exit 66; }
-command -v docker >/dev/null
-docker compose version >/dev/null
+[[ -d "$STATE_DIR/history" ]] || { printf 'release history is unavailable\n' >&2; exit 66; }
 
-printf 'rolling back to immutable release %s\n' "$TARGET_TAG"
-exec "$SCRIPT_DIR/deploy.sh" "$TARGET_TAG"
+shopt -s nullglob
+matches=("$STATE_DIR/history/"*-"$TARGET_TAG"-*.manifest)
+shopt -u nullglob
+(( ${#matches[@]} > 0 )) || { printf 'no release manifest found for %s\n' "$TARGET_TAG" >&2; exit 66; }
+manifest=${matches[0]}
+for candidate in "${matches[@]}"; do
+  [[ "$candidate" -nt "$manifest" ]] && manifest=$candidate
+done
+
+printf 'rolling back to immutable release %s from %s\n' "$TARGET_TAG" "$manifest"
+exec "$SCRIPT_DIR/deploy.sh" --manifest "$manifest" "$TARGET_TAG"

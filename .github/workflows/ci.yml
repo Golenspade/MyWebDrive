@@ -74,6 +74,18 @@ jobs:
       - name: Build workspace
         run: pnpm run build:all
 
+      - name: Build immutable Core and Storage images
+        run: |
+          docker build --file services/core-api/Dockerfile --tag mywebdrive-core-api:ci .
+          docker build --file services/storage/Dockerfile --tag mywebdrive-storage:ci .
+
+      - name: Smoke immutable runtime images
+        run: |
+          test "$(docker run --rm --entrypoint sh mywebdrive-core-api:ci -c 'id -u')" != "0"
+          test "$(docker run --rm --entrypoint sh mywebdrive-storage:ci -c 'id -u')" != "0"
+          docker run --rm --read-only --tmpfs /tmp --entrypoint sh mywebdrive-core-api:ci -c 'openssl version && ./node_modules/.bin/prisma --version'
+          docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-storage:ci -e "import('./dist/runtime.js').then(() => process.stdout.write('storage runtime ok\\n'))"
+
       - name: Typecheck workspace
         run: pnpm run typecheck
 
