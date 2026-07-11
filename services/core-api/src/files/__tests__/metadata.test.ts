@@ -10,7 +10,15 @@ const integration = describe.runIf(Boolean(databaseUrl))
 const sessionSecret = 'task-five-metadata-session-at-least-32-bytes'
 
 integration('file metadata authorization and cursors', () => {
-  const prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } })
+  const prisma = new PrismaClient({
+    datasources: {
+      db: {
+        url:
+          databaseUrl ??
+          'postgresql://postgres:postgres@127.0.0.1:5432/mwd_task5?schema=public',
+      },
+    },
+  })
   const now = new Date('2026-07-11T12:00:00.000Z')
   const redis = { ping: vi.fn(async () => 'PONG') } as unknown as CoreDependencies['redis']
 
@@ -83,6 +91,14 @@ integration('file metadata authorization and cursors', () => {
     expect(first.body.items).toHaveLength(2)
     expect(first.body.items.every((item: { ownerId: string }) => item.ownerId === owner.id)).toBe(true)
     expect(first.body.nextCursor).toEqual(expect.any(String))
+    await request(app())
+      .get(`/api/v1/files?limit=2&cursor=${encodeURIComponent(first.body.nextCursor)}`)
+      .set('Authorization', `Bearer ${token(owner)}`)
+      .expect(400, { error: 'invalid cursor' })
+    await request(app())
+      .get(`/api/v1/files?parentId=null&limit=2&cursor=${encodeURIComponent(first.body.nextCursor)}`)
+      .set('Authorization', `Bearer ${token(other)}`)
+      .expect(400, { error: 'invalid cursor' })
     const second = await request(app())
       .get(`/api/v1/files?parentId=null&limit=2&cursor=${encodeURIComponent(first.body.nextCursor)}`)
       .set('Authorization', `Bearer ${token(owner)}`)
@@ -104,6 +120,14 @@ integration('file metadata authorization and cursors', () => {
       .set('Authorization', `Bearer ${token(admin)}`)
     expect(adminList.status).toBe(200)
     expect(adminList.body.items).toHaveLength(3)
+    await request(app())
+      .get(`/api/v1/admin/users/${owner.id}/files?cursor=${encodeURIComponent(first.body.nextCursor)}`)
+      .set('Authorization', `Bearer ${token(admin)}`)
+      .expect(400, { error: 'invalid cursor' })
+    await request(app())
+      .get(`/api/v1/admin/users/11111111-1111-4111-8111-111111111111/files`)
+      .set('Authorization', `Bearer ${token(admin)}`)
+      .expect(404, { error: 'user not found' })
   })
 
   test('version listing requires owner or current database admin and serializes bigint as decimal', async () => {
@@ -152,6 +176,15 @@ integration('file metadata authorization and cursors', () => {
       expect(response.body.items).toHaveLength(1)
       expect(response.body.items[0].sizeBytes).toMatch(/^900719925474099[45]$/)
       expect(response.body.nextCursor).toEqual(expect.any(String))
+      const otherFile = await prisma.file.create({
+        data: { ownerId: owner.id, name: `other-${viewer.id}.bin`, type: 'file' },
+      })
+      await request(app())
+        .get(
+          `/api/v1/files/${otherFile.id}/versions?cursor=${encodeURIComponent(response.body.nextCursor)}`,
+        )
+        .set('Authorization', `Bearer ${token(viewer)}`)
+        .expect(400, { error: 'invalid cursor' })
     }
   })
 })

@@ -585,6 +585,7 @@ git commit -m "feat(core): reserve quota with upload intents"
 **Files:**
 - Modify: `services/core-api/prisma/schema.prisma`
 - Create: `services/core-api/prisma/migrations/202607110003_file_targets/migration.sql`
+- Create: `services/core-api/prisma/migrations/202607110004_outbox_dedupe/migration.sql`
 - Modify: `services/core-api/src/uploads/service.ts`
 - Modify: `services/core-api/src/uploads/router.ts`
 - Create: `services/core-api/src/files/service.ts`
@@ -612,11 +613,11 @@ GET /api/v1/files/:fileId/versions?limit=20&cursor=<opaque>
 GET /api/v1/admin/users/:userId/files?limit=50&cursor=<opaque>
 ```
 
-Add nullable `UploadIntent.targetFileId` with a foreign key to `File`. The second migration also creates a PostgreSQL partial unique index for case-folded live sibling names per owner and parent, so two concurrent new-file finalizations cannot create ambiguous duplicates. A null target means “create a new logical file”; a non-null target means “append an immutable version to this owned, undeleted file.” Cursors contain only the last `(createdAt,id)` tuple, are HMAC-authenticated with `CORE_SESSION_SECRET`, and never expose SQL or filesystem state.
+Add nullable `UploadIntent.targetFileId` with a foreign key to `File`. Migration 003 also creates a PostgreSQL partial unique index for case-folded live sibling names per owner and parent, so two concurrent new-file finalizations cannot create ambiguous duplicates. A null target means “create a new logical file”; a non-null target means “append an immutable version to this owned, undeleted file.” Cursors contain only the last `(createdAt,id)` tuple, are HMAC-authenticated with `CORE_SESSION_SECRET`, and bind the endpoint, owner and parent/file context so a valid cursor cannot be replayed against another listing. File lists include the highest current version with decimal size, MIME type, digest and version ID. Migration 004 adds a unique outbox `dedupeKey`; file-version events use `file.version.created:<versionId>`.
 
 - [ ] **Step 1: Write failing ten-retry completion test**
 
-Submit the same signed completion ten times. Assert every authenticated retry returns the same file/version identity, with one FileVersion, one committed QuotaLedgerEntry, one processed UploadIntent and one `file.version.created` OutboxEvent. Add concurrent tests for two same-name new files (one success, one 409), two replacements of the same file receiving consecutive unique version numbers, non-owner replacement rejection, stable cursor pagination, and admin/current-user list authorization.
+Submit the same signed completion ten times and repeat the contention case as a stress gate. Assert every authenticated retry returns the same file/version identity, with one FileVersion, one committed QuotaLedgerEntry, one processed UploadIntent and one deduplicated `file.version.created` OutboxEvent. P2002 or exhausted-serialization recovery must re-read the intent's version before returning an error; a matching committed result is 200 idempotent. Add concurrent tests for two same-name new files (one success, one 409), two replacements of the same file receiving consecutive unique version numbers, non-owner replacement rejection, stable context-bound cursor pagination, missing-admin-user 404 and admin/current-user list authorization.
 
 - [ ] **Step 2: Implement callback identity**
 
@@ -624,7 +625,7 @@ Verify `hex(HMAC_SHA256(CORE_CALLBACK_SECRET, timestamp + '.' + rawBody))` with 
 
 - [ ] **Step 3: Implement the completion transaction**
 
-In one serializable transaction, verify the callback `objectKey`, exact uploaded size and lowercase 64-hex SHA-256 against the intent, then conditionally transition an active intent (`created`, `uploading` or `finalizing`) to `completed`. For a null target, create the logical File under the reserved parent/name; for a target, re-check owner/type/deleted state and allocate `max(version)+1` under the unique `(fileId,version)` constraint. Create its immutable version with unique `uploadIntentId`, move bytes from reserved to committed, create ledger ref `upload-commit:<intentId>` and insert an outbox event containing only opaque IDs, size and digest. A repeated completion with the same immutable result returns the existing IDs and performs no writes; a replay with different size, digest or object key is rejected as a conflict. A concurrent cancel can win only by first changing the reservation/intent to a terminal released state, in which case finalization fails without committing quota.
+In one serializable transaction, verify the callback `objectKey`, exact uploaded size and lowercase 64-hex SHA-256 against the intent, then conditionally transition an active intent (`created`, `uploading` or `finalizing`) to `completed`. For a null target, create the logical File under the reserved parent/name; for a target, re-check owner/type/deleted state, allocate `max(version)+1` under the unique `(fileId,version)` constraint and touch `File.updatedAt`. Create its immutable version with unique `uploadIntentId`, move bytes from reserved to committed, create ledger ref `upload-commit:<intentId>` and insert an outbox event containing only opaque IDs, size and digest. A repeated completion with the same immutable result returns the existing IDs and performs no writes; a replay with different size, digest or object key is rejected as a conflict. A concurrent cancel can win only by first changing the reservation/intent to a terminal released state, in which case finalization fails without committing quota.
 
 - [ ] **Step 4: Verify and commit**
 

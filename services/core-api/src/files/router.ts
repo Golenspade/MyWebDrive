@@ -4,10 +4,13 @@ import express from 'express'
 import { createAccessMiddleware, requireAdmin } from '../auth/middleware.js'
 import {
   decodeCursor,
+  fileCursorContext,
   FileNotFoundError,
   InvalidCursorError,
   listFiles,
   listVersions,
+  userExists,
+  versionCursorContext,
 } from './service.js'
 
 const UUID_PATTERN =
@@ -37,13 +40,24 @@ export function createFilesRouter(input: {
 
   router.get('/files', requireAccess, async (req, res) => {
     try {
+      const parentId = parseParent(req.query.parentId)
+      const cursorContext = fileCursorContext({
+        endpoint: 'user',
+        ownerId: req.authUser!.id,
+        parentId,
+      })
       const result = await listFiles({
         prisma: input.prisma,
         ownerId: req.authUser!.id,
-        parentId: parseParent(req.query.parentId),
+        parentId,
         limit: parseLimit(req.query.limit, 50, 100),
-        cursor: decodeCursor(typeof req.query.cursor === 'string' ? req.query.cursor : undefined, input.sessionSecret),
+        cursor: decodeCursor(
+          typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
+          input.sessionSecret,
+          cursorContext,
+        ),
         secret: input.sessionSecret,
+        cursorContext,
       })
       return res.json(result)
     } catch (error) {
@@ -57,14 +71,20 @@ export function createFilesRouter(input: {
       return res.status(404).json({ error: 'file not found' })
     }
     try {
+      const cursorContext = versionCursorContext(req.params.fileId)
       const result = await listVersions({
         prisma: input.prisma,
         fileId: req.params.fileId,
         viewerId: req.authUser!.id,
         viewerRole: req.authUser!.role,
         limit: parseLimit(req.query.limit, 20, 100),
-        cursor: decodeCursor(typeof req.query.cursor === 'string' ? req.query.cursor : undefined, input.sessionSecret),
+        cursor: decodeCursor(
+          typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
+          input.sessionSecret,
+          cursorContext,
+        ),
         secret: input.sessionSecret,
+        cursorContext,
       })
       return res.json(result)
     } catch (error) {
@@ -79,12 +99,25 @@ export function createFilesRouter(input: {
       return res.status(404).json({ error: 'user not found' })
     }
     try {
+      if (!(await userExists(input.prisma, req.params.userId))) {
+        return res.status(404).json({ error: 'user not found' })
+      }
+      const cursorContext = fileCursorContext({
+        endpoint: 'admin',
+        ownerId: req.params.userId,
+        parentId: undefined,
+      })
       const result = await listFiles({
         prisma: input.prisma,
         ownerId: req.params.userId,
         limit: parseLimit(req.query.limit, 50, 100),
-        cursor: decodeCursor(typeof req.query.cursor === 'string' ? req.query.cursor : undefined, input.sessionSecret),
+        cursor: decodeCursor(
+          typeof req.query.cursor === 'string' ? req.query.cursor : undefined,
+          input.sessionSecret,
+          cursorContext,
+        ),
         secret: input.sessionSecret,
+        cursorContext,
       })
       return res.json(result)
     } catch (error) {

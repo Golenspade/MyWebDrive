@@ -9,25 +9,34 @@ export class InvalidCursorError extends Error {}
 export class FileNotFoundError extends Error {}
 
 type Cursor = { createdAt: Date; id: string }
+export type CursorContext = string
 
 function sign(payload: string, secret: string): string {
   return createHmac('sha256', secret).update(payload).digest('hex')
 }
 
-export function encodeCursor(cursor: Cursor, secret: string): string {
+export function encodeCursor(
+  cursor: Cursor,
+  secret: string,
+  context: CursorContext,
+): string {
   const payload = Buffer.from(
     JSON.stringify({ createdAt: cursor.createdAt.toISOString(), id: cursor.id }),
   ).toString('base64url')
-  return `${payload}.${sign(payload, secret)}`
+  return `${payload}.${sign(`${context}.${payload}`, secret)}`
 }
 
-export function decodeCursor(value: string | undefined, secret: string): Cursor | null {
+export function decodeCursor(
+  value: string | undefined,
+  secret: string,
+  context: CursorContext,
+): Cursor | null {
   if (value === undefined) return null
   const parts = value.split('.')
   if (parts.length !== 2 || !parts[0] || !parts[1] || !/^[0-9a-f]{64}$/.test(parts[1])) {
     throw new InvalidCursorError()
   }
-  const expected = Buffer.from(sign(parts[0], secret), 'hex')
+  const expected = Buffer.from(sign(`${context}.${parts[0]}`, secret), 'hex')
   const supplied = Buffer.from(parts[1], 'hex')
   if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) {
     throw new InvalidCursorError()
@@ -52,6 +61,19 @@ export function decodeCursor(value: string | undefined, secret: string): Cursor 
   }
 }
 
+export function fileCursorContext(input: {
+  endpoint: 'user' | 'admin'
+  ownerId: string
+  parentId: string | null | undefined
+}): CursorContext {
+  const parent = input.parentId === undefined ? 'all' : input.parentId ?? 'root'
+  return `files:${input.endpoint}:${input.ownerId}:${parent}`
+}
+
+export function versionCursorContext(fileId: string): CursorContext {
+  return `versions:${fileId}`
+}
+
 function afterCursor(cursor: Cursor | null): Prisma.FileWhereInput | undefined {
   if (!cursor) return undefined
   return {
@@ -69,6 +91,7 @@ export async function listFiles(input: {
   limit: number
   cursor: Cursor | null
   secret: string
+  cursorContext: CursorContext
 }) {
   const rows = await input.prisma.file.findMany({
     where: {
@@ -87,20 +110,46 @@ export async function listFiles(input: {
       type: true,
       createdAt: true,
       updatedAt: true,
+      versions: {
+        orderBy: { version: 'desc' },
+        take: 1,
+        select: {
+          id: true,
+          version: true,
+          sizeBytes: true,
+          mimeType: true,
+          sha256: true,
+          createdAt: true,
+        },
+      },
     },
   })
   const hasMore = rows.length > input.limit
   const items = rows.slice(0, input.limit)
   const last = items.at(-1)
   return {
-    items: items.map((item) => ({
-      ...item,
-      createdAt: item.createdAt.toISOString(),
-      updatedAt: item.updatedAt.toISOString(),
-    })),
+    items: items.map(({ versions, ...item }) => {
+      const current = versions[0]
+      return {
+        ...item,
+        createdAt: item.createdAt.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+        currentVersion: current
+          ? {
+              ...current,
+              sizeBytes: current.sizeBytes.toString(),
+              createdAt: current.createdAt.toISOString(),
+            }
+          : null,
+      }
+    }),
     nextCursor:
       hasMore && last
-        ? encodeCursor({ createdAt: last.createdAt, id: last.id }, input.secret)
+        ? encodeCursor(
+            { createdAt: last.createdAt, id: last.id },
+            input.secret,
+            input.cursorContext,
+          )
         : null,
   }
 }
@@ -113,6 +162,7 @@ export async function listVersions(input: {
   limit: number
   cursor: Cursor | null
   secret: string
+  cursorContext: CursorContext
 }) {
   const file = await input.prisma.file.findFirst({
     where: {
@@ -158,7 +208,20 @@ export async function listVersions(input: {
     })),
     nextCursor:
       hasMore && last
-        ? encodeCursor({ createdAt: last.createdAt, id: last.id }, input.secret)
+        ? encodeCursor(
+            { createdAt: last.createdAt, id: last.id },
+            input.secret,
+            input.cursorContext,
+          )
         : null,
   }
+}
+
+export async function userExists(prisma: PrismaClient, userId: string): Promise<boolean> {
+  return Boolean(
+    await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true },
+    }),
+  )
 }

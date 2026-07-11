@@ -1,11 +1,12 @@
 import { createHmac, randomUUID } from 'node:crypto'
 
-import { PrismaClient } from '@prisma/client'
+import { Prisma, PrismaClient } from '@prisma/client'
 import request from 'supertest'
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 
 import { createCoreApp, type CoreDependencies } from '../../app.js'
 import { issueAccessToken } from '../../auth/access-token.js'
+import { completeUploadIntent } from '../../uploads/service.js'
 
 const databaseUrl = process.env.CORE_TEST_DATABASE_URL
 const integration = describe.runIf(Boolean(databaseUrl))
@@ -15,7 +16,13 @@ const callbackSecret = 'task-five-callback-secret-at-least-32-bytes'
 
 integration('transactional upload finalization', () => {
   const prisma = new PrismaClient({
-    datasources: { db: { url: databaseUrl } },
+    datasources: {
+      db: {
+        url:
+          databaseUrl ??
+          'postgresql://postgres:postgres@127.0.0.1:5432/mwd_task5?schema=public',
+      },
+    },
   })
   let now = new Date('2026-07-11T10:00:00.000Z')
   const redis = { ping: vi.fn(async () => 'PONG') } as unknown as CoreDependencies['redis']
@@ -158,7 +165,9 @@ integration('transactional upload finalization', () => {
     const responses = await Promise.all(
       Array.from({ length: 10 }, () => complete(created.body)),
     )
-    expect(responses.every((response) => response.status === 200)).toBe(true)
+    expect(responses.map((response) => ({ status: response.status, body: response.body }))).toEqual(
+      responses.map((response) => ({ status: 200, body: response.body })),
+    )
     const identities = new Set(
       responses.map((response) => `${response.body.fileId}:${response.body.versionId}`),
     )
@@ -171,6 +180,7 @@ integration('transactional upload finalization', () => {
     expect(await prisma.quotaReservation.findUniqueOrThrow({ where: { uploadIntentId: created.body.id } })).toMatchObject({ status: 'committed' })
     expect(await prisma.quotaAccount.findUniqueOrThrow({ where: { userId: user.id } })).toMatchObject({ reservedBytes: 0n, committedBytes: 10n })
     const event = await prisma.outboxEvent.findFirstOrThrow()
+    expect(event.dedupeKey).toBe(`file.version.created:${responses[0]?.body.versionId}`)
     expect(event.payload).toEqual({
       fileId: responses[0]?.body.fileId,
       versionId: responses[0]?.body.versionId,
@@ -202,6 +212,27 @@ integration('transactional upload finalization', () => {
     await signedCompletion(
       created.body.id,
       { objectKey: created.body.objectKey, sizeBytes: '10', sha256: 'b'.repeat(64) },
+      Math.floor((now.getTime() + 301_000) / 1000).toString(),
+    ).expect(401)
+    for (const offset of [-300_000, 300_000]) {
+      const boundaryIntent = await createIntent(
+        user,
+        `callback-boundary-${offset}`,
+        `callback-boundary-${offset}.txt`,
+      )
+      await signedCompletion(
+        boundaryIntent.body.id,
+        {
+          objectKey: boundaryIntent.body.objectKey,
+          sizeBytes: '10',
+          sha256: 'f'.repeat(64),
+        },
+        Math.floor((now.getTime() + offset) / 1000).toString(),
+      ).expect(200)
+    }
+    await signedCompletion(
+      created.body.id,
+      { objectKey: created.body.objectKey, sizeBytes: '10', sha256: 'b'.repeat(64) },
       undefined,
       'wrong-callback-secret-at-least-32-bytes',
     ).expect(401)
@@ -214,7 +245,10 @@ integration('transactional upload finalization', () => {
     ]) {
       await signedCompletion(created.body.id, body).expect(400)
     }
-    expect(await prisma.fileVersion.count()).toBe(0)
+    expect(
+      await prisma.fileVersion.count({ where: { uploadIntentId: created.body.id } }),
+    ).toBe(0)
+    expect(await prisma.fileVersion.count()).toBe(2)
   })
 
   test('changed authenticated replay conflicts without changing committed accounting', async () => {
@@ -280,6 +314,7 @@ integration('transactional upload finalization', () => {
     await prisma.file.update({ where: { id: completed.body.fileId }, data: { deletedAt: null } })
     const second = await createReplacementIntent(owner, completed.body.fileId, 'replacement-b')
     expect(second.status).toBe(201)
+    now = new Date('2026-07-11T10:05:00.000Z')
     const replacements = await Promise.all([
       complete(first.body, 'd'.repeat(64)),
       complete(second.body, 'e'.repeat(64)),
@@ -293,6 +328,21 @@ integration('transactional upload finalization', () => {
     expect(versions.map((version) => version.version)).toEqual([1, 2, 3])
     expect(versions.map((version) => version.objectKey)).toHaveLength(3)
     expect(new Set(versions.map((version) => version.objectKey)).size).toBe(3)
+    const listed = await request(app())
+      .get('/api/v1/files?parentId=null')
+      .set('Authorization', `Bearer ${token(owner)}`)
+      .expect(200)
+    expect(listed.body.items[0]).toMatchObject({
+      id: completed.body.fileId,
+      updatedAt: now.toISOString(),
+      currentVersion: {
+        id: versions[2]?.id,
+        version: 3,
+        sizeBytes: '10',
+        mimeType: 'text/plain',
+        sha256: versions[2]?.sha256,
+      },
+    })
   })
 
   test('cancel/finalize race has exactly one terminal reservation outcome', async () => {
@@ -313,5 +363,39 @@ integration('transactional upload finalization', () => {
     const account = await prisma.quotaAccount.findUniqueOrThrow({ where: { userId: user.id } })
     expect(account.reservedBytes).toBe(0n)
     expect(account.committedBytes).toBe(reservation.status === 'committed' ? 10n : 0n)
+  })
+})
+
+describe('completion conflict recovery', () => {
+  test('returns an already committed matching version after a P2002 race', async () => {
+    const conflict = new Prisma.PrismaClientKnownRequestError('unique conflict', {
+      code: 'P2002',
+      clientVersion: '5.22.0',
+      meta: { target: ['uploadIntentId'] },
+    })
+    const existing = {
+      id: 'version-1',
+      fileId: 'file-1',
+      objectKey: '11111111-1111-4111-8111-111111111111',
+      sizeBytes: 10n,
+      sha256: 'a'.repeat(64),
+    }
+    const prisma = {
+      $transaction: vi.fn().mockRejectedValue(conflict),
+      fileVersion: { findUnique: vi.fn().mockResolvedValue(existing) },
+    } as unknown as PrismaClient
+
+    await expect(
+      completeUploadIntent({
+        prisma,
+        intentId: '22222222-2222-4222-8222-222222222222',
+        completion: {
+          objectKey: existing.objectKey,
+          sizeBytes: existing.sizeBytes,
+          sha256: existing.sha256,
+        },
+        now: new Date('2026-07-11T10:00:00.000Z'),
+      }),
+    ).resolves.toEqual({ fileId: 'file-1', versionId: 'version-1', idempotent: true })
   })
 })

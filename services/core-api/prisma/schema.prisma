@@ -184,6 +184,7 @@ model Publication {
 
 model OutboxEvent {
   id            String    @id @default(uuid())
+  dedupeKey     String    @unique
   topic         String
   aggregateId   String
   payload       Json

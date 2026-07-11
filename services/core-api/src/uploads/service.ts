@@ -1,10 +1,11 @@
-import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHmac, randomInt, randomUUID, timingSafeEqual } from 'node:crypto'
 
 import { Prisma, type PrismaClient, type UploadIntent } from '@prisma/client'
 
 import {
   QuotaInvariantError,
   QuotaNotFoundError,
+  isSerializableConflict,
   releaseExpiredReservations,
   runSerializable as runQuotaSerializable,
 } from '../quota/service.js'
@@ -27,6 +28,8 @@ export class InvalidCompletionCallbackError extends Error {}
 export class InvalidCompletionBodyError extends Error {}
 export class CompletionConflictError extends Error {}
 export class LiveSiblingNameConflictError extends Error {}
+
+const MAX_COMPLETION_OUTER_ATTEMPTS = 4
 
 export type ValidatedUploadIntent = {
   idempotencyKey: string
@@ -364,8 +367,9 @@ export async function completeUploadIntent(input: {
   completion: CompletionBody
   now: Date
 }): Promise<CompletionResult> {
-  try {
-    return await runQuotaSerializable(input.prisma, async (tx) => {
+  for (let attempt = 0; attempt < MAX_COMPLETION_OUTER_ATTEMPTS; attempt += 1) {
+    try {
+      return await runQuotaSerializable(input.prisma, async (tx) => {
       const existingVersion = await tx.fileVersion.findUnique({
         where: { uploadIntentId: input.intentId },
         select: { id: true, fileId: true, objectKey: true, sizeBytes: true, sha256: true },
@@ -465,6 +469,12 @@ export async function completeUploadIntent(input: {
         },
         select: { id: true },
       })
+      if (intent.targetFileId) {
+        await tx.file.update({
+          where: { id: fileId },
+          data: { updatedAt: input.now },
+        })
+      }
       await tx.quotaLedgerEntry.create({
         data: {
           userId: intent.userId,
@@ -486,19 +496,53 @@ export async function completeUploadIntent(input: {
       })
       if (transitioned.count !== 1) throw new UploadIntentStateConflictError()
       return { fileId, versionId: version.id, idempotent: false }
-    })
-  } catch (error) {
-    if (
-      error instanceof Prisma.PrismaClientKnownRequestError &&
-      error.code === 'P2002'
-    ) {
-      if (Array.isArray(error.meta?.target) && error.meta.target.includes('version')) {
-        throw new UploadIntentStateConflictError()
+      })
+    } catch (error) {
+      const uniqueConflict =
+        error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+      if (uniqueConflict || isSerializableConflict(error)) {
+        const existingVersion = await input.prisma.fileVersion.findUnique({
+          where: { uploadIntentId: input.intentId },
+          select: {
+            id: true,
+            fileId: true,
+            objectKey: true,
+            sizeBytes: true,
+            sha256: true,
+          },
+        })
+        if (existingVersion) {
+          if (!sameCompletion(existingVersion, input.completion)) {
+            throw new CompletionConflictError()
+          }
+          return {
+            fileId: existingVersion.fileId,
+            versionId: existingVersion.id,
+            idempotent: true,
+          }
+        }
+
+        const target = uniqueConflict
+          ? JSON.stringify(error.meta?.target ?? '').toLowerCase()
+          : ''
+        const versionAllocationConflict =
+          uniqueConflict && target.includes('fileid') && target.includes('version')
+        if (
+          (isSerializableConflict(error) || versionAllocationConflict) &&
+          attempt < MAX_COMPLETION_OUTER_ATTEMPTS - 1
+        ) {
+          const baseMs = Math.min(2 ** attempt, 16)
+          await new Promise((resolve) =>
+            setTimeout(resolve, baseMs + randomInt(0, baseMs + 1)),
+          )
+          continue
+        }
+        if (uniqueConflict) throw new LiveSiblingNameConflictError()
       }
-      throw new LiveSiblingNameConflictError()
+      throw error
     }
-    throw error
   }
+  throw new UploadIntentStateConflictError()
 }
 
 export async function cancelUploadIntent(input: {

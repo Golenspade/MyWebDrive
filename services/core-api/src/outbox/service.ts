@@ -12,6 +12,7 @@ export async function enqueueFileVersionCreated(
 ): Promise<void> {
   await tx.outboxEvent.create({
     data: {
+      dedupeKey: `file.version.created:${input.versionId}`,
       topic: 'file.version.created',
       aggregateId: input.fileId,
       payload: {

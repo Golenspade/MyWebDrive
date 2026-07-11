@@ -1,3 +1,5 @@
+import { randomInt } from 'node:crypto'
+
 import { Prisma, type PrismaClient } from '@prisma/client'
 
 const EXPIRY_RELEASE_BATCH_SIZE = 50
@@ -18,10 +20,16 @@ export class QuotaNotFoundError extends Error {}
 export class QuotaLimitConflictError extends Error {}
 export class QuotaInvariantError extends Error {}
 
-function retryable(error: unknown): boolean {
+export function isSerializableConflict(error: unknown): boolean {
   if (!(error instanceof Prisma.PrismaClientKnownRequestError)) return false
   if (error.code === 'P2034') return true
   return error.code === 'P2010' && error.meta?.code === '40001'
+}
+
+async function waitBeforeRetry(attempt: number): Promise<void> {
+  const baseMs = Math.min(2 ** attempt, 32)
+  const jitterMs = randomInt(0, baseMs + 1)
+  await new Promise((resolve) => setTimeout(resolve, baseMs + jitterMs))
 }
 
 export async function runSerializable<T>(
@@ -34,7 +42,10 @@ export async function runSerializable<T>(
         isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       })
     } catch (error) {
-      if (retryable(error) && attempt < MAX_TRANSACTION_ATTEMPTS - 1) continue
+      if (isSerializableConflict(error) && attempt < MAX_TRANSACTION_ATTEMPTS - 1) {
+        await waitBeforeRetry(attempt)
+        continue
+      }
       throw error
     }
   }
