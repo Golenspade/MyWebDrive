@@ -581,10 +581,15 @@ git commit -m "feat(core): reserve quota with upload intents"
 ## Task 5: Finalize files, quota and outbox atomically
 
 **Files:**
+- Modify: `services/core-api/prisma/schema.prisma`
+- Create: `services/core-api/prisma/migrations/202607110002_file_targets/migration.sql`
+- Modify: `services/core-api/src/uploads/service.ts`
+- Modify: `services/core-api/src/uploads/router.ts`
 - Create: `services/core-api/src/files/service.ts`
 - Create: `services/core-api/src/files/router.ts`
 - Create: `services/core-api/src/outbox/service.ts`
 - Create: `services/core-api/src/files/__tests__/finalize.test.ts`
+- Create: `services/core-api/src/files/__tests__/metadata.test.ts`
 - Modify: `services/core-api/src/app.ts`
 
 **Interfaces:**
@@ -594,11 +599,22 @@ POST /api/v1/internal/upload-intents/:id/complete
 headers: X-Core-Timestamp, X-Core-Signature
 body: { objectKey: string; sizeBytes: string; sha256: string }
 200: { fileId: string; versionId: string; idempotent: boolean }
+
+POST /api/v1/files/:fileId/upload-intents
+headers: Authorization, Idempotency-Key
+body: { sizeBytes: string; mimeType: string }
+201/200: same upload-intent response as Task 4, bound to the existing file
+
+GET /api/v1/files?parentId=<uuid|null>&limit=50&cursor=<opaque>
+GET /api/v1/files/:fileId/versions?limit=20&cursor=<opaque>
+GET /api/v1/admin/users/:userId/files?limit=50&cursor=<opaque>
 ```
+
+Add nullable `UploadIntent.targetFileId` with a foreign key to `File`. The second migration also creates a PostgreSQL partial unique index for case-folded live sibling names per owner and parent, so two concurrent new-file finalizations cannot create ambiguous duplicates. A null target means “create a new logical file”; a non-null target means “append an immutable version to this owned, undeleted file.” Cursors contain only the last `(createdAt,id)` tuple, are HMAC-authenticated with `CORE_SESSION_SECRET`, and never expose SQL or filesystem state.
 
 - [ ] **Step 1: Write failing ten-retry completion test**
 
-Submit the same signed completion ten times. Assert every authenticated retry returns the same file/version identity, with one FileVersion, one committed QuotaLedgerEntry, one processed UploadIntent and one `file.version.created` OutboxEvent.
+Submit the same signed completion ten times. Assert every authenticated retry returns the same file/version identity, with one FileVersion, one committed QuotaLedgerEntry, one processed UploadIntent and one `file.version.created` OutboxEvent. Add concurrent tests for two same-name new files (one success, one 409), two replacements of the same file receiving consecutive unique version numbers, non-owner replacement rejection, stable cursor pagination, and admin/current-user list authorization.
 
 - [ ] **Step 2: Implement callback identity**
 
@@ -606,14 +622,14 @@ Verify `hex(HMAC_SHA256(CORE_CALLBACK_SECRET, timestamp + '.' + rawBody))` with 
 
 - [ ] **Step 3: Implement the completion transaction**
 
-In one serializable transaction, verify the callback `objectKey` and exact uploaded size against the intent, then conditionally transition an active intent (`created`, `uploading` or `finalizing`) to `completed`. Create or update the logical File, create its immutable version with unique `uploadIntentId`, move bytes from reserved to committed, create ledger ref `upload-commit:<intentId>` and insert the outbox event. A repeated completion with the same immutable result returns the existing IDs and performs no writes; a replay with different size, digest or object key is rejected as a conflict. A concurrent cancel can win only by first changing the reservation/intent to a terminal released state, in which case finalization fails without committing quota.
+In one serializable transaction, verify the callback `objectKey`, exact uploaded size and lowercase 64-hex SHA-256 against the intent, then conditionally transition an active intent (`created`, `uploading` or `finalizing`) to `completed`. For a null target, create the logical File under the reserved parent/name; for a target, re-check owner/type/deleted state and allocate `max(version)+1` under the unique `(fileId,version)` constraint. Create its immutable version with unique `uploadIntentId`, move bytes from reserved to committed, create ledger ref `upload-commit:<intentId>` and insert an outbox event containing only opaque IDs, size and digest. A repeated completion with the same immutable result returns the existing IDs and performs no writes; a replay with different size, digest or object key is rejected as a conflict. A concurrent cancel can win only by first changing the reservation/intent to a terminal released state, in which case finalization fails without committing quota.
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `pnpm -C services/core-api test -- src/files src/outbox && pnpm -C services/core-api build`
+Run: `pnpm -C services/core-api test -- src/uploads src/files src/outbox && pnpm -C services/core-api exec prisma validate --schema prisma/schema.prisma && pnpm -C services/core-api build`
 
 ```bash
-git add services/core-api/src/files services/core-api/src/outbox services/core-api/src/app.ts
+git add services/core-api/prisma services/core-api/src/uploads services/core-api/src/files services/core-api/src/outbox services/core-api/src/app.ts
 git commit -m "feat(core): finalize uploads transactionally"
 ```
 
@@ -624,6 +640,7 @@ git commit -m "feat(core): finalize uploads transactionally"
 - Create: `services/core-api/src/sharing/service.ts`
 - Create: `services/core-api/src/sharing/router.ts`
 - Create: `services/core-api/src/sharing/__tests__/download-ticket.test.ts`
+- Create: `services/core-api/src/sharing/__tests__/management.test.ts`
 - Modify: `services/core-api/src/app.ts`
 
 **Interfaces:**
@@ -633,15 +650,25 @@ POST /api/v1/files/:fileId/download-ticket
 POST /api/v1/shares/:token/download-ticket
 POST /api/v1/publications/:slug/download-ticket
 200: { objectKey: string; downloadGrant: string; expiresInSeconds: 60; fileName: string; mimeType: string }
+
+POST /api/v1/files/:fileId/shares
+body: { password?: string; expiresAt?: string; maxDownloads?: number }
+201: { token: string; expiresAt: string | null; maxDownloads: number | null }
+GET /api/v1/files/:fileId/shares
+POST /api/v1/shares/:shareId/revoke -> 204
+
+PUT /api/v1/files/:fileId/publication
+body: { slug: string; status: 'draft' | 'published' | 'disabled' }
+GET /api/v1/publications?limit=50&cursor=<opaque> -> published catalog only
 ```
 
 - [ ] **Step 1: Write failing authorization and concurrency tests**
 
-Cover non-owner rejection, wrong share password, expired/disabled share, draft publication, wrong grant purpose, and two concurrent requests for the final allowed share download producing exactly one 200.
+Cover non-owner management rejection, share token disclosure only at creation, wrong share password, expired/disabled share, draft publication, slug conflict, wrong grant purpose, and two concurrent requests for the final allowed share download producing exactly one 200. Catalog tests must return a real empty state rather than fixtures when no publication exists.
 
 - [ ] **Step 2: Implement grant issuance**
 
-Core signs HS256 grants with independent `STORAGE_GRANT_SECRET`, `aud=storage-api`, `typ=storage-grant`, purpose, objectKey, UUID jti and 60-second expiry. Never include user-supplied path fragments or return grant in a URL.
+Core signs HS256 grants with independent `STORAGE_GRANT_SECRET`, `aud=storage-api`, `typ=storage-grant`, purpose, objectKey, UUID jti and 60-second expiry. Never include user-supplied path fragments or return grant in a URL. Share tokens are random 256-bit base64url values returned once; Core stores only their SHA-256 digest in `Share.token`. Optional share passwords are stored as versioned, salted `scrypt` hashes and compared in constant time. Publication slugs match lowercase `[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?`.
 
 - [ ] **Step 3: Implement atomic share consumption**
 
@@ -797,6 +824,8 @@ Expected: FAIL because Nginx/frontend still target Gateway and old services rema
 - [ ] **Step 3: Switch the only public route**
 
 Nginx sends `/api/v1/storage/objects/*` and upload byte routes to Storage; every other `/api/v1/*` route goes to Core. Frontend uses same-origin relative paths. Remove Gateway, Auth, User, Metadata and Sharing from production compose and deployment scripts.
+
+Replace the remaining frontend data-plane calls in the same cutover commit: `lib/api/files.ts`, `components/upload/upload-panel.tsx`, `app/account/page.tsx` and `components/download/catalog-page.tsx` use Core upload intents, metadata/version lists and ticket endpoints, then send byte requests to Storage with the grant in the `Authorization` header. Remove legacy `/files/me`, `/files/:id/draft`, `/storage/files/*`, direct-download URLs, token-copy UI, version restore until a restore state machine exists, and `SAMPLE_PROJECTS` fallback. Empty catalog, API failure and loading are three distinct UI states; no production click may target a fixture or `example.com`.
 
 - [ ] **Step 4: Verify rollback without old-service writes**
 
