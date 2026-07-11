@@ -18,7 +18,7 @@
 - OTP is six numeric digits, expires after 600 seconds, permits five failed attempts, has a 60-second resend cooldown, and is limited to five sends per normalized email per hour and twenty sends per source IP per hour.
 - Access JWTs expire after 900 seconds and must validate `alg=HS256`, `typ=access`, `iss=mywebdrive-core` and `aud=mywebdrive-web`.
 - Refresh credentials are 256-bit opaque random tokens stored only as SHA-256 digests. The `mwd_refresh` Cookie is HttpOnly, SameSite=Lax, Path `/api/v1/auth`, Secure in production, idle-expires after 30 days and absolutely expires after 90 days.
-- Production startup requires non-default `CORE_SESSION_SECRET`, `OTP_PEPPER`, `STORAGE_GRANT_SECRET` and `CORE_CALLBACK_SECRET`, each at least 32 UTF-8 bytes, plus absolute HTTPS `EMAIL_PROVIDER_URL` and nonempty `EMAIL_PROVIDER_TOKEN`.
+- Startup requires an explicit nonnegative decimal `DEFAULT_USER_QUOTA_BYTES`; production additionally requires non-default `CORE_SESSION_SECRET`, `OTP_PEPPER`, `STORAGE_GRANT_SECRET` and `CORE_CALLBACK_SECRET`, each at least 32 UTF-8 bytes, plus absolute HTTPS `EMAIL_PROVIDER_URL` and nonempty `EMAIL_PROVIDER_TOKEN`. There is no baked-in product quota: deployment configuration owns that policy until a billing component replaces it.
 - Storage grants use independent `STORAGE_GRANT_SECRET`, `aud=storage-api`, `typ=storage-grant`, purpose `upload` or `download`, a stable opaque object key, a UUID `jti`, and a maximum TTL of 300 seconds; downloads default to 60 seconds and are one-time.
 - All quota reservation, file finalization, share download consumption and OTP consumption invariants are enforced by PostgreSQL transactions and constraints, not read-then-write application sequences.
 - Redis unavailability fails closed for OTP request rate limiting and one-time grant consumption. PostgreSQL, Redis or the configured object backend failing makes readiness return 503.
@@ -525,12 +525,17 @@ git commit -m "feat(frontend): adopt passwordless cookie sessions"
 ## Task 4: Implement quota reservations and upload intents
 
 **Files:**
+- Create: `services/core-api/src/auth/middleware.ts`
+- Create: `services/core-api/src/auth/__tests__/middleware.test.ts`
 - Create: `services/core-api/src/grants/storage-grant.ts`
 - Create: `services/core-api/src/grants/__tests__/storage-grant.test.ts`
 - Create: `services/core-api/src/quota/service.ts`
 - Create: `services/core-api/src/uploads/service.ts`
 - Create: `services/core-api/src/uploads/router.ts`
 - Create: `services/core-api/src/uploads/__tests__/reservation.test.ts`
+- Modify: `services/core-api/src/config.ts`
+- Modify: `services/core-api/src/identity/otp.ts`
+- Modify: `services/core-api/src/identity/__tests__/router.test.ts`
 - Modify: `services/core-api/src/app.ts`
 
 **Interfaces:**
@@ -543,26 +548,33 @@ body: { fileName: string; sizeBytes: string; mimeType: string; parentId?: string
 
 POST /api/v1/upload-intents/:id/cancel -> releases an active reservation exactly once
 GET /api/v1/quota -> { limitBytes: string; reservedBytes: string; committedBytes: string; availableBytes: string }
+
+PATCH /api/v1/admin/users/:userId/quota
+body: { limitBytes: string }
+200: { limitBytes: string; reservedBytes: string; committedBytes: string; availableBytes: string }
+409: requested limit is below reserved + committed
 ```
+
+All quota/upload routes use the shared access-token middleware. It verifies the exact access-JWT contract, reloads the user from Core, rejects disabled users, and checks the current database role for admin routes rather than trusting a possibly stale role claim. A newly verified email creates or backfills exactly one `QuotaAccount` in the same identity transaction using `DEFAULT_USER_QUOTA_BYTES`; an existing account is never reset on login.
 
 - [ ] **Step 1: Write failing concurrent reservation tests**
 
-Create a quota of 100 bytes and concurrently request two 80-byte intents. Assert exactly one succeeds, one returns 413, the account reserves 80 bytes, and retrying the winning `Idempotency-Key` returns the same intent without another reservation. Add grant-contract tests for `alg=HS256`, `typ=storage-grant`, `aud=storage-api`, `purpose=upload`, exact opaque `objectKey`, UUID `jti`, independent `STORAGE_GRANT_SECRET`, and expiry no later than 300 seconds.
+Create a quota of 100 bytes and concurrently request two 80-byte intents. Assert exactly one succeeds, one returns 413, the account reserves 80 bytes, and retrying the winning `Idempotency-Key` with the same body returns the same intent without another reservation; the same key with a different body returns 409. Cover missing/invalid bearer, disabled user, non-admin quota update, quota reduction below occupied bytes, and first-login quota creation/backfill without later reset. Add grant-contract tests for `alg=HS256`, `typ=storage-grant`, `aud=storage-api`, `purpose=upload`, exact opaque UUID `objectKey`, immutable `uploadIntentId`, decimal `maxBytes`, UUID `jti`, independent `STORAGE_GRANT_SECRET`, and expiry no later than 300 seconds.
 
 - [ ] **Step 2: Implement one-transaction reservation**
 
-Use a serializable Prisma transaction and a conditional `UPDATE` equivalent to `committed + reserved + requested <= limit`. Create `UploadIntent` and `QuotaReservation` in the same transaction. Use UUID object keys and issue the shared grant module's upload grant only after commit. The grant issuer accepts an enumerated purpose and never accepts a user-supplied path.
+Validate `Idempotency-Key` as 1-128 characters from `[A-Za-z0-9._:-]`; validate `fileName` as 1-255 trimmed characters with no slash, backslash, NUL or control byte; parse `sizeBytes` as a positive decimal `BigInt`; and require a nonempty MIME type of at most 255 characters. When `parentId` exists, verify it is an undeleted folder owned by the same user. Use a serializable Prisma transaction and a conditional `UPDATE` equivalent to `committed + reserved + requested <= limit`. Create `UploadIntent`, `QuotaReservation` and reservation audit row `reservation-create:<reservationId>` in the same transaction. Use a UUID object key and issue the shared grant module's upload grant only after commit. The grant issuer accepts an enumerated purpose and never accepts a user-supplied path.
 
 - [ ] **Step 3: Implement idempotent cancel/expiry release**
 
-Conditional transition `reserved -> released` decrements `QuotaAccount.reservedBytes` once and creates one ledger row with business ref `reservation-release:<reservationId>`.
+Conditional transition `reserved -> released` decrements `QuotaAccount.reservedBytes` once and creates one ledger row with business ref `reservation-release:<reservationId>`. Cancel is owner-scoped and idempotently returns 204 for an already released/expired reservation. Before quota read or new reservation, lazily release that user's expired reservations in bounded serializable batches; multiple Core replicas may race, but conditional status updates and unique business refs allow each reservation to affect the balance once.
 
 - [ ] **Step 4: Verify and commit**
 
-Run: `pnpm -C services/core-api test -- src/uploads src/quota src/grants && pnpm -C services/core-api build`
+Run: `pnpm -C services/core-api test -- src/auth src/identity src/uploads src/quota src/grants && pnpm -C services/core-api build`
 
 ```bash
-git add services/core-api/src/grants services/core-api/src/quota services/core-api/src/uploads services/core-api/src/app.ts
+git add services/core-api/src/auth services/core-api/src/config.ts services/core-api/src/identity services/core-api/src/grants services/core-api/src/quota services/core-api/src/uploads services/core-api/src/app.ts
 git commit -m "feat(core): reserve quota with upload intents"
 ```
 
