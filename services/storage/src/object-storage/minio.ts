@@ -8,6 +8,7 @@ import { ObjectIntegrityError, type ObjectStorage } from './types.js'
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const MINIO_SINGLE_COPY_MAX_BYTES = 5n * 1024n * 1024n * 1024n
+const MINIO_MULTIPART_PART_BYTES = 64 * 1024 * 1024
 
 function valid(objectKey: string, part?: number): void {
   if (!UUID_PATTERN.test(objectKey)) throw new Error('invalid object key')
@@ -18,6 +19,106 @@ function valid(objectKey: string, part?: number): void {
 
 function validGeneration(generation: string): void {
   if (!UUID_PATTERN.test(generation)) throw new Error('invalid upload generation')
+}
+
+async function verifyMinioPublication(
+  client: Client,
+  bucket: string,
+  finalKey: string,
+  generation: string,
+  expectedSize: bigint,
+): Promise<void> {
+  const published = await client.statObject(bucket, finalKey)
+  const publishedGeneration = String(
+    published.metaData?.['storage-generation'] ??
+    published.metaData?.['x-amz-meta-storage-generation'] ?? '',
+  )
+  if (BigInt(published.size) !== expectedSize || publishedGeneration !== generation) {
+    throw new ObjectIntegrityError()
+  }
+}
+
+export async function publishMinioMultipart(
+  client: Client,
+  bucket: string,
+  stagingKey: string,
+  finalKey: string,
+  generation: string,
+  expectedSize: bigint,
+  partSizeBytes = MINIO_MULTIPART_PART_BYTES,
+): Promise<void> {
+  validGeneration(generation)
+  if (
+    expectedSize < 1n ||
+    !Number.isSafeInteger(partSizeBytes) ||
+    partSizeBytes < 1
+  ) {
+    throw new ObjectIntegrityError()
+  }
+
+  let uploadId: string | undefined
+  let completed = false
+  try {
+    uploadId = await client.initiateNewMultipartUpload(bucket, finalKey, {
+      'X-Amz-Meta-storage-generation': generation,
+    })
+    const source = await client.getObject(bucket, stagingKey)
+    const etags: Array<{ part: number; etag: string }> = []
+    let partNumber = 1
+    let totalBytes = 0n
+    let buffer = Buffer.allocUnsafe(partSizeBytes)
+    let bufferedBytes = 0
+
+    const uploadBufferedPart = async (): Promise<void> => {
+      const payload = buffer.subarray(0, bufferedBytes)
+      const result = await client.uploadPart(
+        {
+          bucketName: bucket,
+          objectName: finalKey,
+          uploadID: uploadId!,
+          partNumber,
+          headers: {
+            'Content-Length': payload.length,
+            'Content-MD5': createHash('md5').update(payload).digest('base64'),
+          },
+        },
+        payload,
+      )
+      etags.push({ part: partNumber, etag: result.etag })
+      partNumber += 1
+      buffer = Buffer.allocUnsafe(partSizeBytes)
+      bufferedBytes = 0
+    }
+
+    for await (const chunk of source) {
+      const bytes = Buffer.from(chunk as Uint8Array)
+      if (totalBytes + BigInt(bytes.length) > expectedSize) throw new ObjectIntegrityError()
+      totalBytes += BigInt(bytes.length)
+      let offset = 0
+      while (offset < bytes.length) {
+        const copied = bytes.copy(
+          buffer,
+          bufferedBytes,
+          offset,
+          Math.min(bytes.length, offset + partSizeBytes - bufferedBytes),
+        )
+        offset += copied
+        bufferedBytes += copied
+        if (bufferedBytes === partSizeBytes) await uploadBufferedPart()
+      }
+    }
+    if (totalBytes !== expectedSize) throw new ObjectIntegrityError()
+    if (bufferedBytes > 0) await uploadBufferedPart()
+    await client.completeMultipartUpload(bucket, finalKey, uploadId, etags)
+    completed = true
+  } catch (error) {
+    if (uploadId && !completed) {
+      await client.abortMultipartUpload(bucket, finalKey, uploadId).catch(() => undefined)
+    }
+    throw error
+  }
+
+  await verifyMinioPublication(client, bucket, finalKey, generation, expectedSize)
 }
 
 export async function publishMinioStaging(
@@ -40,18 +141,16 @@ export async function publishMinioStaging(
         UserMetadata: { 'storage-generation': generation },
       }),
     )
+    await verifyMinioPublication(client, bucket, finalKey, generation, sizeBytes)
     return
   }
-  if (sizeBytes > BigInt(Number.MAX_SAFE_INTEGER)) throw new ObjectIntegrityError()
-  const source = await client.getObject(bucket, stagingKey)
-  await client.putObject(
+  await publishMinioMultipart(
+    client,
     bucket,
+    stagingKey,
     finalKey,
-    source,
-    Number(sizeBytes),
-    {
-      'storage-generation': generation,
-    },
+    generation,
+    sizeBytes,
   )
 }
 
