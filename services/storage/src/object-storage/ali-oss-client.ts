@@ -79,7 +79,6 @@ export class AliOssClient implements OssClient {
     }
     const published = await this.head(finalKey)
     if (published.generation !== generation) {
-      await this.client.delete(finalKey).catch(() => undefined)
       throw new Error('OSS generation metadata mismatch')
     }
   }

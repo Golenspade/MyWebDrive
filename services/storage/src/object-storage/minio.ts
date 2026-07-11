@@ -7,6 +7,7 @@ import { ObjectIntegrityError, type ObjectStorage } from './types.js'
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+const MINIO_SINGLE_COPY_MAX_BYTES = 5n * 1024n * 1024n * 1024n
 
 function valid(objectKey: string, part?: number): void {
   if (!UUID_PATTERN.test(objectKey)) throw new Error('invalid object key')
@@ -29,14 +30,28 @@ export async function publishMinioStaging(
 ): Promise<void> {
   validGeneration(generation)
   if (sizeBytes < 1n) throw new ObjectIntegrityError()
-  await client.composeObject(
-    new CopyDestinationOptions({
-      Bucket: bucket,
-      Object: finalKey,
-      MetadataDirective: 'REPLACE',
-      UserMetadata: { 'storage-generation': generation },
-    }),
-    [new CopySourceOptions({ Bucket: bucket, Object: stagingKey })],
+  if (sizeBytes <= MINIO_SINGLE_COPY_MAX_BYTES) {
+    await client.copyObject(
+      new CopySourceOptions({ Bucket: bucket, Object: stagingKey }),
+      new CopyDestinationOptions({
+        Bucket: bucket,
+        Object: finalKey,
+        MetadataDirective: 'REPLACE',
+        UserMetadata: { 'storage-generation': generation },
+      }),
+    )
+    return
+  }
+  if (sizeBytes > BigInt(Number.MAX_SAFE_INTEGER)) throw new ObjectIntegrityError()
+  const source = await client.getObject(bucket, stagingKey)
+  await client.putObject(
+    bucket,
+    finalKey,
+    source,
+    Number(sizeBytes),
+    {
+      'storage-generation': generation,
+    },
   )
 }
 

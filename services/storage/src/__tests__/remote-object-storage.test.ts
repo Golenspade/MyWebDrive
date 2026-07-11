@@ -16,7 +16,7 @@ async function text(stream: NodeJS.ReadableStream): Promise<string> {
 }
 
 describe('remote object adapter arbitrary part contract', () => {
-  test('MinIO concatenates arbitrary tiny parts then publishes with single-source compose', async () => {
+  test('MinIO concatenates arbitrary tiny parts then publishes with CopyObject metadata', async () => {
     const outputs = new Map<string, string>()
     const client = {
       statObject: vi.fn(async (_bucket: string, key: string) => {
@@ -27,8 +27,8 @@ describe('remote object adapter arbitrary part contract', () => {
       putObject: vi.fn(async (_bucket: string, key: string, body: Readable) => outputs.set(key, await text(body))),
       removeObject: vi.fn(),
       removeObjects: vi.fn(async () => []),
-      composeObject: vi.fn(async (_destination: unknown, _sources: unknown[]) => ({})),
-      copyObject: vi.fn(),
+      composeObject: vi.fn(),
+      copyObject: vi.fn(async (_source: unknown, _destination: unknown) => ({})),
       bucketExists: vi.fn(async () => true),
     }
     const storage = new MinioObjectStorage(client as unknown as Client, 'bucket')
@@ -38,26 +38,93 @@ describe('remote object adapter arbitrary part contract', () => {
     })
     expect(outputs.get(`staging/${objectKey}/${generation}`)).toBe('abc')
     expect(client.putObject).not.toHaveBeenCalledWith('bucket', `files/${objectKey}`, expect.anything())
-    expect(client.copyObject).not.toHaveBeenCalled()
-    expect(client.composeObject).toHaveBeenCalledOnce()
-    const [destination, sources] = client.composeObject.mock.calls[0]!
-    const [source] = sources
+    expect(client.composeObject).not.toHaveBeenCalled()
+    expect(client.copyObject).toHaveBeenCalledOnce()
+    const [source, destination] = client.copyObject.mock.calls[0]!
     expect(source).toMatchObject({ Bucket: 'bucket', Object: `staging/${objectKey}/${generation}` })
-    expect(destination).toMatchObject({ Bucket: 'bucket', Object: `files/${objectKey}` })
+    expect(destination).toMatchObject({
+      Bucket: 'bucket',
+      Object: `files/${objectKey}`,
+      MetadataDirective: 'REPLACE',
+      UserMetadata: { 'storage-generation': generation },
+    })
   })
 
-  test('MinIO uses multipart compose publication for a single staging source above 5 GiB', async () => {
-    const client = { composeObject: vi.fn(async () => ({})), copyObject: vi.fn() }
+  test('MinIO streams a staging source above 5 GiB into atomic multipart put with exact metadata', async () => {
+    const source = Readable.from('source stream is not materialized by the adapter')
+    const client = {
+      getObject: vi.fn(async () => source),
+      putObject: vi.fn(async () => ({})),
+      composeObject: vi.fn(),
+      copyObject: vi.fn(),
+    }
+    const sizeBytes = 5n * 1024n * 1024n * 1024n + 1n
     await publishMinioStaging(
       client as unknown as Client,
       'bucket',
       `staging/${objectKey}/${generation}`,
       `files/${objectKey}`,
       generation,
-      5n * 1024n * 1024n * 1024n + 1n,
+      sizeBytes,
     )
-    expect(client.composeObject).toHaveBeenCalledOnce()
+    expect(client.composeObject).not.toHaveBeenCalled()
     expect(client.copyObject).not.toHaveBeenCalled()
+    expect(client.getObject).toHaveBeenCalledWith('bucket', `staging/${objectKey}/${generation}`)
+    expect(client.putObject).toHaveBeenCalledWith(
+      'bucket',
+      `files/${objectKey}`,
+      source,
+      Number(sizeBytes),
+      { 'storage-generation': generation },
+    )
+  })
+
+  test('MinIO large publication failure never falls back to non-atomic copy or compose', async () => {
+    const failure = new Error('multipart upload failed before completion')
+    const client = {
+      getObject: vi.fn(async () => Readable.from('source')),
+      putObject: vi.fn(async () => { throw failure }),
+      composeObject: vi.fn(),
+      copyObject: vi.fn(),
+    }
+    await expect(publishMinioStaging(
+      client as unknown as Client,
+      'bucket',
+      `staging/${objectKey}/${generation}`,
+      `files/${objectKey}`,
+      generation,
+      5n * 1024n * 1024n * 1024n + 1n,
+    )).rejects.toBe(failure)
+    expect(client.copyObject).not.toHaveBeenCalled()
+    expect(client.composeObject).not.toHaveBeenCalled()
+  })
+
+  test('MinIO retry recovers from an already published final with matching generation', async () => {
+    const client = {
+      statObject: vi.fn(async (_bucket: string, key: string) => {
+        if (key === `files/${objectKey}`) {
+          return { size: 3, metaData: { 'storage-generation': generation } }
+        }
+        throw Object.assign(new Error('unexpected stat'), { code: 'NotFound' })
+      }),
+      getObject: vi.fn(async (_bucket: string, key: string) => {
+        if (key === `files/${objectKey}`) return Readable.from('abc')
+        throw new Error('unexpected read')
+      }),
+      putObject: vi.fn(),
+      copyObject: vi.fn(),
+      composeObject: vi.fn(),
+      removeObject: vi.fn(async () => undefined),
+    }
+    const storage = new MinioObjectStorage(client as unknown as Client, 'bucket')
+    await expect(storage.completeObject(objectKey, 2, generation, 3n)).resolves.toEqual({
+      sizeBytes: 3n,
+      sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    })
+    expect(client.putObject).not.toHaveBeenCalled()
+    expect(client.copyObject).not.toHaveBeenCalled()
+    expect(client.composeObject).not.toHaveBeenCalled()
+    expect(client.removeObject).toHaveBeenCalledWith('bucket', `staging/${objectKey}/${generation}`)
   })
 
   test('OSS concatenates arbitrary tiny parts and supports idempotent cleanup', async () => {
