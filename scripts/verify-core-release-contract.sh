@@ -137,6 +137,7 @@ require_pattern 'current.env' "$DEPLOY_SCRIPT" 'deploy.sh must record current re
 require_pattern 'mkdir "\$lock_dir"' "$DEPLOY_SCRIPT" 'deploy.sh must acquire an atomic state lock'
 require_pattern 'exit 75' "$DEPLOY_SCRIPT" 'deploy.sh must fail concurrent deployment with EX_TEMPFAIL'
 require_pattern 'exec .*deploy\.sh.*--manifest' "$ROLLBACK_SCRIPT" 'rollback.sh must use deploy manifest mode'
+reject_pattern '\|[[:space:]]*node[[:space:]]+-e|^[[:space:]]*node[[:space:]]+-e' "$DEPLOY_SCRIPT" 'deploy.sh must not require Node.js on the production host'
 
 reject_pattern '\|\|[[:space:]]*true|--no-frozen-lockfile|SQLite|sqlite|services/(auth|user|metadata|sharing)|api-gateway' "$CI_FILE" 'CI contains a best-effort, mutable install, SQLite, or split-control-plane path'
 for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'test-core-cutover-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/email-provider/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' 'packages:[[:space:]]*write' 'docker login ghcr\.io' 'release_tag=sha-\$\{GITHUB_SHA\}' 'docker push' '--read-only' '--tmpfs' 'id -u'; do

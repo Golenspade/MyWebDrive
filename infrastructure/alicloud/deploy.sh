@@ -127,15 +127,34 @@ parse_manifest() {
 }
 
 resolve_repo_digest() {
-  local tag_ref=$1 repository=$2 digests
-  digests=$(docker image inspect --format '{{json .RepoDigests}}' "$tag_ref")
-  node -e '
-    const values = JSON.parse(process.argv[1])
-    const repository = process.argv[2]
-    const matches = [...new Set(values.filter(value => value.startsWith(`${repository}@sha256:`) && /^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$/.test(value)))]
-    if (matches.length !== 1) process.exit(1)
-    process.stdout.write(matches[0])
-  ' "$digests" "$repository" || { printf 'could not resolve a unique RepoDigest for %s\n' "$tag_ref" >&2; exit 69; }
+  local tag_ref=$1 repository=$2 value existing
+  local -a matches=()
+  while IFS= read -r value; do
+    [[ "$value" == "$repository"@sha256:* ]] || continue
+    [[ "$value" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$ ]] || continue
+    existing=0
+    for match in "${matches[@]-}"; do
+      [[ "$match" == "$value" ]] && existing=1
+    done
+    (( existing )) || matches+=("$value")
+  done < <(docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$tag_ref")
+  (( ${#matches[@]} == 1 )) || { printf 'could not resolve a unique RepoDigest for %s\n' "$tag_ref" >&2; exit 69; }
+  printf '%s' "${matches[0]}"
+}
+
+resolve_tag_image() {
+  local suffix=$1 value existing
+  local -a matches=()
+  while IFS= read -r value; do
+    [[ "$value" == */"$suffix":"$IMAGE_TAG" ]] || continue
+    existing=0
+    for match in "${matches[@]-}"; do
+      [[ "$match" == "$value" ]] && existing=1
+    done
+    (( existing )) || matches+=("$value")
+  done <<< "$tag_images"
+  (( ${#matches[@]} == 1 )) || { printf 'could not resolve a unique tag image for %s\n' "$suffix" >&2; exit 69; }
+  printf '%s' "${matches[0]}"
 }
 
 [[ -r "$ENV_FILE" ]] || { printf 'environment file is missing or unreadable: %s\n' "$ENV_FILE" >&2; exit 66; }
@@ -190,13 +209,12 @@ wait_healthy() {
 if [[ "$mode" == tag ]]; then
   unset CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
   compose config -q
-  tag_images=$(compose config --format json | node -e '
-    let data = ""; process.stdin.on("data", chunk => data += chunk).on("end", () => {
-      const services = JSON.parse(data).services
-      process.stdout.write([services["core-api"].image, services["email-provider"].image, services["storage-api"].image, services.web.image, services.nginx.image].join("\t"))
-    })
-  ')
-  IFS=$'\t' read -r core_tag email_tag storage_tag web_tag nginx_tag <<< "$tag_images"
+  tag_images=$(compose config --images)
+  core_tag=$(resolve_tag_image mywebdrive-core-api)
+  email_tag=$(resolve_tag_image mywebdrive-email-provider)
+  storage_tag=$(resolve_tag_image mywebdrive-storage)
+  web_tag=$(resolve_tag_image mywebdrive-web)
+  nginx_tag=$(resolve_tag_image mywebdrive-nginx)
   compose pull core-api email-provider storage-api web nginx
   core_repo=${core_tag%:"$IMAGE_TAG"}
   email_repo=${email_tag%:"$IMAGE_TAG"}

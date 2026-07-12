@@ -118,18 +118,18 @@ if [[ "$1" == image && "$2" == inspect ]]; then
     */mywebdrive-nginx) digest=$(printf 'd%.0s' {1..64}) ;;
     *) exit 1 ;;
   esac
-  printf '["%s@sha256:%s"]\n' "$repository" "$digest"
+  printf '%s@sha256:%s\n' "$repository" "$digest"
 fi
 if [[ "$1" == inspect && "$*" == *"{{.Image}}"* ]]; then printf 'sha256:%s\n' "$(printf 'f%.0s' {1..64})"; fi
 if [[ "$1" == inspect && "$*" == *'.State.Health'* ]]; then printf 'healthy\n'; fi
 if [[ "$1" == compose && "$*" == *' ps -q '* ]]; then printf 'fixture-container\n'; fi
-if [[ "$1" == compose && "$*" == *' config --format json'* ]]; then
+if [[ "$1" == compose && "$*" == *' config --images'* ]]; then
   core=${CORE_API_IMAGE:-registry.example/mywebdrive-core-api:${IMAGE_TAG}}
   email=${EMAIL_PROVIDER_IMAGE:-registry.example/mywebdrive-email-provider:${IMAGE_TAG}}
   storage=${STORAGE_IMAGE:-registry.example/mywebdrive-storage:${IMAGE_TAG}}
   web=${WEB_IMAGE:-registry.example/mywebdrive-web:${IMAGE_TAG}}
   nginx=${NGINX_IMAGE:-registry.example/mywebdrive-nginx:${IMAGE_TAG}}
-  printf '{"services":{"core-api":{"image":"%s"},"email-provider":{"image":"%s"},"storage-api":{"image":"%s"},"web":{"image":"%s"},"nginx":{"image":"%s"}}}\n' "$core" "$email" "$storage" "$web" "$nginx"
+  printf '%s\n' "$core" "$email" "$storage" "$web" "$nginx"
 fi
 exit 0
 EOF
