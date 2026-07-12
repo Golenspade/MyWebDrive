@@ -42,6 +42,14 @@ function requireProductionValue(env: Environment, key: string): string {
   return value
 }
 
+function requireProductionToken(env: Environment, key: string): string {
+  const value = requireProductionValue(env, key)
+  if (Buffer.byteLength(value, 'utf8') < 32) {
+    throw new Error(`${key} must be at least 32 UTF-8 bytes`)
+  }
+  return value
+}
+
 function requireProductionEmailUrl(env: Environment): string {
   const value = env.EMAIL_PROVIDER_URL
   if (!value) throw new Error('EMAIL_PROVIDER_URL must be set')
@@ -52,7 +60,15 @@ function requireProductionEmailUrl(env: Environment): string {
   } catch {
     throw new Error('EMAIL_PROVIDER_URL must be an absolute HTTPS URL')
   }
-  if (url.protocol !== 'https:') {
+  const privateProvider = url.protocol === 'http:'
+    && url.hostname === 'email-provider'
+    && url.port === '8090'
+    && url.pathname === '/'
+    && !url.username
+    && !url.password
+    && !url.search
+    && !url.hash
+  if (url.protocol !== 'https:' && !privateProvider) {
     throw new Error('EMAIL_PROVIDER_URL must be an absolute HTTPS URL')
   }
   return url.toString().replace(/\/$/, '')
@@ -97,7 +113,7 @@ export function loadCoreConfig(env: Environment = process.env): CoreConfig {
     ? requireProductionEmailUrl(env)
     : env.EMAIL_PROVIDER_URL ?? 'http://127.0.0.1:8025'
   const emailProviderToken = production
-    ? requireProductionValue(env, 'EMAIL_PROVIDER_TOKEN')
+    ? requireProductionToken(env, 'EMAIL_PROVIDER_TOKEN')
     : env.EMAIL_PROVIDER_TOKEN ?? 'development-only-email-token'
 
   if (

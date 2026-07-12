@@ -82,7 +82,7 @@ acquire_deploy_lock() {
 
 parse_manifest() {
   local manifest=$1 line key value
-  local seen_tag=0 seen_core=0 seen_storage=0 seen_web=0 seen_nginx=0
+  local seen_tag=0 seen_core=0 seen_email=0 seen_storage=0 seen_web=0 seen_nginx=0
   [[ -f "$manifest" ]] || { printf 'release manifest not found: %s\n' "$manifest" >&2; exit 66; }
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" == *=* ]] || { printf 'invalid release manifest line\n' >&2; exit 65; }
@@ -96,6 +96,10 @@ parse_manifest() {
       CORE_API_IMAGE)
         (( seen_core == 0 )) || { printf 'duplicate CORE_API_IMAGE in manifest\n' >&2; exit 65; }
         validate_digest_ref "$value"; CORE_API_IMAGE=$value; seen_core=1
+        ;;
+      EMAIL_PROVIDER_IMAGE)
+        (( seen_email == 0 )) || { printf 'duplicate EMAIL_PROVIDER_IMAGE in manifest\n' >&2; exit 65; }
+        validate_digest_ref "$value"; EMAIL_PROVIDER_IMAGE=$value; seen_email=1
         ;;
       STORAGE_IMAGE)
         (( seen_storage == 0 )) || { printf 'duplicate STORAGE_IMAGE in manifest\n' >&2; exit 65; }
@@ -112,14 +116,14 @@ parse_manifest() {
       DEPLOYED_AT)
         [[ "$value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { printf 'invalid DEPLOYED_AT in manifest\n' >&2; exit 65; }
         ;;
-      POSTGRES_CONTAINER_IMAGE_ID|REDIS_CONTAINER_IMAGE_ID|MINIO_CONTAINER_IMAGE_ID|CORE_API_CONTAINER_IMAGE_ID|STORAGE_API_CONTAINER_IMAGE_ID|STORAGE_WORKER_CONTAINER_IMAGE_ID|WEB_CONTAINER_IMAGE_ID|NGINX_CONTAINER_IMAGE_ID)
+      POSTGRES_CONTAINER_IMAGE_ID|REDIS_CONTAINER_IMAGE_ID|MINIO_CONTAINER_IMAGE_ID|CORE_API_CONTAINER_IMAGE_ID|EMAIL_PROVIDER_CONTAINER_IMAGE_ID|STORAGE_API_CONTAINER_IMAGE_ID|STORAGE_WORKER_CONTAINER_IMAGE_ID|WEB_CONTAINER_IMAGE_ID|NGINX_CONTAINER_IMAGE_ID)
         [[ "$value" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf 'invalid container image ID in manifest\n' >&2; exit 65; }
         ;;
       *) printf 'unknown release manifest key: %s\n' "$key" >&2; exit 65 ;;
     esac
   done < "$manifest"
-  (( seen_tag && seen_core && seen_storage && seen_web && seen_nginx )) || { printf 'release manifest is incomplete\n' >&2; exit 65; }
-  export IMAGE_TAG CORE_API_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
+  (( seen_tag && seen_core && seen_email && seen_storage && seen_web && seen_nginx )) || { printf 'release manifest is incomplete\n' >&2; exit 65; }
+  export IMAGE_TAG CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
 }
 
 resolve_repo_digest() {
@@ -184,28 +188,30 @@ wait_healthy() {
 }
 
 if [[ "$mode" == tag ]]; then
-  unset CORE_API_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
+  unset CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
   compose config -q
   tag_images=$(compose config --format json | node -e '
     let data = ""; process.stdin.on("data", chunk => data += chunk).on("end", () => {
       const services = JSON.parse(data).services
-      process.stdout.write([services["core-api"].image, services["storage-api"].image, services.web.image, services.nginx.image].join("\t"))
+      process.stdout.write([services["core-api"].image, services["email-provider"].image, services["storage-api"].image, services.web.image, services.nginx.image].join("\t"))
     })
   ')
-  IFS=$'\t' read -r core_tag storage_tag web_tag nginx_tag <<< "$tag_images"
-  compose pull core-api storage-api web nginx
+  IFS=$'\t' read -r core_tag email_tag storage_tag web_tag nginx_tag <<< "$tag_images"
+  compose pull core-api email-provider storage-api web nginx
   core_repo=${core_tag%:"$IMAGE_TAG"}
+  email_repo=${email_tag%:"$IMAGE_TAG"}
   storage_repo=${storage_tag%:"$IMAGE_TAG"}
   web_repo=${web_tag%:"$IMAGE_TAG"}
   nginx_repo=${nginx_tag%:"$IMAGE_TAG"}
   CORE_API_IMAGE=$(resolve_repo_digest "$core_tag" "$core_repo")
+  EMAIL_PROVIDER_IMAGE=$(resolve_repo_digest "$email_tag" "$email_repo")
   STORAGE_IMAGE=$(resolve_repo_digest "$storage_tag" "$storage_repo")
   WEB_IMAGE=$(resolve_repo_digest "$web_tag" "$web_repo")
   NGINX_IMAGE=$(resolve_repo_digest "$nginx_tag" "$nginx_repo")
-  export CORE_API_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
+  export CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
 fi
 
-for ref in "$CORE_API_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE"; do
+for ref in "$CORE_API_IMAGE" "$EMAIL_PROVIDER_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE"; do
   validate_digest_ref "$ref"
   docker pull "$ref"
 done
@@ -216,6 +222,8 @@ compose up -d --no-deps postgres redis minio
 for service in postgres redis minio; do wait_healthy "$service"; done
 compose run --rm --no-deps minio-init
 compose run --rm --no-deps core-migrate
+compose up -d --no-deps email-provider
+wait_healthy email-provider
 compose up -d --no-deps core-api storage-api storage-worker web nginx
 for service in core-api storage-api storage-worker web nginx; do wait_healthy "$service"; done
 
@@ -228,11 +236,12 @@ history_stamp=$(date -u +%Y%m%dT%H%M%SZ)
 {
   printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG"
   printf 'CORE_API_IMAGE=%s\n' "$CORE_API_IMAGE"
+  printf 'EMAIL_PROVIDER_IMAGE=%s\n' "$EMAIL_PROVIDER_IMAGE"
   printf 'STORAGE_IMAGE=%s\n' "$STORAGE_IMAGE"
   printf 'WEB_IMAGE=%s\n' "$WEB_IMAGE"
   printf 'NGINX_IMAGE=%s\n' "$NGINX_IMAGE"
   printf 'DEPLOYED_AT=%s\n' "$deployed_at"
-  for service in postgres redis minio core-api storage-api storage-worker web nginx; do
+  for service in postgres redis minio core-api email-provider storage-api storage-worker web nginx; do
     container=$(compose ps -q "$service")
     image_id=$(docker inspect --format '{{.Image}}' "$container")
     key=$(printf '%s' "$service" | tr '[:lower:]-' '[:upper:]_')

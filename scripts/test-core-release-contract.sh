@@ -42,6 +42,13 @@ expect_failure missing-healthcheck "$FIXTURES/missing-healthcheck.yml"
 sed 's/^  core-migrate:/  legacy-migrate:/' "$SOURCE_COMPOSE" > "$FIXTURES/missing-migrate.yml"
 expect_failure missing-core-migrate "$FIXTURES/missing-migrate.yml"
 
+awk '
+  $0 == "  email-provider:" { skip=1; next }
+  skip && /^  [A-Za-z0-9_-]+:/ { skip=0 }
+  !skip { print }
+' "$SOURCE_COMPOSE" > "$FIXTURES/missing-email-provider.yml"
+expect_failure missing-email-provider "$FIXTURES/missing-email-provider.yml"
+
 awk '{ if ($0 == "volumes:") { print "  auth:"; print "    image: forbidden.invalid/auth:v1" } print }' "$SOURCE_COMPOSE" > "$FIXTURES/legacy-service.yml"
 expect_failure legacy-service "$FIXTURES/legacy-service.yml"
 
@@ -95,7 +102,7 @@ expect_script_failure missing-deploy-migration "$FIXTURES/missing-deploy-migrate
 mkdir -p "$FIXTURES/fake-bin"
 cat > "$FIXTURES/fake-bin/docker" <<'EOF'
 #!/usr/bin/env bash
-printf 'CORE=%s STORAGE=%s WEB=%s NGINX=%s :: %s\n' "${CORE_API_IMAGE-}" "${STORAGE_IMAGE-}" "${WEB_IMAGE-}" "${NGINX_IMAGE-}" "$*" >> "$DOCKER_CALL_LOG"
+printf 'CORE=%s EMAIL=%s STORAGE=%s WEB=%s NGINX=%s :: %s\n' "${CORE_API_IMAGE-}" "${EMAIL_PROVIDER_IMAGE-}" "${STORAGE_IMAGE-}" "${WEB_IMAGE-}" "${NGINX_IMAGE-}" "$*" >> "$DOCKER_CALL_LOG"
 if [[ -n "${DOCKER_BLOCK_FILE-}" && "$1" == compose && "$2" == version ]]; then
   : > "$DOCKER_ENTERED_FILE"
   while [[ ! -f "$DOCKER_BLOCK_FILE" ]]; do sleep 0.05; done
@@ -105,6 +112,7 @@ if [[ "$1" == image && "$2" == inspect ]]; then
   repository=${tag_ref%:"${IMAGE_TAG}"}
   case "$repository" in
     */mywebdrive-core-api) digest=$(printf 'a%.0s' {1..64}) ;;
+    */mywebdrive-email-provider) digest=$(printf 'e%.0s' {1..64}) ;;
     */mywebdrive-storage) digest=$(printf 'b%.0s' {1..64}) ;;
     */mywebdrive-web) digest=$(printf 'c%.0s' {1..64}) ;;
     */mywebdrive-nginx) digest=$(printf 'd%.0s' {1..64}) ;;
@@ -112,15 +120,16 @@ if [[ "$1" == image && "$2" == inspect ]]; then
   esac
   printf '["%s@sha256:%s"]\n' "$repository" "$digest"
 fi
-if [[ "$1" == inspect && "$*" == *"{{.Image}}"* ]]; then printf 'sha256:%s\n' "$(printf 'e%.0s' {1..64})"; fi
+if [[ "$1" == inspect && "$*" == *"{{.Image}}"* ]]; then printf 'sha256:%s\n' "$(printf 'f%.0s' {1..64})"; fi
 if [[ "$1" == inspect && "$*" == *'.State.Health'* ]]; then printf 'healthy\n'; fi
 if [[ "$1" == compose && "$*" == *' ps -q '* ]]; then printf 'fixture-container\n'; fi
 if [[ "$1" == compose && "$*" == *' config --format json'* ]]; then
   core=${CORE_API_IMAGE:-registry.example/mywebdrive-core-api:${IMAGE_TAG}}
+  email=${EMAIL_PROVIDER_IMAGE:-registry.example/mywebdrive-email-provider:${IMAGE_TAG}}
   storage=${STORAGE_IMAGE:-registry.example/mywebdrive-storage:${IMAGE_TAG}}
   web=${WEB_IMAGE:-registry.example/mywebdrive-web:${IMAGE_TAG}}
   nginx=${NGINX_IMAGE:-registry.example/mywebdrive-nginx:${IMAGE_TAG}}
-  printf '{"services":{"core-api":{"image":"%s"},"storage-api":{"image":"%s"},"web":{"image":"%s"},"nginx":{"image":"%s"}}}\n' "$core" "$storage" "$web" "$nginx"
+  printf '{"services":{"core-api":{"image":"%s"},"email-provider":{"image":"%s"},"storage-api":{"image":"%s"},"web":{"image":"%s"},"nginx":{"image":"%s"}}}\n' "$core" "$email" "$storage" "$web" "$nginx"
 fi
 exit 0
 EOF
@@ -202,23 +211,25 @@ state_dir="$FIXTURES/digest-state"
 : > "$FIXTURES/docker.log"
 PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$state_dir" "$ROOT_DIR/infrastructure/alicloud/deploy.sh" "$release_tag" >/dev/null
 core_digest="registry.example/mywebdrive-core-api@sha256:$(printf 'a%.0s' {1..64})"
+email_digest="registry.example/mywebdrive-email-provider@sha256:$(printf 'e%.0s' {1..64})"
 storage_digest="registry.example/mywebdrive-storage@sha256:$(printf 'b%.0s' {1..64})"
 web_digest="registry.example/mywebdrive-web@sha256:$(printf 'c%.0s' {1..64})"
 nginx_digest="registry.example/mywebdrive-nginx@sha256:$(printf 'd%.0s' {1..64})"
-grep -F "CORE=$core_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'deployment did not switch Compose to RepoDigests\n' >&2; exit 1; }
+grep -F "CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'deployment did not switch Compose to RepoDigests\n' >&2; exit 1; }
 manifest=$(find "$state_dir/history" -type f -name "*-$release_tag-*.manifest" -print -quit)
 grep -Fx "CORE_API_IMAGE=$core_digest" "$manifest" >/dev/null
+grep -Fx "EMAIL_PROVIDER_IMAGE=$email_digest" "$manifest" >/dev/null
 grep -Fx "STORAGE_IMAGE=$storage_digest" "$manifest" >/dev/null
 grep -Fx "WEB_IMAGE=$web_digest" "$manifest" >/dev/null
 grep -Fx "NGINX_IMAGE=$nginx_digest" "$manifest" >/dev/null
 
 : > "$FIXTURES/docker.log"
 PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$state_dir" "$ROOT_DIR/infrastructure/alicloud/rollback.sh" "$release_tag" >/dev/null
-grep -F "CORE=$core_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'rollback did not deploy the recorded digest manifest\n' >&2; exit 1; }
+grep -F "CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'rollback did not deploy the recorded digest manifest\n' >&2; exit 1; }
 if grep -F 'image inspect' "$FIXTURES/docker.log" >/dev/null; then printf 'rollback resolved a mutable tag instead of using its manifest\n' >&2; exit 1; fi
 
 malicious="$FIXTURES/malicious.manifest"
-printf '%s\n' "IMAGE_TAG=$release_tag" 'CORE_API_IMAGE=$(touch /tmp/contract-pwned)' "STORAGE_IMAGE=$storage_digest" "WEB_IMAGE=$web_digest" "NGINX_IMAGE=$nginx_digest" > "$malicious"
+printf '%s\n' "IMAGE_TAG=$release_tag" 'CORE_API_IMAGE=$(touch /tmp/contract-pwned)' "EMAIL_PROVIDER_IMAGE=$email_digest" "STORAGE_IMAGE=$storage_digest" "WEB_IMAGE=$web_digest" "NGINX_IMAGE=$nginx_digest" > "$malicious"
 rm -f /tmp/contract-pwned
 : > "$FIXTURES/docker.log"
 set +e

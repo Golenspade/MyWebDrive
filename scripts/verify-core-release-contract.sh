@@ -28,7 +28,7 @@ reject_pattern() {
   if grep -Eiq -- "$pattern" "$file"; then fail "$message"; fi
 }
 
-for file in "$COMPOSE_FILE" "$DEPLOY_SCRIPT" "$ROLLBACK_SCRIPT" "$CI_FILE" "$PACKAGE_FILE" "$MAKEFILE" "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/nginx.conf"; do
+for file in "$COMPOSE_FILE" "$DEPLOY_SCRIPT" "$ROLLBACK_SCRIPT" "$CI_FILE" "$PACKAGE_FILE" "$MAKEFILE" "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/email-provider/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/nginx.conf"; do
   require_file "$file"
 done
 
@@ -42,18 +42,18 @@ export CORE_SESSION_SECRET=contract-core-session-secret-0000000000000001
 export OTP_PEPPER=contract-otp-pepper-secret-000000000000000001
 export STORAGE_GRANT_SECRET=contract-storage-grant-secret-00000000000001
 export CORE_CALLBACK_SECRET=contract-core-callback-secret-0000000000001
-export EMAIL_PROVIDER_URL=https://mail.invalid
-export EMAIL_PROVIDER_TOKEN=contract-email-token
+export EMAIL_PROVIDER_URL=http://email-provider:8090
+export EMAIL_PROVIDER_TOKEN=contract-email-provider-token-0000000001
 export REGISTRY=registry.invalid
 export IMAGE_TAG=sha-0123456789abcdef0123456789abcdef01234567
 export SOURCE_DIR="$ROOT_DIR"
-unset CORE_API_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
+unset CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
 
 docker compose -f "$COMPOSE_FILE" config --format json | node -e '
 const fs = require("node:fs")
 const config = JSON.parse(fs.readFileSync(0, "utf8"))
 const services = config.services || {}
-const expected = ["core-api", "core-migrate", "minio", "minio-init", "nginx", "postgres", "redis", "storage-api", "storage-worker", "web"]
+const expected = ["core-api", "core-migrate", "email-provider", "minio", "minio-init", "nginx", "postgres", "redis", "storage-api", "storage-worker", "web"]
 const actual = Object.keys(services).sort()
 function assert(ok, message) { if (!ok) throw new Error(message) }
 function same(actual, expected) { return JSON.stringify(actual) === JSON.stringify(expected) }
@@ -75,6 +75,7 @@ const healthchecks = {
   redis: { test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"], interval: "5s", timeout: "3s", retries: 20 },
   minio: { test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"], interval: "5s", timeout: "3s", retries: 20 },
   "core-api": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:8080/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
+  "email-provider": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:8090/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
   "storage-api": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:7084/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
   "storage-worker": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:7085/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
   web: { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:4323/'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "10s", timeout: "5s", retries: 12 },
@@ -86,7 +87,7 @@ for (const [name, expectedHealth] of Object.entries(healthchecks)) {
   assert(same(health.test, expectedHealth.test), `${name} healthcheck command is invalid`)
   assert(health.interval === expectedHealth.interval && health.timeout === expectedHealth.timeout && health.retries === expectedHealth.retries, `${name} healthcheck timing is invalid`)
 }
-for (const name of ["minio-init", "core-migrate", "core-api", "storage-api", "storage-worker", "web", "nginx"]) {
+for (const name of ["minio-init", "core-migrate", "core-api", "email-provider", "storage-api", "storage-worker", "web", "nginx"]) {
   const service = services[name]
   assert(service.read_only === true, `${name} must be read-only`)
   assert((service.cap_drop || []).includes("ALL"), `${name} must drop all capabilities`)
@@ -96,6 +97,13 @@ assert(same(services["core-migrate"].command, ["sh", "-c", "./node_modules/.bin/
 assert(same(services["storage-api"].command, ["node", "dist/index.js", "api"]), "storage-api command is invalid")
 assert(same(services["storage-worker"].command, ["node", "dist/index.js", "worker"]), "storage-worker command is invalid")
 assert(services["core-api"].depends_on?.["core-migrate"]?.condition === "service_completed_successfully", "core-api must wait for migration")
+assert(services["core-api"].depends_on?.["email-provider"]?.condition === "service_healthy", "core-api must wait for email-provider")
+assert(services["core-api"].environment?.EMAIL_PROVIDER_URL === "http://email-provider:8090", "Core must use the private email-provider origin")
+assert(services["core-api"].environment?.EMAIL_PROVIDER_TOKEN === services["email-provider"].environment?.EMAIL_PROVIDER_TOKEN, "Core and email-provider must share one internal token")
+assert(!services["email-provider"].ports, "email-provider must not publish a host port")
+assert(services["email-provider"].environment?.ALIBABA_CLOUD_ECS_METADATA === "MyWebDriveDirectMailRole", "email-provider must use the approved ECS RAM role")
+assert(services["email-provider"].environment?.ALIBABA_CLOUD_IMDSV1_DISABLE === "true", "email-provider must require IMDSv2")
+assert(!services["email-provider"].environment?.ALIBABA_CLOUD_ACCESS_KEY_ID && !services["email-provider"].environment?.ALIBABA_CLOUD_ACCESS_KEY_SECRET, "email-provider must not receive persistent AccessKey credentials")
 for (const name of ["storage-api", "storage-worker"]) assert(services[name].depends_on?.["minio-init"]?.condition === "service_completed_successfully", `${name} must wait for minio-init`)
 assert(services["storage-worker"].depends_on?.["core-api"]?.condition === "service_healthy", "storage-worker must wait for Core")
 assert(same(services["minio-init"].entrypoint, ["/bin/sh", "-c"]), "minio-init entrypoint is invalid")
@@ -105,6 +113,7 @@ const registry = process.env.REGISTRY
 const expectedImages = {
   "core-api": `${registry}/mywebdrive-core-api:${tag}`,
   "core-migrate": `${registry}/mywebdrive-core-api:${tag}`,
+  "email-provider": `${registry}/mywebdrive-email-provider:${tag}`,
   "storage-api": `${registry}/mywebdrive-storage:${tag}`,
   "storage-worker": `${registry}/mywebdrive-storage:${tag}`,
   web: `${registry}/mywebdrive-web:${tag}`,
@@ -122,6 +131,7 @@ require_pattern 'docker compose' "$DEPLOY_SCRIPT" 'deploy.sh must use Docker Com
 require_pattern 'compose config -q' "$DEPLOY_SCRIPT" 'deploy.sh must validate compose'
 require_pattern 'compose run --rm --no-deps core-migrate' "$DEPLOY_SCRIPT" 'deploy.sh must run Core migrations'
 require_pattern 'compose run --rm --no-deps minio-init' "$DEPLOY_SCRIPT" 'deploy.sh must initialize object storage'
+require_pattern 'compose up -d --no-deps email-provider' "$DEPLOY_SCRIPT" 'deploy.sh must start the private email provider'
 require_pattern '/version' "$DEPLOY_SCRIPT" 'deploy.sh must verify Core build metadata'
 require_pattern 'current.env' "$DEPLOY_SCRIPT" 'deploy.sh must record current release state'
 require_pattern 'mkdir "\$lock_dir"' "$DEPLOY_SCRIPT" 'deploy.sh must acquire an atomic state lock'
@@ -129,7 +139,7 @@ require_pattern 'exit 75' "$DEPLOY_SCRIPT" 'deploy.sh must fail concurrent deplo
 require_pattern 'exec .*deploy\.sh.*--manifest' "$ROLLBACK_SCRIPT" 'rollback.sh must use deploy manifest mode'
 
 reject_pattern '\|\|[[:space:]]*true|--no-frozen-lockfile|SQLite|sqlite|services/(auth|user|metadata|sharing)|api-gateway' "$CI_FILE" 'CI contains a best-effort, mutable install, SQLite, or split-control-plane path'
-for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'test-core-cutover-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' '--read-only' '--tmpfs' 'id -u'; do
+for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'test-core-cutover-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/email-provider/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' 'packages:[[:space:]]*write' 'docker login ghcr\.io' 'release_tag=sha-\$\{GITHUB_SHA\}' 'docker push' '--read-only' '--tmpfs' 'id -u'; do
   require_pattern "$pattern" "$CI_FILE" "CI is missing required gate: $pattern"
 done
 
@@ -139,7 +149,7 @@ require_pattern '"lint:all":[[:space:]]*"pnpm --if-present --filter '\''\./servi
 reject_pattern '\|\|[[:space:]]*true' "$MAKEFILE" 'Makefile must fail closed'
 for pattern in 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'verify-core-release-contract\.sh'; do require_pattern "$pattern" "$MAKEFILE" "Makefile quality-check is missing: $pattern"; done
 
-for dockerfile in "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile"; do
+for dockerfile in "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/email-provider/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile"; do
   require_pattern '^FROM .+ AS build$' "$dockerfile" "$(basename "$(dirname "$dockerfile")") Dockerfile must be multi-stage"
   require_pattern '^USER node$' "$dockerfile" "$(basename "$(dirname "$dockerfile")") Dockerfile must run as node"
   reject_pattern ':[[:space:]]*latest([[:space:]]|$)' "$dockerfile" 'Dockerfile base images must not use latest'

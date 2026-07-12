@@ -82,6 +82,26 @@ services:
       postgres:
         condition: service_healthy
 
+  email-provider:
+    image: ${EMAIL_PROVIDER_IMAGE:-${REGISTRY:?REGISTRY is required}/mywebdrive-email-provider:${IMAGE_TAG:?IMAGE_TAG is required}}
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+    environment:
+      NODE_ENV: production
+      EMAIL_PROVIDER_PORT: "8090"
+      EMAIL_PROVIDER_TOKEN: ${EMAIL_PROVIDER_TOKEN:?EMAIL_PROVIDER_TOKEN is required}
+      ALIBABA_CLOUD_ECS_METADATA: MyWebDriveDirectMailRole
+      ALIBABA_CLOUD_IMDSV1_DISABLE: "true"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8090/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   core-api:
     image: ${CORE_API_IMAGE:-${REGISTRY:?REGISTRY is required}/mywebdrive-core-api:${IMAGE_TAG:?IMAGE_TAG is required}}
     restart: unless-stopped
@@ -99,7 +119,7 @@ services:
       OTP_PEPPER: ${OTP_PEPPER:?OTP_PEPPER is required}
       STORAGE_GRANT_SECRET: ${STORAGE_GRANT_SECRET:?STORAGE_GRANT_SECRET is required}
       CORE_CALLBACK_SECRET: ${CORE_CALLBACK_SECRET:?CORE_CALLBACK_SECRET is required}
-      EMAIL_PROVIDER_URL: ${EMAIL_PROVIDER_URL:?EMAIL_PROVIDER_URL is required}
+      EMAIL_PROVIDER_URL: http://email-provider:8090
       EMAIL_PROVIDER_TOKEN: ${EMAIL_PROVIDER_TOKEN:?EMAIL_PROVIDER_TOKEN is required}
       DEFAULT_USER_QUOTA_BYTES: ${DEFAULT_USER_QUOTA_BYTES:-10737418240}
       CORE_ADMIN_EMAILS: ${CORE_ADMIN_EMAILS:-}
@@ -108,6 +128,8 @@ services:
     depends_on:
       core-migrate:
         condition: service_completed_successfully
+      email-provider:
+        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:

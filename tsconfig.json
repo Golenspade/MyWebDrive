@@ -5,6 +5,7 @@
     { "path": "services/api-gateway-node" },
     { "path": "services/auth" },
     { "path": "services/core-api" },
+    { "path": "services/email-provider" },
     { "path": "services/user" },
     { "path": "services/metadata" },
     { "path": "services/storage" }

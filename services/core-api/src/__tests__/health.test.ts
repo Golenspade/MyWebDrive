@@ -30,7 +30,7 @@ function productionEnvironment(): ProductionEnvironment {
     STORAGE_GRANT_SECRET: 'g'.repeat(32),
     CORE_CALLBACK_SECRET: 'c'.repeat(32),
     EMAIL_PROVIDER_URL: 'https://email.example.test',
-    EMAIL_PROVIDER_TOKEN: 'provider-token',
+    EMAIL_PROVIDER_TOKEN: 'p'.repeat(32),
     DEFAULT_USER_QUOTA_BYTES: '10737418240',
   }
 }
@@ -178,7 +178,8 @@ describe('Core configuration', () => {
   test.each([
     { label: 'missing', value: undefined },
     { label: 'relative', value: 'email.example.test/v1/messages/otp' },
-    { label: 'non-HTTPS', value: 'http://email.example.test' },
+    { label: 'external HTTP', value: 'http://email.example.test' },
+    { label: 'private HTTP with path', value: 'http://email-provider:8090/other' },
   ])('production rejects $label EMAIL_PROVIDER_URL', ({ value }) => {
     const env = productionEnvironment()
     env.EMAIL_PROVIDER_URL = value
@@ -186,12 +187,28 @@ describe('Core configuration', () => {
     expect(() => loadCoreConfig(env)).toThrow()
   })
 
-  test('production accepts a nonempty provider token with an absolute HTTPS URL', () => {
+  test('production accepts a 32-byte provider token with an absolute HTTPS URL', () => {
     const config = loadCoreConfig(productionEnvironment())
 
-    expect(config.emailProviderToken).toBe('provider-token')
+    expect(config.emailProviderToken).toBe('p'.repeat(32))
     expect(config.emailProviderUrl).toBe('https://email.example.test')
     expect(config.defaultUserQuotaBytes).toBe(10_737_418_240n)
+  })
+
+  test('production accepts the exact private email-provider origin', () => {
+    const env = productionEnvironment()
+    env.EMAIL_PROVIDER_URL = 'http://email-provider:8090'
+
+    expect(loadCoreConfig(env).emailProviderUrl).toBe('http://email-provider:8090')
+  })
+
+  test('production rejects a provider token shorter than 32 UTF-8 bytes', () => {
+    const env = productionEnvironment()
+    env.EMAIL_PROVIDER_TOKEN = 'too-short'
+
+    expect(() => loadCoreConfig(env)).toThrow(
+      'EMAIL_PROVIDER_TOKEN must be at least 32 UTF-8 bytes',
+    )
   })
 
   test.each([

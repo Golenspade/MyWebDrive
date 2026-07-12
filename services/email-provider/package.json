@@ -1,0 +1,30 @@
+{
+  "name": "email-provider",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -b --force",
+    "start": "node dist/index.js",
+    "test": "vitest run src"
+  },
+  "dependencies": {
+    "@alicloud/credentials": "2.4.5",
+    "@alicloud/dm20151123": "1.10.2",
+    "@alicloud/openapi-client": "0.4.15",
+    "@alicloud/tea-util": "1.4.11",
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.14.10",
+    "@types/supertest": "^6.0.3",
+    "supertest": "^7.1.4",
+    "tsx": "^4.17.0",
+    "typescript": "^5.4.0",
+    "vitest": "^4.0.13"
+  }
+}

@@ -5,6 +5,10 @@ on:
     branches: [main, master]
   pull_request:
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
   core-release:
     runs-on: ubuntu-24.04
@@ -46,8 +50,8 @@ jobs:
       OTP_PEPPER: contract-otp-pepper-secret-000000000000000001
       STORAGE_GRANT_SECRET: contract-storage-grant-secret-00000000000001
       CORE_CALLBACK_SECRET: contract-core-callback-secret-0000000000001
-      EMAIL_PROVIDER_URL: https://mail.invalid
-      EMAIL_PROVIDER_TOKEN: contract-email-token
+      EMAIL_PROVIDER_URL: http://email-provider:8090
+      EMAIL_PROVIDER_TOKEN: contract-email-provider-token-0000000001
       REGISTRY: registry.invalid
       IMAGE_TAG: ci-contract
 
@@ -74,20 +78,24 @@ jobs:
       - name: Build workspace
         run: pnpm run build:all
 
-      - name: Build four immutable application images
+      - name: Build five immutable application images
         run: |
-          docker build --file services/core-api/Dockerfile --tag mywebdrive-core-api:ci .
-          docker build --file services/storage/Dockerfile --tag mywebdrive-storage:ci .
-          docker build --file frontend/cruip-landing/Dockerfile --tag mywebdrive-web:ci .
-          docker build --provenance=false --file infrastructure/alicloud/nginx/Dockerfile --tag mywebdrive-nginx:ci infrastructure/alicloud/nginx
+          source_label=org.opencontainers.image.source=https://github.com/Golenspade/MyWebDrive
+          docker build --label "$source_label" --file services/core-api/Dockerfile --tag mywebdrive-core-api:ci .
+          docker build --label "$source_label" --file services/email-provider/Dockerfile --tag mywebdrive-email-provider:ci .
+          docker build --label "$source_label" --file services/storage/Dockerfile --tag mywebdrive-storage:ci .
+          docker build --label "$source_label" --file frontend/cruip-landing/Dockerfile --tag mywebdrive-web:ci .
+          docker build --label "$source_label" --provenance=false --file infrastructure/alicloud/nginx/Dockerfile --tag mywebdrive-nginx:ci infrastructure/alicloud/nginx
 
       - name: Smoke immutable runtime images
         run: |
           test "$(docker run --rm --entrypoint sh mywebdrive-core-api:ci -c 'id -u')" != "0"
+          test "$(docker run --rm --entrypoint sh mywebdrive-email-provider:ci -c 'id -u')" != "0"
           test "$(docker run --rm --entrypoint sh mywebdrive-storage:ci -c 'id -u')" != "0"
           test "$(docker run --rm --entrypoint sh mywebdrive-web:ci -c 'id -u')" != "0"
           test "$(docker run --rm --entrypoint sh mywebdrive-nginx:ci -c 'id -u')" != "0"
           docker run --rm --read-only --tmpfs /tmp --entrypoint sh mywebdrive-core-api:ci -c 'openssl version && ./node_modules/.bin/prisma --version'
+          docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-email-provider:ci -e "import('./dist/app.js').then(() => process.stdout.write('email provider runtime ok\\n'))"
           docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-storage:ci -e "import('./dist/runtime.js').then(() => process.stdout.write('storage runtime ok\\n'))"
           docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-web:ci -e "process.stdout.write('web runtime ok\\n')"
           docker run --rm --read-only --tmpfs /tmp --tmpfs /var/cache/nginx --tmpfs /var/run mywebdrive-nginx:ci nginx -t
@@ -109,3 +117,16 @@ jobs:
 
       - name: Validate production compose
         run: docker compose -f infrastructure/alicloud/docker-compose.core.yml config -q
+
+      - name: Publish immutable images
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+          release_tag=sha-${GITHUB_SHA}
+          registry=ghcr.io/golenspade
+          for name in core-api email-provider storage web nginx; do
+            docker tag "mywebdrive-${name}:ci" "${registry}/mywebdrive-${name}:${release_tag}"
+            docker push "${registry}/mywebdrive-${name}:${release_tag}"
+          done

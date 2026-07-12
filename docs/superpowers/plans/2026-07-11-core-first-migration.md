@@ -18,7 +18,7 @@
 - OTP is six numeric digits, expires after 600 seconds, permits five failed attempts, has a 60-second resend cooldown, and is limited to five sends per normalized email per hour and twenty sends per source IP per hour.
 - Access JWTs expire after 900 seconds and must validate `alg=HS256`, `typ=access`, `iss=mywebdrive-core` and `aud=mywebdrive-web`.
 - Refresh credentials are 256-bit opaque random tokens stored only as SHA-256 digests. The `mwd_refresh` Cookie is HttpOnly, SameSite=Lax, Path `/api/v1/auth`, Secure in production, idle-expires after 30 days and absolutely expires after 90 days.
-- Startup requires an explicit nonnegative decimal `DEFAULT_USER_QUOTA_BYTES`; production additionally requires non-default `CORE_SESSION_SECRET`, `OTP_PEPPER`, `STORAGE_GRANT_SECRET` and `CORE_CALLBACK_SECRET`, each at least 32 UTF-8 bytes, plus absolute HTTPS `EMAIL_PROVIDER_URL` and nonempty `EMAIL_PROVIDER_TOKEN`. There is no baked-in product quota: deployment configuration owns that policy until a billing component replaces it.
+- Startup requires an explicit nonnegative decimal `DEFAULT_USER_QUOTA_BYTES`; production additionally requires non-default `CORE_SESSION_SECRET`, `OTP_PEPPER`, `STORAGE_GRANT_SECRET` and `CORE_CALLBACK_SECRET`, each at least 32 UTF-8 bytes, plus an `EMAIL_PROVIDER_URL` that is either absolute HTTPS or the exact private Compose origin `http://email-provider:8090`, and a distinct `EMAIL_PROVIDER_TOKEN` of at least 32 UTF-8 bytes. There is no baked-in product quota: deployment configuration owns that policy until a billing component replaces it.
 - Storage grants use independent `STORAGE_GRANT_SECRET`, `aud=storage-api`, `typ=storage-grant`, purpose `upload` or `download`, a stable opaque object key, a UUID `jti`, and a maximum TTL of 300 seconds; downloads default to 60 seconds and are one-time.
 - All quota reservation, file finalization, share download consumption and OTP consumption invariants are enforced by PostgreSQL transactions and constraints, not read-then-write application sequences.
 - Redis unavailability fails closed for OTP request rate limiting and one-time grant consumption. PostgreSQL, Redis or the configured object backend failing makes readiness return 503.
@@ -36,6 +36,7 @@
 | `services/core-api/src/config.ts` | Fail-closed environment parsing with exact TTL and secret guards. |
 | `services/core-api/src/auth/access-token.ts` | Access JWT issue/verify contract. |
 | `services/core-api/src/identity/*` | Email normalization, OTP lifecycle, user creation and refresh-session rotation. |
+| `services/email-provider/src/*` | Authenticated internal OTP endpoint and Alibaba DirectMail adapter using ECS RAM role credentials. |
 | `services/core-api/src/quota/*` | Account balance, reservations, commits, releases and ledger audit. |
 | `services/core-api/src/uploads/*` | Upload intent state machine and idempotent completion. |
 | `services/core-api/src/files/*` | File/folder metadata and immutable versions. |
@@ -508,7 +509,7 @@ The Zustand store must not use `persist`. `bootstrap()` calls `/auth/refresh` wi
 
 `/signup` and `/reset-password` redirect to `/signin`. Remove the invitation navigation and admin page/API imports. Replace EventSource query-token usage with a fetch-based stream carrying `Authorization: Bearer <accessToken>`.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 
@@ -766,7 +767,7 @@ git commit -m "feat(storage): separate object API and worker"
 
 - [ ] **Step 1: Write the failing release contract test**
 
-The script must reject source mounts, mutable `latest`, missing healthchecks, missing migration job, `|| true`, `git reset`, rsync, volume deletion and any production service other than postgres, redis, object storage, core-api, storage-api, storage-worker, web and nginx.
+The script must reject source mounts, mutable `latest`, missing healthchecks, missing migration job, `|| true`, `git reset`, rsync, volume deletion and any production service other than postgres, redis, object storage, core-api, email-provider, storage-api, storage-worker, web and nginx.
 
 - [ ] **Step 2: Implement exact workspace quality commands**
 
@@ -852,6 +853,78 @@ git add infrastructure frontend docs scripts services package.json Makefile pnpm
 git commit -m "feat(core): cut over the unified control plane"
 ```
 
+## Task 10: Connect the private email provider to Alibaba DirectMail
+
+**Files:**
+- Create: `services/email-provider/package.json`
+- Create: `services/email-provider/tsconfig.json`
+- Create: `services/email-provider/src/config.ts`
+- Create: `services/email-provider/src/directmail.ts`
+- Create: `services/email-provider/src/app.ts`
+- Create: `services/email-provider/src/index.ts`
+- Create: `services/email-provider/src/__tests__/app.test.ts`
+- Create: `services/email-provider/src/__tests__/directmail.test.ts`
+- Create: `services/email-provider/Dockerfile`
+- Modify: `services/core-api/src/config.ts`
+- Modify: `services/core-api/src/__tests__/health.test.ts`
+- Modify: `infrastructure/alicloud/docker-compose.core.yml`
+- Modify: `infrastructure/alicloud/env.example`
+- Modify: `infrastructure/alicloud/deploy.sh`
+- Modify: `infrastructure/alicloud/rollback.sh`
+- Modify: `.github/workflows/ci.yml`
+- Modify: `scripts/verify-core-release-contract.sh`
+- Modify: `scripts/test-core-release-contract.sh`
+
+**Internal contract:**
+
+```ts
+POST /v1/messages/otp
+Authorization: Bearer <EMAIL_PROVIDER_TOKEN>
+body: { to: string; code: string; ttlSeconds: 600; purpose: 'login' }
+204: accepted by DirectMail
+400: invalid request
+401: invalid service identity
+503: provider unavailable
+```
+
+- [x] **Step 1: Write failing boundary and redaction tests**
+
+Cover missing/wrong bearer tokens, malformed email, non-six-digit code, wrong TTL or purpose, provider failure and success. Assert no response or captured log contains the recipient, OTP, Authorization value, STS credential or DirectMail request body.
+
+- [x] **Step 2: Implement the DirectMail adapter with ECS RAM role credentials**
+
+Use `@alicloud/credentials` in `ecs_ram_role` mode with role `MyWebDriveDirectMailRole`, IMDSv2-only credential retrieval, endpoint `dm.aliyuncs.com` and region `cn-hangzhou`. Call only `SingleSendMail` with sender `no-reply@mygoavemujica.top`, `AddressType=1`, no reply-to address and approved template `436289`; pass only the case-sensitive template variable `{ code: <six digits> }`. Do not support AccessKey environment variables, automatic send retries, caller-selected templates, arbitrary subject/body input or batch recipient lists.
+
+- [x] **Step 3: Add the private production process**
+
+Add `email-provider` to the immutable production Compose with no published port, a read-only filesystem, dropped capabilities, the shared internal token and `ALIBABA_CLOUD_ECS_METADATA=MyWebDriveDirectMailRole`. Core calls `http://email-provider:8090` on the private Compose network. Update image build, digest recording, deployment, rollback and release-contract allowlists so the provider is part of the same immutable release set.
+
+The main-branch CI publishes all five application images as `ghcr.io/golenspade/mywebdrive-<name>:sha-<40 hex>` only after every quality gate succeeds. Images include the repository source label and are linked to the public source repository; production must verify anonymous digest pulls before storing `REGISTRY=ghcr.io/golenspade`, and must never persist a GitHub package token merely to pull public release images.
+
+- [x] **Step 4: Verify the instance identity and container path**
+
+From an existing production container, verify IMDSv2 returns `MyWebDriveDirectMailRole`. Build the provider image without AccessKey variables and verify the private health/readiness path. Do not send a real OTP before the immutable image has been published and selected by digest.
+
+- [ ] **Step 5: Verify and commit**
+
+Run:
+
+```bash
+pnpm -C services/email-provider test
+pnpm -C services/email-provider build
+make quality-check
+git diff --check
+```
+
+```bash
+git add services/email-provider services/core-api infrastructure/alicloud .github/workflows/ci.yml scripts docs pnpm-lock.yaml
+git commit -m "feat(email): deliver OTP through DirectMail"
+```
+
+- [ ] **Step 6: Publish, deploy and run one redacted live OTP smoke test**
+
+Push the verified commit to `main`, wait for CI to publish all five `sha-<commit>` images, and verify they are anonymously pullable by digest. Install a verified Docker Compose v2 plugin if the host does not provide one, generate the missing production secrets, preserve the old stack snapshot, and deploy the selected release manifest. Send one OTP only to the configured operator-owned admin mailbox, confirm DirectMail accepts it, then verify the public request/verify flow without printing the recipient or code in logs. A failed or unauthorized send blocks completion and leaves rollback available.
+
 ---
 
 ## Completion Evidence
@@ -867,3 +940,4 @@ The Core-first migration is complete only when all of the following are captured
 - PostgreSQL, Redis and object-backend outages each make readiness return 503.
 - Production compose contains no source mounts, mutable tags, split control-plane services or independent migration histories.
 - Public API logs contain no email, OTP, access token, refresh token, grant, Cookie or Authorization value.
+- The production email provider obtains short-lived credentials from `MyWebDriveDirectMailRole`, has only `dm:SingleSendMail`, exposes no public port and can deliver one redacted OTP smoke request without any AccessKey environment variable.
