@@ -72,7 +72,14 @@ describe('email provider boundary', () => {
   test('returns a redacted provider failure', async () => {
     const mailer: OtpMailer = {
       sendOtp: vi.fn(async () => {
-        throw new Error(`provider rejected ${validPayload.to} ${validPayload.code}`)
+        throw Object.assign(
+          new Error(`provider rejected ${validPayload.to} ${validPayload.code}`),
+          {
+            code: 'InvalidParameter.Template',
+            statusCode: 400,
+            requestId: 'sensitive-request-id',
+          },
+        )
       }),
     }
     const errorReporter = vi.fn()
@@ -89,11 +96,45 @@ describe('email provider boundary', () => {
       .expect(503)
 
     expect(response.body).toEqual({ error: 'email delivery unavailable' })
-    expect(errorReporter).toHaveBeenCalledExactlyOnceWith('directmail_send_failed')
+    expect(errorReporter).toHaveBeenCalledExactlyOnceWith({
+      event: 'directmail_send_failed',
+      code: 'InvalidParameter.Template',
+      statusCode: 400,
+    })
     expect(JSON.stringify(response.body)).not.toContain(validPayload.to)
     expect(JSON.stringify(response.body)).not.toContain(validPayload.code)
     expect(JSON.stringify(errorReporter.mock.calls)).not.toContain(validPayload.to)
     expect(JSON.stringify(errorReporter.mock.calls)).not.toContain(validPayload.code)
+    expect(JSON.stringify(errorReporter.mock.calls)).not.toContain('sensitive-request-id')
+    expect(JSON.stringify(errorReporter.mock.calls)).not.toContain('provider rejected')
+  })
+
+  test('drops unsafe provider diagnostic fields', async () => {
+    const mailer: OtpMailer = {
+      sendOtp: vi.fn(async () => {
+        throw {
+          code: `Rejected:${validPayload.to}`,
+          statusCode: '400',
+          message: validPayload.code,
+        }
+      }),
+    }
+    const errorReporter = vi.fn()
+    const app = createEmailProviderApp({
+      mailer,
+      serviceToken: 'internal-token',
+      reportError: errorReporter,
+    })
+
+    await request(app)
+      .post('/v1/messages/otp')
+      .set('Authorization', 'Bearer internal-token')
+      .send(validPayload)
+      .expect(503)
+
+    expect(errorReporter).toHaveBeenCalledExactlyOnceWith({
+      event: 'directmail_send_failed',
+    })
   })
 
   test('keeps live process-only and gates ready on the ECS credential', async () => {

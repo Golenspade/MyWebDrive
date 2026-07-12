@@ -8,7 +8,32 @@ type EmailProviderDependencies = {
   mailer: OtpMailer
   serviceToken: string
   checkReady?: () => Promise<void>
-  reportError?: (event: 'directmail_send_failed') => void
+  reportError?: (diagnostic: ProviderFailureDiagnostic) => void
+}
+
+type ProviderFailureDiagnostic = {
+  event: 'directmail_send_failed'
+  code?: string
+  statusCode?: number
+}
+
+function providerFailureDiagnostic(error: unknown): ProviderFailureDiagnostic {
+  const diagnostic: ProviderFailureDiagnostic = { event: 'directmail_send_failed' }
+  if (!error || typeof error !== 'object') return diagnostic
+
+  const candidate = error as { code?: unknown; statusCode?: unknown }
+  if (typeof candidate.code === 'string' && /^[A-Za-z0-9._-]{1,80}$/.test(candidate.code)) {
+    diagnostic.code = candidate.code
+  }
+  if (
+    typeof candidate.statusCode === 'number'
+    && Number.isInteger(candidate.statusCode)
+    && candidate.statusCode >= 100
+    && candidate.statusCode <= 599
+  ) {
+    diagnostic.statusCode = candidate.statusCode
+  }
+  return diagnostic
 }
 
 function tokenMatches(header: string | undefined, expected: string): boolean {
@@ -73,8 +98,8 @@ export function createEmailProviderApp(
     try {
       await deps.mailer.sendOtp(input)
       return res.status(204).end()
-    } catch {
-      deps.reportError?.('directmail_send_failed')
+    } catch (error) {
+      deps.reportError?.(providerFailureDiagnostic(error))
       return res.status(503).json({ error: 'email delivery unavailable' })
     }
   })

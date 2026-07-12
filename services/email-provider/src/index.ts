@@ -18,7 +18,7 @@ const app = createEmailProviderApp({
   mailer,
   serviceToken: config.serviceToken,
   checkReady: runtime.checkReady,
-  reportError: (event) => process.stderr.write(`${event}\n`),
+  reportError: (diagnostic) => process.stderr.write(`${JSON.stringify(diagnostic)}\n`),
 })
 
 app.listen(config.port)
