@@ -77,7 +77,9 @@ describe('DirectMail OTP message', () => {
     expect(message).toMatchObject({
       accountName: 'no-reply@mygoavemujica.top',
       addressType: 1,
+      fromAlias: 'MyWebDrive',
       replyToAddress: false,
+      subject: '【MyWebDrive】登录验证码',
       toAddress: 'person@example.com',
       template: {
         templateId: '436289',
@@ -86,7 +88,6 @@ describe('DirectMail OTP message', () => {
     })
     expect(message.htmlBody).toBeUndefined()
     expect(message.textBody).toBeUndefined()
-    expect(message.subject).toBeUndefined()
     expect(runtime).toMatchObject({
       autoretry: false,
       maxAttempts: 1,

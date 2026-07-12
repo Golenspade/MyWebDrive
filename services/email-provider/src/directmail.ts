@@ -103,7 +103,9 @@ export function createDirectMailOtpMailer(options: {
       const request = new SingleSendMailRequest({
         accountName: options.accountName,
         addressType: 1,
+        fromAlias: 'MyWebDrive',
         replyToAddress: false,
+        subject: '【MyWebDrive】登录验证码',
         toAddress: input.to,
         template: new SingleSendMailRequestTemplate({
           templateId: options.templateId,
