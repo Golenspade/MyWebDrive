@@ -96,6 +96,7 @@ jobs:
           test "$(docker run --rm --entrypoint sh mywebdrive-nginx:ci -c 'id -u')" != "0"
           docker run --rm --read-only --tmpfs /tmp --entrypoint sh mywebdrive-core-api:ci -c 'openssl version && ./node_modules/.bin/prisma --version'
           docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-email-provider:ci -e "import('./dist/app.js').then(() => process.stdout.write('email provider runtime ok\\n'))"
+          docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-email-provider:ci -e "import('./dist/directmail.js').then(m => { m.createDirectMailRuntime({ roleName: 'MyWebDriveDirectMailRole', endpoint: 'dm.aliyuncs.com', regionId: 'cn-hangzhou', disableImdsV1: true }); process.stdout.write('directmail SDK runtime ok\\n') })"
           docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-storage:ci -e "import('./dist/runtime.js').then(() => process.stdout.write('storage runtime ok\\n'))"
           docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-web:ci -e "process.stdout.write('web runtime ok\\n')"
           docker run --rm --read-only \

@@ -6,6 +6,14 @@ import DmClient, {
 import { Config as OpenApiConfig } from '@alicloud/openapi-client'
 import { RuntimeOptions } from '@alicloud/tea-util'
 
+function unwrapCommonJsDefault<T>(value: T): T {
+  const nestedDefault = (value as { default?: unknown }).default
+  return (typeof nestedDefault === 'function' ? nestedDefault : value) as T
+}
+
+const CredentialClient = unwrapCommonJsDefault(Credential)
+const DirectMailSdkClient = unwrapCommonJsDefault(DmClient)
+
 export type SendOtpInput = {
   to: string
   code: string
@@ -50,11 +58,11 @@ type CreateDirectMailClientOptions = {
 }
 
 function defaultCredentialFactory(options: CredentialOptions): Credential {
-  return new Credential(new CredentialConfig(options))
+  return new CredentialClient(new CredentialConfig(options))
 }
 
 function defaultClientFactory(options: DirectMailClientOptions): DirectMailClient {
-  return new DmClient(new OpenApiConfig({
+  return new DirectMailSdkClient(new OpenApiConfig({
     credential: options.credential as Credential,
     endpoint: options.endpoint,
     regionId: options.regionId,

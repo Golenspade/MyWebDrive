@@ -7,6 +7,15 @@ import {
 } from '../directmail.js'
 
 describe('DirectMail client identity', () => {
+  test('constructs the installed CommonJS SDK clients from native ESM', () => {
+    expect(() => createDirectMailRuntime({
+      roleName: 'MyWebDriveDirectMailRole',
+      endpoint: 'dm.aliyuncs.com',
+      regionId: 'cn-hangzhou',
+      disableImdsV1: true,
+    })).not.toThrow()
+  })
+
   test('uses the ECS RAM role and regional DirectMail endpoint', async () => {
     const credential = {
       kind: 'temporary-credential',

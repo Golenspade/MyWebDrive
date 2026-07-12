@@ -146,6 +146,7 @@ done
 for upstream in storage-api core-api web; do
   require_pattern "--add-host[[:space:]]+$upstream:127\\.0\\.0\\.1" "$CI_FILE" "CI Nginx syntax smoke must resolve the $upstream upstream"
 done
+require_pattern 'createDirectMailRuntime' "$CI_FILE" 'CI must construct the installed DirectMail SDK through the production ESM image'
 for mount in '/tmp:uid=101,gid=101,mode=1777' '/var/cache/nginx:uid=101,gid=101,mode=0755' '/var/run:uid=101,gid=101,mode=0755'; do
   require_pattern "--tmpfs[[:space:]]+$mount" "$CI_FILE" "CI Nginx syntax smoke must provide a writable $mount tmpfs"
 done
