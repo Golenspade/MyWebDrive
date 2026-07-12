@@ -142,6 +142,12 @@ reject_pattern '\|\|[[:space:]]*true|--no-frozen-lockfile|SQLite|sqlite|services
 for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'test-core-cutover-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/email-provider/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' 'packages:[[:space:]]*write' 'docker login ghcr\.io' 'release_tag=sha-\$\{GITHUB_SHA\}' 'docker push' '--read-only' '--tmpfs' 'id -u'; do
   require_pattern "$pattern" "$CI_FILE" "CI is missing required gate: $pattern"
 done
+for upstream in storage-api core-api web; do
+  require_pattern "--add-host[[:space:]]+$upstream:127\\.0\\.0\\.1" "$CI_FILE" "CI Nginx syntax smoke must resolve the $upstream upstream"
+done
+for mount in '/tmp:uid=101,gid=101,mode=1777' '/var/cache/nginx:uid=101,gid=101,mode=0755' '/var/run:uid=101,gid=101,mode=0755'; do
+  require_pattern "--tmpfs[[:space:]]+$mount" "$CI_FILE" "CI Nginx syntax smoke must provide a writable $mount tmpfs"
+done
 
 require_pattern '"build:all":[[:space:]]*"pnpm --filter '\''\./packages/\*'\'' --filter '\''\./services/\*'\'' --filter '\''\./apps/\*'\'' --filter '\''\./frontend/\*'\'' run build"' "$PACKAGE_FILE" 'build:all selectors are not exact'
 require_pattern '"test:all":[[:space:]]*"pnpm --if-present --filter '\''\./services/\*'\'' --filter '\''\./apps/\*'\'' --filter '\''\./frontend/\*'\'' run test"' "$PACKAGE_FILE" 'test:all selectors are not exact'

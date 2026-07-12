@@ -98,7 +98,14 @@ jobs:
           docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-email-provider:ci -e "import('./dist/app.js').then(() => process.stdout.write('email provider runtime ok\\n'))"
           docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-storage:ci -e "import('./dist/runtime.js').then(() => process.stdout.write('storage runtime ok\\n'))"
           docker run --rm --read-only --tmpfs /tmp --entrypoint node mywebdrive-web:ci -e "process.stdout.write('web runtime ok\\n')"
-          docker run --rm --read-only --tmpfs /tmp --tmpfs /var/cache/nginx --tmpfs /var/run mywebdrive-nginx:ci nginx -t
+          docker run --rm --read-only \
+            --add-host storage-api:127.0.0.1 \
+            --add-host core-api:127.0.0.1 \
+            --add-host web:127.0.0.1 \
+            --tmpfs /tmp:uid=101,gid=101,mode=1777 \
+            --tmpfs /var/cache/nginx:uid=101,gid=101,mode=0755 \
+            --tmpfs /var/run:uid=101,gid=101,mode=0755 \
+            mywebdrive-nginx:ci nginx -t
 
       - name: Typecheck workspace
         run: pnpm run typecheck
