@@ -2,6 +2,10 @@ import { createHmac } from 'node:crypto'
 
 import { describe, expect, test, vi } from 'vitest'
 
+import {
+  type DownloadCallbackRequest,
+  processDownloadEvent,
+} from '../download-events/callback.js'
 import { processFinalizationJob } from '../worker.js'
 
 const job = {
@@ -125,5 +129,137 @@ describe('finalization worker callback contract', () => {
     })).rejects.toThrow('cleanup unavailable')
     expect(subject.queue.ack).not.toHaveBeenCalled()
     expect(subject.storage.deleteObject).not.toHaveBeenCalled()
+  })
+})
+
+describe('download worker callback contract', () => {
+  const started = {
+    id: '271-0',
+    kind: 'started' as const,
+    attemptId: '126b455f-b9e7-49b9-aab6-4cb1ff971328',
+    fileVersionId: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
+    expectedBytes: 11n,
+    occurredAt: new Date('2026-07-12T12:00:00.000Z'),
+  }
+
+  test('signs the exact started body and acknowledges only a 2xx callback', async () => {
+    const callback = vi.fn(async (_request: DownloadCallbackRequest) => ({
+      status: 200,
+      body: '{"idempotent":true}',
+    }))
+    const queue = {
+      ack: vi.fn(async () => undefined),
+      deadLetter: vi.fn(async () => undefined),
+    }
+    await processDownloadEvent(started, {
+      queue,
+      callback,
+      callbackSecret: secret,
+      now: () => new Date('2026-07-12T12:00:10.000Z'),
+    })
+    const sent = callback.mock.calls[0]?.[0]
+    if (!sent) throw new Error('missing callback request')
+    expect(sent?.attemptId).toBe(started.attemptId)
+    expect(sent?.kind).toBe('started')
+    expect(sent?.rawBody.toString('utf8')).toBe(JSON.stringify({
+      fileVersionId: started.fileVersionId,
+      expectedBytes: '11',
+      occurredAt: started.occurredAt.toISOString(),
+    }))
+    expect(sent?.signature).toBe(createHmac('sha256', secret)
+      .update(`${sent.timestamp}.`)
+      .update(sent.rawBody)
+      .digest('hex'))
+    expect(queue.ack).toHaveBeenCalledWith(started.id)
+  })
+
+  test('uses bytes for completed and leaves transient callback failures pending', async () => {
+    const callback = vi.fn(async (_request: DownloadCallbackRequest) => ({ status: 503, body: '' }))
+    const queue = {
+      ack: vi.fn(async () => undefined),
+      deadLetter: vi.fn(async () => undefined),
+    }
+    await processDownloadEvent({
+      id: '272-0', kind: 'completed', attemptId: started.attemptId,
+      fileVersionId: started.fileVersionId, bytes: 11n,
+      occurredAt: new Date('2026-07-12T12:00:01.000Z'),
+    }, {
+      queue,
+      callback,
+      callbackSecret: secret,
+      now: () => new Date('2026-07-12T12:00:10.000Z'),
+    })
+    const sent = callback.mock.calls[0]?.[0]
+    if (!sent) throw new Error('missing callback request')
+    expect(sent.rawBody.toString('utf8')).toContain('"bytes":"11"')
+    expect(sent.rawBody.toString('utf8')).not.toContain('expectedBytes')
+    expect(queue.ack).not.toHaveBeenCalled()
+  })
+
+  test('dead-letters a permanent identity conflict so it cannot poison reclaim forever', async () => {
+    const callback = vi.fn(async (_request: DownloadCallbackRequest) => ({ status: 409, body: '' }))
+    const queue = {
+      ack: vi.fn(async () => undefined),
+      deadLetter: vi.fn(async () => undefined),
+    }
+    await processDownloadEvent(started, {
+      queue,
+      callback,
+      callbackSecret: secret,
+      now: () => new Date('2026-07-12T12:00:10.000Z'),
+    })
+    expect(queue.deadLetter).toHaveBeenCalledWith({
+      id: started.id,
+      attemptId: started.attemptId,
+      kind: started.kind,
+      errorCode: 'core_rejected_409',
+    })
+    expect(queue.ack).not.toHaveBeenCalled()
+  })
+
+  test('retains a completed 425 because its started callback is still pending', async () => {
+    const callback = vi.fn(async (_request: DownloadCallbackRequest) => ({ status: 425, body: '' }))
+    const queue = {
+      ack: vi.fn(async () => undefined),
+      deadLetter: vi.fn(async () => undefined),
+    }
+    await processDownloadEvent({
+      id: '272-0', kind: 'completed', attemptId: started.attemptId,
+      fileVersionId: started.fileVersionId, bytes: 11n,
+      occurredAt: new Date('2026-07-12T12:00:01.000Z'),
+    }, {
+      queue,
+      callback,
+      callbackSecret: secret,
+      now: () => new Date('2026-07-12T12:00:10.000Z'),
+    })
+    expect(queue.ack).not.toHaveBeenCalled()
+    expect(queue.deadLetter).not.toHaveBeenCalled()
+  })
+
+  test('dead-letters a terminal completed 409 identity conflict', async () => {
+    const callback = vi.fn(async (_request: DownloadCallbackRequest) => ({ status: 409, body: '' }))
+    const queue = {
+      ack: vi.fn(async () => undefined),
+      deadLetter: vi.fn(async () => undefined),
+    }
+    const completed = {
+      id: '272-0', kind: 'completed' as const, attemptId: started.attemptId,
+      fileVersionId: started.fileVersionId, bytes: 11n,
+      occurredAt: new Date('2026-07-12T12:00:01.000Z'),
+    }
+    await processDownloadEvent(completed, {
+      queue,
+      callback,
+      callbackSecret: secret,
+      now: () => new Date('2026-07-12T12:00:10.000Z'),
+    })
+    expect(queue.deadLetter).toHaveBeenCalledWith({
+      id: completed.id,
+      attemptId: completed.attemptId,
+      kind: completed.kind,
+      errorCode: 'core_rejected_409',
+    })
+    expect(queue.ack).not.toHaveBeenCalled()
   })
 })

@@ -13,6 +13,7 @@ lock_dir=''
 lock_owner=''
 lock_owner_tmp=''
 lock_acquired=0
+ANALYTICS_WORKER_ENABLED=1
 
 trap 'printf "deployment failed at line %s\n" "$LINENO" >&2' ERR
 
@@ -82,7 +83,7 @@ acquire_deploy_lock() {
 
 parse_manifest() {
   local manifest=$1 line key value
-  local seen_tag=0 seen_core=0 seen_email=0 seen_storage=0 seen_web=0 seen_nginx=0
+  local seen_tag=0 seen_core=0 seen_email=0 seen_storage=0 seen_web=0 seen_nginx=0 seen_prometheus=0 seen_analytics_worker=0
   [[ -f "$manifest" ]] || { printf 'release manifest not found: %s\n' "$manifest" >&2; exit 66; }
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" == *=* ]] || { printf 'invalid release manifest line\n' >&2; exit 65; }
@@ -113,17 +114,32 @@ parse_manifest() {
         (( seen_nginx == 0 )) || { printf 'duplicate NGINX_IMAGE in manifest\n' >&2; exit 65; }
         validate_digest_ref "$value"; NGINX_IMAGE=$value; seen_nginx=1
         ;;
+      PROMETHEUS_IMAGE)
+        (( seen_prometheus == 0 )) || { printf 'duplicate PROMETHEUS_IMAGE in manifest\n' >&2; exit 65; }
+        validate_digest_ref "$value"; PROMETHEUS_IMAGE=$value; seen_prometheus=1
+        ;;
       DEPLOYED_AT)
         [[ "$value" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$ ]] || { printf 'invalid DEPLOYED_AT in manifest\n' >&2; exit 65; }
         ;;
-      POSTGRES_CONTAINER_IMAGE_ID|REDIS_CONTAINER_IMAGE_ID|MINIO_CONTAINER_IMAGE_ID|CORE_API_CONTAINER_IMAGE_ID|EMAIL_PROVIDER_CONTAINER_IMAGE_ID|STORAGE_API_CONTAINER_IMAGE_ID|STORAGE_WORKER_CONTAINER_IMAGE_ID|WEB_CONTAINER_IMAGE_ID|NGINX_CONTAINER_IMAGE_ID)
+      ANALYTICS_WORKER_CONTAINER_IMAGE_ID)
+        (( seen_analytics_worker == 0 )) || { printf 'duplicate ANALYTICS_WORKER_CONTAINER_IMAGE_ID in manifest\n' >&2; exit 65; }
+        [[ "$value" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf 'invalid container image ID in manifest\n' >&2; exit 65; }
+        seen_analytics_worker=1
+        ;;
+      POSTGRES_CONTAINER_IMAGE_ID|REDIS_CONTAINER_IMAGE_ID|MINIO_CONTAINER_IMAGE_ID|CORE_API_CONTAINER_IMAGE_ID|EMAIL_PROVIDER_CONTAINER_IMAGE_ID|STORAGE_API_CONTAINER_IMAGE_ID|STORAGE_WORKER_CONTAINER_IMAGE_ID|WEB_CONTAINER_IMAGE_ID|NGINX_CONTAINER_IMAGE_ID|PROMETHEUS_CONTAINER_IMAGE_ID)
         [[ "$value" =~ ^sha256:[0-9a-f]{64}$ ]] || { printf 'invalid container image ID in manifest\n' >&2; exit 65; }
         ;;
       *) printf 'unknown release manifest key: %s\n' "$key" >&2; exit 65 ;;
     esac
   done < "$manifest"
   (( seen_tag && seen_core && seen_email && seen_storage && seen_web && seen_nginx )) || { printf 'release manifest is incomplete\n' >&2; exit 65; }
-  export IMAGE_TAG CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
+  if (( ! seen_prometheus )); then
+    PROMETHEUS_IMAGE=$(sed -n 's/^PROMETHEUS_IMAGE=//p' "$STATE_DIR/current.env" | tail -n 1)
+    [[ -n "$PROMETHEUS_IMAGE" ]] || { printf 'legacy rollback requires the current Prometheus image\n' >&2; exit 65; }
+    validate_digest_ref "$PROMETHEUS_IMAGE"
+  fi
+  ANALYTICS_WORKER_ENABLED=$seen_analytics_worker
+  export IMAGE_TAG CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE PROMETHEUS_IMAGE
 }
 
 resolve_repo_digest() {
@@ -207,7 +223,7 @@ wait_healthy() {
 }
 
 if [[ "$mode" == tag ]]; then
-  unset CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
+  unset CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE PROMETHEUS_IMAGE
   compose config -q
   tag_images=$(compose config --images)
   core_tag=$(resolve_tag_image mywebdrive-core-api)
@@ -215,21 +231,24 @@ if [[ "$mode" == tag ]]; then
   storage_tag=$(resolve_tag_image mywebdrive-storage)
   web_tag=$(resolve_tag_image mywebdrive-web)
   nginx_tag=$(resolve_tag_image mywebdrive-nginx)
-  compose pull core-api email-provider storage-api web nginx
+  prometheus_tag=$(resolve_tag_image mywebdrive-prometheus)
+  compose pull core-api email-provider storage-api web nginx prometheus
   core_repo=${core_tag%:"$IMAGE_TAG"}
   email_repo=${email_tag%:"$IMAGE_TAG"}
   storage_repo=${storage_tag%:"$IMAGE_TAG"}
   web_repo=${web_tag%:"$IMAGE_TAG"}
   nginx_repo=${nginx_tag%:"$IMAGE_TAG"}
+  prometheus_repo=${prometheus_tag%:"$IMAGE_TAG"}
   CORE_API_IMAGE=$(resolve_repo_digest "$core_tag" "$core_repo")
   EMAIL_PROVIDER_IMAGE=$(resolve_repo_digest "$email_tag" "$email_repo")
   STORAGE_IMAGE=$(resolve_repo_digest "$storage_tag" "$storage_repo")
   WEB_IMAGE=$(resolve_repo_digest "$web_tag" "$web_repo")
   NGINX_IMAGE=$(resolve_repo_digest "$nginx_tag" "$nginx_repo")
-  export CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
+  PROMETHEUS_IMAGE=$(resolve_repo_digest "$prometheus_tag" "$prometheus_repo")
+  export CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE PROMETHEUS_IMAGE
 fi
 
-for ref in "$CORE_API_IMAGE" "$EMAIL_PROVIDER_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE"; do
+for ref in "$CORE_API_IMAGE" "$EMAIL_PROVIDER_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE" "$PROMETHEUS_IMAGE"; do
   validate_digest_ref "$ref"
   docker pull "$ref"
 done
@@ -242,8 +261,15 @@ compose run --rm --no-deps minio-init
 compose run --rm --no-deps core-migrate
 compose up -d --no-deps email-provider
 wait_healthy email-provider
-compose up -d --no-deps core-api storage-api storage-worker web nginx
-for service in core-api storage-api storage-worker web nginx; do wait_healthy "$service"; done
+if (( ANALYTICS_WORKER_ENABLED )); then
+  compose up -d --no-deps core-api analytics-worker storage-api storage-worker prometheus web nginx
+  runtime_services=(core-api analytics-worker storage-api storage-worker prometheus web nginx)
+else
+  compose stop analytics-worker
+  compose up -d --no-deps core-api storage-api storage-worker prometheus web nginx
+  runtime_services=(core-api storage-api storage-worker prometheus web nginx)
+fi
+for service in "${runtime_services[@]}"; do wait_healthy "$service"; done
 
 compose exec -T -e EXPECTED_BUILD_ID="$IMAGE_TAG" core-api node -e \
   "fetch('http://127.0.0.1:8080/version').then(async r=>{if(!r.ok)throw Error('version endpoint failed');const v=await r.json();if(v.buildId!==process.env.EXPECTED_BUILD_ID)throw Error('buildId mismatch')}).catch(e=>{console.error(e.message);process.exit(1)})"
@@ -258,8 +284,11 @@ history_stamp=$(date -u +%Y%m%dT%H%M%SZ)
   printf 'STORAGE_IMAGE=%s\n' "$STORAGE_IMAGE"
   printf 'WEB_IMAGE=%s\n' "$WEB_IMAGE"
   printf 'NGINX_IMAGE=%s\n' "$NGINX_IMAGE"
+  printf 'PROMETHEUS_IMAGE=%s\n' "$PROMETHEUS_IMAGE"
   printf 'DEPLOYED_AT=%s\n' "$deployed_at"
-  for service in postgres redis minio core-api email-provider storage-api storage-worker web nginx; do
+  manifest_services=(postgres redis minio core-api email-provider storage-api storage-worker prometheus web nginx)
+  if (( ANALYTICS_WORKER_ENABLED )); then manifest_services+=(analytics-worker); fi
+  for service in "${manifest_services[@]}"; do
     container=$(compose ps -q "$service")
     image_id=$(docker inspect --format '{{.Image}}' "$container")
     key=$(printf '%s' "$service" | tr '[:lower:]-' '[:upper:]_')

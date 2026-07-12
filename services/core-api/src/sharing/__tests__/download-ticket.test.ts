@@ -97,9 +97,17 @@ integration('private, share and publication download tickets', () => {
       .send(body)
   }
 
-  function expectTicket(
+  async function expectTicket(
     body: Record<string, unknown>,
-    expected: { objectKey: string; fileName: string; mimeType: string; purpose: string },
+    expected: {
+      objectKey: string
+      fileName: string
+      mimeType: string
+      purpose: string
+      attemptPurpose: string
+      fileVersionId: string
+      expectedBytes: bigint
+    },
   ) {
     expect(body).toEqual({
       objectKey: expected.objectKey,
@@ -113,9 +121,21 @@ integration('private, share and publication download tickets', () => {
       aud: 'storage-api',
       purpose: expected.purpose,
       objectKey: expected.objectKey,
+      downloadAttemptId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      fileVersionId: expected.fileVersionId,
+      expectedBytes: expected.expectedBytes.toString(),
       jti: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
       iat: Math.floor(now.getTime() / 1000),
       exp: Math.floor(now.getTime() / 1000) + 60,
+    })
+    const attempt = await prisma.downloadAttempt.findUniqueOrThrow({
+      where: { id: String(grant.downloadAttemptId) },
+    })
+    expect(attempt).toMatchObject({
+      fileVersionId: expected.fileVersionId,
+      purpose: expected.attemptPurpose,
+      expectedBytes: expected.expectedBytes,
+      status: 'issued',
     })
     expect(JSON.stringify(body)).not.toMatch(/https?:\/\//)
   }
@@ -124,6 +144,7 @@ integration('private, share and publication download tickets', () => {
   beforeEach(async () => {
     now = new Date('2026-07-11T15:00:00.000Z')
     await prisma.outboxEvent.deleteMany()
+    await prisma.downloadAttempt.deleteMany()
     await prisma.share.deleteMany()
     await prisma.publication.deleteMany()
     await prisma.fileVersion.deleteMany()
@@ -148,11 +169,14 @@ integration('private, share and publication download tickets', () => {
       .post(`/api/v1/files/${file.id}/download-ticket`)
       .set('Authorization', `Bearer ${token(owner)}`)
     expect(response.status).toBe(200)
-    expectTicket(response.body, {
+    await expectTicket(response.body, {
       objectKey: latest.objectKey,
       fileName: file.name,
       mimeType: latest.mimeType,
       purpose: 'download-private',
+      attemptPurpose: 'private',
+      fileVersionId: latest.id,
+      expectedBytes: latest.sizeBytes,
     })
     expect(() => verifyStorageGrant(response.body.downloadGrant, sessionSecret, now)).toThrow(
       'invalid storage grant',
@@ -185,11 +209,14 @@ integration('private, share and publication download tickets', () => {
       .post(`/api/v1/shares/${created.body.token}/download-ticket`)
       .send({ password: 'share-secret' })
     expect(response.status).toBe(200)
-    expectTicket(response.body, {
+    await expectTicket(response.body, {
       objectKey: versions[1]!.objectKey,
       fileName: file.name,
       mimeType: versions[1]!.mimeType,
       purpose: 'download-share',
+      attemptPurpose: 'share',
+      fileVersionId: versions[1]!.id,
+      expectedBytes: versions[1]!.sizeBytes,
     })
     const stored = await prisma.share.findFirstOrThrow()
     expect(stored.token).toBe(createHash('sha256').update(created.body.token).digest('hex'))
@@ -281,11 +308,14 @@ integration('private, share and publication download tickets', () => {
       .post('/api/v1/publications/public-release/download-ticket')
       .send({})
     expect(response.status).toBe(200)
-    expectTicket(response.body, {
+    await expectTicket(response.body, {
       objectKey: versions[1]!.objectKey,
       fileName: file.name,
       mimeType: versions[1]!.mimeType,
       purpose: 'download-publication',
+      attemptPurpose: 'publication',
+      fileVersionId: versions[1]!.id,
+      expectedBytes: versions[1]!.sizeBytes,
     })
 
     await prisma.publication.update({

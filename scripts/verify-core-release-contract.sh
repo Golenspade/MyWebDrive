@@ -28,7 +28,7 @@ reject_pattern() {
   if grep -Eiq -- "$pattern" "$file"; then fail "$message"; fi
 }
 
-for file in "$COMPOSE_FILE" "$DEPLOY_SCRIPT" "$ROLLBACK_SCRIPT" "$CI_FILE" "$PACKAGE_FILE" "$MAKEFILE" "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/email-provider/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/nginx.conf"; do
+for file in "$COMPOSE_FILE" "$DEPLOY_SCRIPT" "$ROLLBACK_SCRIPT" "$CI_FILE" "$PACKAGE_FILE" "$MAKEFILE" "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/email-provider/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/nginx.conf" "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/prometheus/prometheus.yml"; do
   require_file "$file"
 done
 
@@ -47,13 +47,13 @@ export EMAIL_PROVIDER_TOKEN=contract-email-provider-token-0000000001
 export REGISTRY=registry.invalid
 export IMAGE_TAG=sha-0123456789abcdef0123456789abcdef01234567
 export SOURCE_DIR="$ROOT_DIR"
-unset CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE
+unset CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE PROMETHEUS_IMAGE
 
 docker compose -f "$COMPOSE_FILE" config --format json | node -e '
 const fs = require("node:fs")
 const config = JSON.parse(fs.readFileSync(0, "utf8"))
 const services = config.services || {}
-const expected = ["core-api", "core-migrate", "email-provider", "minio", "minio-init", "nginx", "postgres", "redis", "storage-api", "storage-worker", "web"]
+const expected = ["analytics-worker", "core-api", "core-migrate", "email-provider", "minio", "minio-init", "nginx", "postgres", "prometheus", "redis", "storage-api", "storage-worker", "web"]
 const actual = Object.keys(services).sort()
 function assert(ok, message) { if (!ok) throw new Error(message) }
 function same(actual, expected) { return JSON.stringify(actual) === JSON.stringify(expected) }
@@ -75,9 +75,11 @@ const healthchecks = {
   redis: { test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"], interval: "5s", timeout: "3s", retries: 20 },
   minio: { test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:9000/minio/health/live"], interval: "5s", timeout: "3s", retries: 20 },
   "core-api": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:8080/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
+  "analytics-worker": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:8081/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
   "email-provider": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:8090/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
   "storage-api": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:7084/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
   "storage-worker": { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:7085/ready'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "5s", timeout: "3s", retries: 20 },
+  prometheus: { test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/ready"], interval: "5s", timeout: "3s", retries: 20 },
   web: { test: ["CMD", "node", "-e", "fetch('\''http://127.0.0.1:4323/'\'').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"], interval: "10s", timeout: "5s", retries: 12 },
   nginx: { test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null"], interval: "10s", timeout: "5s", retries: 12 },
 }
@@ -87,16 +89,20 @@ for (const [name, expectedHealth] of Object.entries(healthchecks)) {
   assert(same(health.test, expectedHealth.test), `${name} healthcheck command is invalid`)
   assert(health.interval === expectedHealth.interval && health.timeout === expectedHealth.timeout && health.retries === expectedHealth.retries, `${name} healthcheck timing is invalid`)
 }
-for (const name of ["minio-init", "core-migrate", "core-api", "email-provider", "storage-api", "storage-worker", "web", "nginx"]) {
+for (const name of ["minio-init", "core-migrate", "core-api", "analytics-worker", "email-provider", "storage-api", "storage-worker", "prometheus", "web", "nginx"]) {
   const service = services[name]
   assert(service.read_only === true, `${name} must be read-only`)
   assert((service.cap_drop || []).includes("ALL"), `${name} must drop all capabilities`)
   assert((service.security_opt || []).includes("no-new-privileges:true"), `${name} must set no-new-privileges`)
 }
 assert(same(services["core-migrate"].command, ["sh", "-c", "./node_modules/.bin/prisma migrate deploy"]), "core-migrate command is invalid")
+assert(same(services["core-api"].command, ["node", "dist/index.js", "api"]), "core-api command is invalid")
+assert(same(services["analytics-worker"].command, ["node", "dist/index.js", "analytics-worker"]), "analytics-worker command is invalid")
 assert(same(services["storage-api"].command, ["node", "dist/index.js", "api"]), "storage-api command is invalid")
 assert(same(services["storage-worker"].command, ["node", "dist/index.js", "worker"]), "storage-worker command is invalid")
 assert(services["core-api"].depends_on?.["core-migrate"]?.condition === "service_completed_successfully", "core-api must wait for migration")
+assert(services["analytics-worker"].depends_on?.["core-migrate"]?.condition === "service_completed_successfully", "analytics-worker must wait for migration")
+assert(Object.keys(services["analytics-worker"].environment || {}).sort().join(",") === "ANALYTICS_WORKER_PORT,BUILD_ID,CORE_DATABASE_URL,GIT_SHA,NODE_ENV", "analytics-worker must receive only its least-privilege environment")
 assert(services["core-api"].depends_on?.["email-provider"]?.condition === "service_healthy", "core-api must wait for email-provider")
 assert(services["core-api"].environment?.EMAIL_PROVIDER_URL === "http://email-provider:8090", "Core must use the private email-provider origin")
 assert(services["core-api"].environment?.EMAIL_PROVIDER_TOKEN === services["email-provider"].environment?.EMAIL_PROVIDER_TOKEN, "Core and email-provider must share one internal token")
@@ -104,6 +110,11 @@ assert(!services["email-provider"].ports, "email-provider must not publish a hos
 assert(services["email-provider"].environment?.ALIBABA_CLOUD_ECS_METADATA === "MyWebDriveDirectMailRole", "email-provider must use the approved ECS RAM role")
 assert(services["email-provider"].environment?.ALIBABA_CLOUD_IMDSV1_DISABLE === "true", "email-provider must require IMDSv2")
 assert(!services["email-provider"].environment?.ALIBABA_CLOUD_ACCESS_KEY_ID && !services["email-provider"].environment?.ALIBABA_CLOUD_ACCESS_KEY_SECRET, "email-provider must not receive persistent AccessKey credentials")
+assert(services["core-api"].environment?.PROMETHEUS_URL === "http://prometheus:9090", "Core must use the private Prometheus origin")
+assert(!services.prometheus.ports, "prometheus must not publish a host port")
+assert(same(services.prometheus.command, ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.listen-address=0.0.0.0:9090"]), "prometheus command is invalid")
+const prometheusVolume = (services.prometheus.volumes || []).find((mount) => mount.target === "/prometheus")
+assert(prometheusVolume?.type === "volume" && prometheusVolume.source === "prometheus-data" && prometheusVolume.read_only !== true, "prometheus needs its writable persistent data volume")
 for (const name of ["storage-api", "storage-worker"]) assert(services[name].depends_on?.["minio-init"]?.condition === "service_completed_successfully", `${name} must wait for minio-init`)
 assert(services["storage-worker"].depends_on?.["core-api"]?.condition === "service_healthy", "storage-worker must wait for Core")
 assert(same(services["minio-init"].entrypoint, ["/bin/sh", "-c"]), "minio-init entrypoint is invalid")
@@ -112,12 +123,14 @@ const tag = process.env.IMAGE_TAG
 const registry = process.env.REGISTRY
 const expectedImages = {
   "core-api": `${registry}/mywebdrive-core-api:${tag}`,
+  "analytics-worker": `${registry}/mywebdrive-core-api:${tag}`,
   "core-migrate": `${registry}/mywebdrive-core-api:${tag}`,
   "email-provider": `${registry}/mywebdrive-email-provider:${tag}`,
   "storage-api": `${registry}/mywebdrive-storage:${tag}`,
   "storage-worker": `${registry}/mywebdrive-storage:${tag}`,
   web: `${registry}/mywebdrive-web:${tag}`,
   nginx: `${registry}/mywebdrive-nginx:${tag}`,
+  prometheus: `${registry}/mywebdrive-prometheus:${tag}`,
 }
 for (const [name, image] of Object.entries(expectedImages)) assert(services[name].image === image, `${name} image contract is invalid`)
 ' || fail 'compose structure is invalid'
@@ -132,6 +145,8 @@ require_pattern 'compose config -q' "$DEPLOY_SCRIPT" 'deploy.sh must validate co
 require_pattern 'compose run --rm --no-deps core-migrate' "$DEPLOY_SCRIPT" 'deploy.sh must run Core migrations'
 require_pattern 'compose run --rm --no-deps minio-init' "$DEPLOY_SCRIPT" 'deploy.sh must initialize object storage'
 require_pattern 'compose up -d --no-deps email-provider' "$DEPLOY_SCRIPT" 'deploy.sh must start the private email provider'
+require_pattern 'analytics-worker' "$DEPLOY_SCRIPT" 'deploy.sh must start and record the analytics worker'
+require_pattern 'PROMETHEUS_IMAGE' "$DEPLOY_SCRIPT" 'deploy.sh must resolve and persist the Prometheus image'
 require_pattern '/version' "$DEPLOY_SCRIPT" 'deploy.sh must verify Core build metadata'
 require_pattern 'current.env' "$DEPLOY_SCRIPT" 'deploy.sh must record current release state'
 require_pattern 'mkdir "\$lock_dir"' "$DEPLOY_SCRIPT" 'deploy.sh must acquire an atomic state lock'
@@ -140,7 +155,7 @@ require_pattern 'exec .*deploy\.sh.*--manifest' "$ROLLBACK_SCRIPT" 'rollback.sh 
 reject_pattern '\|[[:space:]]*node[[:space:]]+-e|^[[:space:]]*node[[:space:]]+-e' "$DEPLOY_SCRIPT" 'deploy.sh must not require Node.js on the production host'
 
 reject_pattern '\|\|[[:space:]]*true|--no-frozen-lockfile|SQLite|sqlite|services/(auth|user|metadata|sharing)|api-gateway' "$CI_FILE" 'CI contains a best-effort, mutable install, SQLite, or split-control-plane path'
-for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'test-core-cutover-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/email-provider/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' 'packages:[[:space:]]*write' 'docker login ghcr\.io' 'release_tag=sha-\$\{GITHUB_SHA\}' 'docker push' '--read-only' '--tmpfs' 'id -u'; do
+for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'test-core-cutover-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'packages/observability test' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/email-provider/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' 'docker build.*infrastructure/alicloud/prometheus/Dockerfile' 'mywebdrive-prometheus' 'packages:[[:space:]]*write' 'docker login ghcr\.io' 'release_tag=sha-\$\{GITHUB_SHA\}' 'docker push' '--read-only' '--tmpfs' 'id -u'; do
   require_pattern "$pattern" "$CI_FILE" "CI is missing required gate: $pattern"
 done
 for upstream in storage-api core-api web; do
@@ -165,6 +180,16 @@ done
 
 require_pattern '^USER node$' "$ROOT_DIR/frontend/cruip-landing/Dockerfile" 'web Dockerfile must run as node'
 require_pattern '^USER nginx$' "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" 'nginx Dockerfile must run as nginx'
+require_pattern '^FROM prom/prometheus:v3\.5\.0@sha256:63805ebb8d2b3920190daf1cb14a60871b16fd38bed42b857a3182bc621f4996$' "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" 'Prometheus base image must use the approved tag and digest'
+require_pattern '^COPY prometheus\.yml /etc/prometheus/prometheus\.yml$' "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" 'Prometheus config must be baked into the image'
+require_pattern '^USER nobody$' "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" 'Prometheus image must run as nobody'
+require_pattern '^[[:space:]]*scrape_interval:[[:space:]]*15s$' "$ROOT_DIR/infrastructure/alicloud/prometheus/prometheus.yml" 'Prometheus scrape interval must be 15 seconds'
+for target in core-api:8080 storage-api:7084 storage-worker:7085; do
+  require_pattern "^[[:space:]]*-[[:space:]]*'$target'$" "$ROOT_DIR/infrastructure/alicloud/prometheus/prometheus.yml" "Prometheus is missing scrape target $target"
+done
+actual_prometheus_targets=$(sed -n "s/^[[:space:]]*-[[:space:]]*'\([^']*\)'[[:space:]]*$/\1/p" "$ROOT_DIR/infrastructure/alicloud/prometheus/prometheus.yml")
+[[ "$actual_prometheus_targets" == $'core-api:8080\nstorage-api:7084\nstorage-worker:7085' ]] || fail 'Prometheus must scrape exactly the approved three targets'
+reject_pattern 'localhost|127\.0\.0\.1|api-gateway|host\.docker\.internal' "$ROOT_DIR/infrastructure/alicloud/prometheus/prometheus.yml" 'Prometheus config contains an unapproved scrape target'
 reject_pattern 'API_BASE_URL|rewrites|gateway' "$ROOT_DIR/frontend/cruip-landing/next.config.js" 'frontend must use same-origin API routes'
 
 printf 'core release contract: ok\n'

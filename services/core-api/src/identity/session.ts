@@ -2,10 +2,12 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
 
 import { Prisma, type PrismaClient } from '@prisma/client'
 
+import { enqueueDomainEvent } from '../outbox/service.js'
+
 const SESSION_IDLE_LIFETIME_MS = 30 * 24 * 60 * 60 * 1000
 const SESSION_ABSOLUTE_LIFETIME_MS = 90 * 24 * 60 * 60 * 1000
 
-type SessionStore = Pick<PrismaClient, 'refreshSession'>
+type SessionStore = Pick<PrismaClient, 'refreshSession' | 'outboxEvent'>
 type RandomBytes = (size: number) => Buffer
 
 export class InvalidRefreshSessionError extends Error {
@@ -41,6 +43,24 @@ function hashesEqual(leftHex: string, rightHex: string): boolean {
   return left.length === right.length && left.length > 0 && timingSafeEqual(left, right)
 }
 
+function shanghaiDate(now: Date): string {
+  return new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+}
+
+async function enqueueUserActivity(
+  store: SessionStore,
+  userId: string,
+  now: Date,
+): Promise<void> {
+  await enqueueDomainEvent(store, {
+    dedupeKey: `user.activity:${userId}:${shanghaiDate(now)}`,
+    topic: 'user.activity.recorded',
+    aggregateId: userId,
+    occurredAt: now,
+    payload: { userId },
+  })
+}
+
 export async function createRefreshSession(
   store: SessionStore,
   userId: string,
@@ -65,6 +85,7 @@ export async function createRefreshSession(
       lastUsedAt: now,
     },
   })
+  await enqueueUserActivity(store, userId, now)
 
   return { sessionId, familyId, token, absoluteExpiresAt }
 }
@@ -155,6 +176,7 @@ export async function rotateRefreshSession(
               lastUsedAt: now,
             },
           })
+          await enqueueUserActivity(tx, current.userId, now)
 
           return {
             kind: 'rotated',

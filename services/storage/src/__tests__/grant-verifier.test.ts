@@ -8,11 +8,14 @@ import request from 'supertest'
 import { describe, expect, test, vi } from 'vitest'
 
 import { createStorageApi } from '../api.js'
+import { verifyStorageGrant } from '../grants/verifier.js'
 import type { ObjectStorage } from '../object-storage/types.js'
 
 const secret = 'storage-grant-test-secret-at-least-32-bytes'
 const objectKey = '5dd0d998-ec26-4fbd-9589-eca8aa9a9311'
 const uploadIntentId = '126b455f-b9e7-49b9-aab6-4cb1ff971328'
+const downloadAttemptId = '16232aef-1f26-4bb4-98ba-ccc72d7f3915'
+const fileVersionId = 'e4983ebf-91a9-427b-bd9f-fad43bc3b1b0'
 
 function token(
   payload: Record<string, unknown>,
@@ -32,6 +35,9 @@ function claims(overrides: Record<string, unknown> = {}): Record<string, unknown
     typ: undefined,
     purpose: 'download-private',
     objectKey,
+    downloadAttemptId,
+    fileVersionId,
+    expectedBytes: '5',
     jti: randomUUID(),
     iat: now,
     exp: now + 60,
@@ -51,7 +57,7 @@ function dependencies() {
     }),
     completeObject: vi.fn(),
     openRead: vi.fn(async () => Readable.from('bytes')),
-    stat: vi.fn(),
+    stat: vi.fn(async () => ({ sizeBytes: 5n })),
     deleteObject: vi.fn(),
     deletePart: vi.fn(),
     deleteParts: vi.fn(),
@@ -69,10 +75,28 @@ function dependencies() {
     releasePart: vi.fn(async () => undefined),
     freezeAndEnqueue: vi.fn(),
   }
-  return { storage, redis, queue }
+  const downloadEvents = {
+    appendStarted: vi.fn(async () => '171-0'),
+    appendCompleted: vi.fn(async () => '172-0'),
+  }
+  return { storage, redis, queue, downloadEvents }
 }
 
 describe('storage API grant boundary', () => {
+  test.each([
+    ['missing attempt', { downloadAttemptId: undefined }],
+    ['malformed version', { fileVersionId: 'not-a-uuid' }],
+    ['negative bytes', { expectedBytes: '-1' }],
+    ['zero-padded bytes', { expectedBytes: '05' }],
+    ['upload-only claim', { maxBytes: '5' }],
+  ])('strictly rejects a download grant with %s', (_label, mutation) => {
+    const change: Record<string, unknown> = mutation
+    const payload = claims(change)
+    if (change.downloadAttemptId === undefined) delete payload.downloadAttemptId
+    expect(() => verifyStorageGrant(token(payload), secret, 'download'))
+      .toThrow('invalid storage grant')
+  })
+
   test.each([
     ['bad signature', () => token(claims(), undefined, 'wrong-secret-at-least-32-bytes')],
     ['wrong algorithm', () => token(claims(), { alg: 'HS512', typ: 'storage-grant' })],
@@ -140,6 +164,9 @@ describe('storage API grant boundary', () => {
         purpose: 'upload',
         uploadIntentId,
         maxBytes: '5',
+        downloadAttemptId: undefined,
+        fileVersionId: undefined,
+        expectedBytes: undefined,
         exp: Math.floor(Date.now() / 1000) + 300,
       }),
     )
@@ -183,6 +210,7 @@ describe('storage API grant boundary', () => {
     deps.queue.reservePart.mockResolvedValueOnce(status)
     const uploadGrant = token(claims({
       purpose: 'upload', uploadIntentId, maxBytes: '5',
+      downloadAttemptId: undefined, fileVersionId: undefined, expectedBytes: undefined,
       exp: Math.floor(Date.now() / 1000) + 300,
     }))
     const app = express().use(createStorageApi({ ...deps, grantSecret: secret }))
@@ -200,6 +228,7 @@ describe('storage API grant boundary', () => {
     vi.mocked(deps.storage.writePart).mockRejectedValueOnce(new Error('disk full'))
     const uploadGrant = token(claims({
       purpose: 'upload', uploadIntentId, maxBytes: '5',
+      downloadAttemptId: undefined, fileVersionId: undefined, expectedBytes: undefined,
       exp: Math.floor(Date.now() / 1000) + 300,
     }))
     const app = express().use(createStorageApi({ ...deps, grantSecret: secret }))
@@ -219,6 +248,7 @@ describe('storage API grant boundary', () => {
     const deps = dependencies()
     const uploadGrant = token(claims({
       purpose: 'upload', uploadIntentId, maxBytes: '5',
+      downloadAttemptId: undefined, fileVersionId: undefined, expectedBytes: undefined,
       exp: Math.floor(Date.now() / 1000) + 300,
     }))
     const app = express().use(createStorageApi({ ...deps, grantSecret: secret }))

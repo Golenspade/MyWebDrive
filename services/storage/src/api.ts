@@ -4,6 +4,7 @@ import { pipeline } from 'node:stream/promises'
 
 import express from 'express'
 
+import type { DownloadEventQueue } from './download-events/queue.js'
 import { verifyStorageGrant } from './grants/verifier.js'
 import type { ObjectStorage } from './object-storage/types.js'
 
@@ -46,8 +47,18 @@ type ApiDependencies = {
   storage: ObjectStorage
   redis: GrantRedis
   queue: CompletionQueue
+  downloadEvents: Pick<DownloadEventQueue, 'appendStarted' | 'appendCompleted'>
   grantSecret: string
   now?: () => Date
+  downloadMetrics?: {
+    recordCompleted: (bytes: number) => void
+    recordAborted: () => void
+    recordAnalyticsEnqueueFailure: () => void
+  }
+  dependencyMetrics?: {
+    setRedis(ready: boolean): void
+    setObjectStore(ready: boolean): void
+  }
 }
 
 class PayloadTooLargeError extends Error {}
@@ -89,18 +100,80 @@ function tokenOr401(req: express.Request, res: express.Response): string | null 
   return value
 }
 
+function waitForDrainOrClose(res: express.Response): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      res.off('drain', onDrain)
+      res.off('close', onClose)
+      res.off('error', onError)
+    }
+    const onDrain = () => {
+      cleanup()
+      resolve()
+    }
+    const onClose = () => {
+      cleanup()
+      reject(new Error('download response closed'))
+    }
+    const onError = (error: Error) => {
+      cleanup()
+      reject(error)
+    }
+    res.once('drain', onDrain)
+    res.once('close', onClose)
+    res.once('error', onError)
+  })
+}
+
+function responseLifecycle(
+  res: express.Response,
+  onPrematureClose: () => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    let finished = false
+    const cleanup = () => {
+      res.off('finish', onFinish)
+      res.off('close', onClose)
+      res.off('error', onError)
+    }
+    const onFinish = () => {
+      finished = true
+      cleanup()
+      resolve()
+    }
+    const onClose = () => {
+      if (finished) return
+      cleanup()
+      onPrematureClose()
+      reject(new Error('download response closed before finish'))
+    }
+    const onError = (error: Error) => {
+      cleanup()
+      onPrematureClose()
+      reject(error)
+    }
+    res.once('finish', onFinish)
+    res.once('close', onClose)
+    res.once('error', onError)
+  })
+}
+
 export function createStorageApi(deps: ApiDependencies): express.Router {
   const router = express.Router()
   const now = deps.now ?? (() => new Date())
 
   router.get('/live', (_req, res) => res.json({ status: 'live', service: 'storage-api' }))
   router.get('/ready', async (_req, res) => {
-    try {
-      await Promise.all([deps.redis.ping(), deps.storage.ready()])
-      return res.json({ status: 'ready', service: 'storage-api' })
-    } catch {
+    const [redis, objectStore] = await Promise.allSettled([
+      deps.redis.ping(),
+      deps.storage.ready(),
+    ])
+    deps.dependencyMetrics?.setRedis(redis.status === 'fulfilled')
+    deps.dependencyMetrics?.setObjectStore(objectStore.status === 'fulfilled')
+    if (redis.status === 'rejected' || objectStore.status === 'rejected') {
       return res.status(503).json({ status: 'not_ready', service: 'storage-api' })
     }
+    return res.json({ status: 'ready', service: 'storage-api' })
   })
 
   router.put('/api/v1/storage/uploads/:objectKey/parts/:partNumber', async (req, res) => {
@@ -228,19 +301,81 @@ export function createStorageApi(deps: ApiDependencies): express.Router {
       return res.status(401).json({ error: 'unauthorized' })
     }
     try {
+      const metadata = await deps.storage.stat(grant.objectKey)
+      if (!metadata) return res.status(404).json({ error: 'object not found' })
+      if (metadata.sizeBytes !== grant.expectedBytes) {
+        return res.status(409).json({ error: 'object size mismatch' })
+      }
+    } catch {
+      return res.status(404).json({ error: 'object not found' })
+    }
+    try {
       const ttl = Math.max(1, grant.exp - Math.floor(now().getTime() / 1000))
       const consumed = await deps.redis.set(`grant:used:${grant.jti}`, '1', 'EX', ttl, 'NX')
       if (consumed !== 'OK') return res.status(401).json({ error: 'unauthorized' })
     } catch {
       return res.status(503).json({ error: 'authorization unavailable' })
     }
+    let stream
     try {
-      const stream = await deps.storage.openRead(grant.objectKey)
-      res.status(200).type('application/octet-stream')
-      stream.once('error', () => res.destroy())
-      stream.pipe(res)
+      stream = await deps.storage.openRead(grant.objectKey)
     } catch {
       return res.status(404).json({ error: 'object not found' })
+    }
+    try {
+      await deps.downloadEvents.appendStarted({
+        attemptId: grant.downloadAttemptId,
+        fileVersionId: grant.fileVersionId,
+        expectedBytes: grant.expectedBytes,
+        occurredAt: now(),
+      })
+    } catch {
+      stream.destroy()
+      return res.status(503).json({ error: 'download tracking unavailable' })
+    }
+
+    let aborted = false
+    let seen = 0n
+    const finished = responseLifecycle(res, () => {
+      aborted = true
+      deps.downloadMetrics?.recordAborted()
+      stream.destroy()
+    })
+    const stop = () => {
+      stream.destroy()
+      if (!res.writableFinished) res.destroy()
+    }
+    res.status(200)
+      .type('application/octet-stream')
+      .set('Content-Length', grant.expectedBytes.toString())
+    try {
+      for await (const rawChunk of stream) {
+        if (aborted) throw new Error('download aborted')
+        const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk)
+        seen += BigInt(chunk.length)
+        if (seen > grant.expectedBytes) throw new Error('download size mismatch')
+        if (!res.write(chunk)) await waitForDrainOrClose(res)
+      }
+      if (aborted || seen !== grant.expectedBytes) throw new Error('download incomplete')
+      res.end()
+      await finished
+    } catch {
+      stop()
+      await finished.catch(() => undefined)
+      return
+    }
+
+    try {
+      await deps.downloadEvents.appendCompleted({
+        attemptId: grant.downloadAttemptId,
+        fileVersionId: grant.fileVersionId,
+        bytes: seen,
+        occurredAt: now(),
+      })
+      deps.downloadMetrics?.recordCompleted(Number(seen))
+    } catch {
+      // The response already finished. Retain only the started fact so Core marks coverage unknown.
+      deps.downloadMetrics?.recordAnalyticsEnqueueFailure()
     }
   })
 

@@ -11,6 +11,7 @@ const DOWNLOAD_PURPOSES = new Set([
 ] as const)
 const MAX_GRANT_SECONDS = 300
 const CLOCK_SKEW_SECONDS = 30
+const MAX_DATABASE_BIGINT = 9_223_372_036_854_775_807n
 
 type DownloadPurpose = 'download-private' | 'download-share' | 'download-publication'
 
@@ -27,6 +28,9 @@ export type UploadGrant = {
 export type DownloadGrant = {
   purpose: DownloadPurpose
   objectKey: string
+  downloadAttemptId: string
+  fileVersionId: string
+  expectedBytes: bigint
   jti: string
   iat: number
   exp: number
@@ -109,7 +113,10 @@ export function verifyStorageGrant(
       payload.purpose !== 'upload' ||
       !UUID_PATTERN.test(String(payload.uploadIntentId)) ||
       typeof payload.maxBytes !== 'string' ||
-      !POSITIVE_INTEGER_PATTERN.test(payload.maxBytes)
+      !POSITIVE_INTEGER_PATTERN.test(payload.maxBytes) ||
+      payload.downloadAttemptId !== undefined ||
+      payload.fileVersionId !== undefined ||
+      payload.expectedBytes !== undefined
     ) invalid()
     return {
       ...common,
@@ -121,8 +128,19 @@ export function verifyStorageGrant(
   if (
     typeof payload.purpose !== 'string' ||
     !DOWNLOAD_PURPOSES.has(payload.purpose as DownloadPurpose) ||
+    !UUID_PATTERN.test(String(payload.downloadAttemptId)) ||
+    !UUID_PATTERN.test(String(payload.fileVersionId)) ||
+    typeof payload.expectedBytes !== 'string' ||
+    !/^(0|[1-9]\d*)$/.test(payload.expectedBytes) ||
+    BigInt(payload.expectedBytes) > MAX_DATABASE_BIGINT ||
     payload.uploadIntentId !== undefined ||
     payload.maxBytes !== undefined
   ) invalid()
-  return { ...common, purpose: payload.purpose as DownloadPurpose }
+  return {
+    ...common,
+    purpose: payload.purpose as DownloadPurpose,
+    downloadAttemptId: String(payload.downloadAttemptId),
+    fileVersionId: String(payload.fileVersionId),
+    expectedBytes: BigInt(payload.expectedBytes),
+  }
 }

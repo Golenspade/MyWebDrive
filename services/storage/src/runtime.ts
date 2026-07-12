@@ -4,6 +4,7 @@ import OSS from 'ali-oss'
 import Redis from 'ioredis'
 import { Client as MinioClient } from 'minio'
 
+import { DownloadEventQueue, type DownloadStreamRedis } from './download-events/queue.js'
 import { FinalizationQueue, type StreamRedis } from './finalization-queue.js'
 import { AliOssClient } from './object-storage/ali-oss-client.js'
 import { LocalObjectStorage } from './object-storage/local.js'
@@ -101,6 +102,7 @@ function baseRuntime() {
     storage,
     redis,
     queue: new FinalizationQueue(redis as unknown as StreamRedis, consumer),
+    downloadEvents: new DownloadEventQueue(redis as unknown as DownloadStreamRedis, consumer),
     apiPort: integer('STORAGE_PORT', 7084),
     workerPort: integer('STORAGE_WORKER_PORT', 7085),
   }

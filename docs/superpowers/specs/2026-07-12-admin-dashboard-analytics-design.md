@@ -203,8 +203,8 @@ The Core API process never starts an in-process analytics loop, preventing dupli
 2. The signed Storage grant includes the attempt ID, opaque file-version ID, expected byte count, object key, purpose, and existing one-time grant claims.
 3. Storage validates the grant, opens the exact object, verifies its expected size, consumes the one-time grant, and appends `download.started` to a Redis Stream before sending the first byte. If this durable append fails, Storage returns 503 without starting the transfer.
 4. Storage sets the expected content length, streams the object, and counts bytes while observing client aborts.
-5. When the source has completed without abort and the byte count matches, Storage appends `download.completed` before ending the response. The earlier start record makes a missing completion detectable rather than silently losing the fact.
-6. Storage Worker claims or reclaims both records and sends signed private callbacks to Core.
+5. When the source has completed with an exact byte count, Storage ends the response and waits for Node's `finish` event. A premature `close` or response error never emits completion. Only after `finish` does Storage append `download.completed`; if that append fails, the earlier start record deliberately leaves the attempt `unknown` and marks coverage degraded.
+6. Storage Worker claims or reclaims both records in stream order and sends signed private callbacks to Core. A completion that reaches Core before its start is accepted returns `425` and remains retryable; terminal identity or state conflicts return `409` and move to the dead-letter stream.
 7. Core records `startedAt` for the start callback. For the completion callback it conditionally sets `completedAt` and atomically inserts the idempotent `download.completed` Outbox event. Duplicate callbacks return the existing accepted identity.
 8. Analytics Worker projects the event into `AnalyticsDaily`.
 
@@ -275,7 +275,7 @@ Required application metrics include:
 }
 ```
 
-All integer measurements, including entity totals, event counts, and bytes, are decimal strings. Latencies and rates remain JSON numbers. Missing or not-yet-covered values are `null`; they are never coerced to zero.
+All integer measurements, including entity totals, event counts, and bytes, are decimal strings. Latencies and rates remain JSON numbers. Missing or not-yet-observed buckets are `null`; they are never coerced to zero. When a requested range only partially overlaps the collection window, the API returns the observed subtotal and series while `coverage.complete` remains `false`, so a fresh deployment is useful without presenting its history as complete.
 
 ### 11.2 System Health
 

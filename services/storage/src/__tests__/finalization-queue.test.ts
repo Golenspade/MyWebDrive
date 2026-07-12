@@ -12,11 +12,21 @@ function redis(): StreamRedis {
     xgroup: vi.fn(async () => 'OK'),
     xreadgroup: vi.fn(async () => null),
     xautoclaim: vi.fn(async () => ['0-0', [], []]),
+    xpending: vi.fn(async () => [0, null, null, []]),
     xack: vi.fn(async () => 1),
   }
 }
 
 describe('finalization Redis Stream contract', () => {
+  test('reports the consumer-group pending summary', async () => {
+    const client = redis()
+    vi.mocked(client.xpending).mockResolvedValueOnce([2, '170-0', '171-0', []])
+    const queue = new FinalizationQueue(client, 'worker-a')
+
+    await expect(queue.pendingCount()).resolves.toBe(2)
+    expect(client.xpending).toHaveBeenCalledWith('storage:finalize', 'storage-workers')
+  })
+
   test('reads new jobs and reclaims pending jobs through the storage-workers group', async () => {
     const client = redis()
     vi.mocked(client.xreadgroup).mockResolvedValue([

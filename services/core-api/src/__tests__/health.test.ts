@@ -1,8 +1,9 @@
+import { createAppTelemetry } from '@mywebdrive/observability'
 import request from 'supertest'
 import { describe, expect, test, vi } from 'vitest'
 
 import { createCoreApp, type CoreDependencies } from '../app.js'
-import { loadCoreConfig } from '../config.js'
+import { loadAnalyticsWorkerConfig, loadCoreConfig } from '../config.js'
 
 const REQUIRED_PRODUCTION_SECRETS = [
   {
@@ -84,6 +85,32 @@ describe('Core API health', () => {
       startedAt: '2026-07-11T00:00:00.000Z',
     })
   })
+
+  test('exposes private Prometheus metrics without authentication', async () => {
+    const response = await request(createCoreApp(fakes())).get('/metrics').expect(200)
+
+    expect(response.headers['content-type']).toContain('text/plain')
+    expect(response.text).toContain('http_requests_total')
+  })
+
+  test('registers upload metrics and records readiness dependencies independently', async () => {
+    const telemetry = createAppTelemetry({ service: 'core-api' })
+    const app = createCoreApp({ ...fakes({ databaseReady: false }), telemetry })
+
+    await request(app).get('/ready').expect(503)
+    const metrics = await request(app).get('/metrics').expect(200)
+
+    expect(metrics.text).toContain('upload_finalizations_total')
+    expect(metrics.text).toMatch(/dependency_ready\{[^}]*dependency="postgres"[^}]*\} 0/)
+    expect(metrics.text).toMatch(/dependency_ready\{[^}]*dependency="redis"[^}]*\} 1/)
+  })
+
+  test('mounts both administrator Dashboard domains', async () => {
+    const app = createCoreApp(fakes())
+
+    await request(app).get('/api/v1/admin/dashboard/business?range=7d').expect(401)
+    await request(app).get('/api/v1/admin/dashboard/system?range=7d').expect(401)
+  })
 })
 
 describe('Core callback raw body', () => {
@@ -117,9 +144,51 @@ describe('Core callback raw body', () => {
       .send({ reason: 'user-requested' })
       .expect(200, { retainedRawBody: false })
   })
+
+  test.each(['started', 'completed'] as const)(
+    'retains internal download %s callback bytes exactly',
+    async (phase) => {
+      const app = createCoreApp(fakes())
+      const callbackBody = '{\n  "fileVersionId": "opaque-version",\n  "bytes": "42"\n}\n'
+      const expectedBytes = Buffer.from(callbackBody, 'utf8')
+
+      app.post(`/api/v1/internal/download-attempts/attempt-123/${phase}`, (req, res) => {
+        res.json({ rawBody: req.rawBody?.toString('base64') ?? null })
+      })
+
+      const response = await request(app)
+        .post(`/api/v1/internal/download-attempts/attempt-123/${phase}`)
+        .set('Content-Type', 'application/json; charset=utf-8')
+        .send(callbackBody)
+        .expect(200)
+
+      expect(Buffer.from(response.body.rawBody, 'base64')).toEqual(expectedBytes)
+    },
+  )
 })
 
 describe('Core configuration', () => {
+  test('loads the analytics worker with only its least-privilege environment', () => {
+    expect(loadAnalyticsWorkerConfig({
+      NODE_ENV: 'production',
+      CORE_DATABASE_URL: 'postgresql://worker@example.test/core',
+      ANALYTICS_WORKER_PORT: '8081',
+    })).toEqual({
+      nodeEnv: 'production',
+      databaseUrl: 'postgresql://worker@example.test/core',
+      port: 8081,
+    })
+  })
+
+  test.each(['0', '65536', '1.5', 'nope'])(
+    'rejects invalid ANALYTICS_WORKER_PORT %s',
+    (port) => {
+      expect(() => loadAnalyticsWorkerConfig({ ANALYTICS_WORKER_PORT: port })).toThrow(
+        'ANALYTICS_WORKER_PORT must be an integer between 1 and 65535',
+      )
+    },
+  )
+
   test.each([
     ['CORE_SESSION_SECRET', 'OTP_PEPPER'],
     ['CORE_SESSION_SECRET', 'STORAGE_GRANT_SECRET'],

@@ -6,6 +6,7 @@ import type Redis from 'ioredis'
 import type { EmailSender } from './email-sender.js'
 import { normalizeEmail } from './email.js'
 import { createRefreshSession } from './session.js'
+import { enqueueDomainEvent } from '../outbox/service.js'
 
 export { normalizeEmail } from './email.js'
 
@@ -208,12 +209,25 @@ export async function verifyEmailOtp(input: {
           })
           if (consumed.count !== 1) return { kind: 'invalid' } as const
 
+          const existingUser = await tx.user.findUnique({
+            where: { email },
+            select: { id: true },
+          })
           const user = await tx.user.upsert({
             where: { email },
             create: { email, role: input.adminEmails.has(email) ? 'admin' : 'user' },
             update: {},
             select: { id: true, email: true, role: true },
           })
+          if (!existingUser) {
+            await enqueueDomainEvent(tx, {
+              dedupeKey: `user.created:${user.id}`,
+              topic: 'user.created',
+              aggregateId: user.id,
+              occurredAt: input.now,
+              payload: { userId: user.id },
+            })
+          }
           await tx.quotaAccount.upsert({
             where: { userId: user.id },
             create: { userId: user.id, limitBytes: input.defaultUserQuotaBytes },

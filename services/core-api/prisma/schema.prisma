@@ -55,6 +55,7 @@ model RefreshSession {
 
   @@index([familyId])
   @@index([userId, revokedAt])
+  @@index([lastUsedAt])
 }
 
 model QuotaAccount {
@@ -89,6 +90,7 @@ model UploadIntent {
   @@unique([userId, idempotencyKey])
   @@index([userId, status])
   @@index([targetFileId])
+  @@index([completedAt])
 }
 
 model QuotaReservation {
@@ -152,6 +154,7 @@ model FileVersion {
   uploadIntent   UploadIntent @relation(fields: [uploadIntentId], references: [id])
 
   @@unique([fileId, version])
+  @@index([createdAt])
 }
 
 model Share {
@@ -192,7 +195,59 @@ model OutboxEvent {
   availableAt   DateTime  @default(now())
   processedAt   DateTime?
   lastErrorCode String?
+  occurredAt    DateTime  @default(now())
   createdAt     DateTime  @default(now())
 
   @@index([processedAt, availableAt])
+}
+
+model AnalyticsDaily {
+  date           DateTime @id @db.Date
+  uploadsCount   BigInt   @default(0)
+  uploadsBytes   BigInt   @default(0)
+  downloadsCount BigInt   @default(0)
+  downloadsBytes BigInt   @default(0)
+  createdUsers   BigInt   @default(0)
+  updatedAt      DateTime @updatedAt
+}
+
+model AnalyticsDailyActiveUser {
+  date        DateTime @db.Date
+  userId      String
+  firstSeenAt DateTime
+
+  @@id([date, userId])
+}
+
+model AnalyticsEventReceipt {
+  sourceKey     String   @id
+  outboxEventId String?
+  topic         String
+  occurredAt    DateTime
+  processedAt   DateTime @default(now())
+
+  @@index([outboxEventId])
+}
+
+model AnalyticsCoverage {
+  metric       String   @id
+  startedAt    DateTime
+  complete     Boolean  @default(true)
+  gapStartedAt DateTime?
+  updatedAt    DateTime @updatedAt
+}
+
+model DownloadAttempt {
+  id            String   @id @default(uuid())
+  fileVersionId String
+  purpose       String
+  expectedBytes BigInt
+  status        String   @default("issued")
+  issuedAt      DateTime @default(now())
+  startedAt     DateTime?
+  completedAt   DateTime?
+  unknownAt     DateTime?
+
+  @@index([status, issuedAt])
+  @@index([fileVersionId])
 }

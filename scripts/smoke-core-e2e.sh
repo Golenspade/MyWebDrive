@@ -12,6 +12,7 @@ STORAGE_IMAGE="${TAG}-storage"
 WEB_IMAGE="${TAG}-web"
 NGINX_IMAGE="${TAG}-nginx"
 EMAIL_IMAGE="${TAG}-email"
+PROMETHEUS_IMAGE="${TAG}-prometheus"
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/mywebdrive-core-smoke.XXXXXX")
 OVERRIDE_FILE="$TEMP_DIR/compose.smoke.yml"
 COOKIE_JAR="$TEMP_DIR/cookies.txt"
@@ -42,6 +43,7 @@ export CORE_API_IMAGE="$CORE_IMAGE"
 export STORAGE_IMAGE="$STORAGE_IMAGE"
 export WEB_IMAGE="$WEB_IMAGE"
 export NGINX_IMAGE="$NGINX_IMAGE"
+export PROMETHEUS_IMAGE="$PROMETHEUS_IMAGE"
 
 compose() {
   docker compose -f "$COMPOSE_FILE" -f "$OVERRIDE_FILE" "$@"
@@ -65,7 +67,7 @@ cleanup() {
   if [[ -f "$OVERRIDE_FILE" ]]; then
     compose down --volumes --remove-orphans >/dev/null 2>&1
   fi
-  docker image rm "$CORE_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE" "$EMAIL_IMAGE" >/dev/null 2>&1
+  docker image rm "$CORE_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE" "$EMAIL_IMAGE" "$PROMETHEUS_IMAGE" >/dev/null 2>&1
   rm -rf "$TEMP_DIR"
   exit "$status"
 }
@@ -141,6 +143,7 @@ server.listen(Number(process.argv[1]), "127.0.0.1", () => server.close(() => pro
 docker build --file "$ROOT_DIR/services/core-api/Dockerfile" --tag "$CORE_IMAGE" "$ROOT_DIR"
 docker build --file "$ROOT_DIR/services/storage/Dockerfile" --tag "$STORAGE_IMAGE" "$ROOT_DIR"
 docker build --file "$ROOT_DIR/frontend/cruip-landing/Dockerfile" --tag "$WEB_IMAGE" "$ROOT_DIR"
+docker build --file "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" --tag "$PROMETHEUS_IMAGE" "$ROOT_DIR/infrastructure/alicloud/prometheus"
 if [[ $(docker info --format '{{.OperatingSystem}}') == 'Docker Desktop' ]]; then
   # Docker Desktop 28.4 on macOS can leave the BuildKit client waiting after
   # a successful Nginx image export. The narrow-context legacy path is local-only;
@@ -151,7 +154,7 @@ else
 fi
 docker build --file "$ROOT_DIR/scripts/smoke/fake-email/Dockerfile" --tag "$EMAIL_IMAGE" "$ROOT_DIR"
 
-for image in "$CORE_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE" "$EMAIL_IMAGE"; do
+for image in "$CORE_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE" "$EMAIL_IMAGE" "$PROMETHEUS_IMAGE"; do
   [[ "$(docker run --rm --entrypoint sh "$image" -c 'id -u')" != "0" ]] || fail "$image runs as root"
 done
 docker run --rm --read-only --tmpfs /tmp --entrypoint node "$WEB_IMAGE" -e "process.stdout.write('web readonly ok')" >/dev/null
@@ -165,8 +168,10 @@ compose up -d --wait fake-email postgres redis minio
 compose up --no-deps minio-init
 compose up --no-deps core-migrate
 compose up -d --wait --no-deps core-api
+compose up -d --wait --no-deps analytics-worker
 compose up -d --wait --no-deps storage-api
 compose up -d --wait --no-deps storage-worker
+compose up -d --wait --no-deps prometheus
 compose up -d --wait --no-deps web
 docker run --rm --network "${PROJECT}_default" --read-only \
   --tmpfs /tmp:uid=101,gid=101,mode=1777 \
@@ -181,7 +186,9 @@ request 200 "$TEMP_DIR/web-home.html" "$BASE_URL/"
 request 200 "$TEMP_DIR/web-publish.html" "$BASE_URL/admin/publish"
 request 404 "$TEMP_DIR/internal-exact.json" "$BASE_URL/api/v1/internal"
 request 404 "$TEMP_DIR/internal.json" "$BASE_URL/api/v1/internal/probe"
+request 404 "$TEMP_DIR/public-metrics.json" "$BASE_URL/metrics"
 wait_ready_status core-api http://127.0.0.1:8080/ready 200
+wait_ready_status analytics-worker http://127.0.0.1:8081/ready 200
 wait_ready_status storage-api http://127.0.0.1:7084/ready 200
 wait_ready_status storage-worker http://127.0.0.1:7085/ready 200
 compose exec -T core-api node -e "fetch('http://127.0.0.1:8080/version').then(async r=>{const b=await r.json();if(r.status!==200||b.gitSha!=='$GIT_SHA'||b.buildId!=='$IMAGE_TAG')process.exit(1)})"
@@ -209,6 +216,15 @@ request 200 "$TEMP_DIR/me.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/ap
 
 request 200 "$TEMP_DIR/quota.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/quota"
 [[ $(json_get "$TEMP_DIR/quota.json" limitBytes) == "$DEFAULT_USER_QUOTA_BYTES" ]] || fail 'default quota mismatch'
+
+request 200 "$TEMP_DIR/business-initial.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
+node -e '
+const fs=require("node:fs")
+const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))
+for (const field of [value.totals.totalUsers,value.totals.liveFiles,value.totals.committedStorageBytes]) {
+  if (typeof field!=="string") process.exit(1)
+}
+' "$TEMP_DIR/business-initial.json" || fail 'initial Business Analytics contract is invalid'
 
 printf 'core-first-storage-smoke-%s' "$RUN_ID" >"$TEMP_DIR/payload.bin"
 SIZE_BYTES=$(wc -c <"$TEMP_DIR/payload.bin" | tr -d ' ')
@@ -241,8 +257,8 @@ request 401 "$TEMP_DIR/private-replay.json" -H "Authorization: Bearer $PRIVATE_G
 request 201 "$TEMP_DIR/share.json" -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' --data '{"maxDownloads":1}' "$BASE_URL/api/v1/files/$FILE_ID/shares"
 SHARE_TOKEN=$(json_get "$TEMP_DIR/share.json" token)
 compose stop core-api
-request 502 "$TEMP_DIR/share-upstream-down.json" -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/shares/$SHARE_TOKEN/download-ticket"
-compose start core-api
+share_down_status=$(curl --silent --show-error --output "$TEMP_DIR/share-upstream-down.json" --write-out '%{http_code}' -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/shares/$SHARE_TOKEN/download-ticket")
+[[ "$share_down_status" == 502 || "$share_down_status" == 504 ]] || fail "share upstream failure returned $share_down_status"
 compose up -d --wait --no-deps core-api
 wait_ready_status core-api http://127.0.0.1:8080/ready 200
 curl --silent --show-error --output "$TEMP_DIR/share-ticket-1.json" --write-out '%{http_code}' -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/shares/$SHARE_TOKEN/download-ticket" >"$TEMP_DIR/share-status-1" &
@@ -268,6 +284,108 @@ PUBLIC_OBJECT=$(json_get "$TEMP_DIR/publication-ticket.json" objectKey)
 PUBLIC_GRANT=$(json_get "$TEMP_DIR/publication-ticket.json" downloadGrant)
 request 200 "$TEMP_DIR/publication-download.bin" -H "Authorization: Bearer $PUBLIC_GRANT" "$BASE_URL/api/v1/storage/objects/$PUBLIC_OBJECT"
 cmp "$TEMP_DIR/payload.bin" "$TEMP_DIR/publication-download.bin" >/dev/null || fail 'publication download bytes mismatch'
+
+dashboard_ready=0
+for _ in $(seq 1 60); do
+  request 200 "$TEMP_DIR/business.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
+  if node -e '
+const fs=require("node:fs")
+const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))
+const expectedBytes=(BigInt(process.argv[2])*3n).toString()
+if(value.activity.uploads.count!=="1")process.exit(1)
+if(value.activity.uploads.bytes!==process.argv[2])process.exit(1)
+if(value.activity.downloads.count!=="3")process.exit(1)
+if(value.activity.downloads.bytes!==expectedBytes)process.exit(1)
+for(const field of [value.activity.uploads.count,value.activity.uploads.bytes,value.activity.downloads.count,value.activity.downloads.bytes])if(typeof field!=="string")process.exit(1)
+' "$TEMP_DIR/business.json" "$SIZE_BYTES"; then dashboard_ready=1; break; fi
+  sleep 1
+done
+if [[ "$dashboard_ready" != 1 ]]; then
+  printf 'dashboard diagnostic response:\n' >&2
+  sed -E 's/("generatedAt"|"readModelUpdatedAt")[[:space:]]*:[[:space:]]*"[^"]+"/\1:"<timestamp>"/g' "$TEMP_DIR/business.json" >&2
+  compose exec -T postgres psql -U mywebdrive -d mywebdrive_core -c \
+    'SELECT "topic", ("processedAt" IS NOT NULL) AS processed, COUNT(*) FROM "OutboxEvent" GROUP BY 1,2 ORDER BY 1,2;' >&2
+  compose exec -T postgres psql -U mywebdrive -d mywebdrive_core -c \
+    'SELECT "status", COUNT(*) FROM "DownloadAttempt" GROUP BY 1 ORDER BY 1;' >&2
+  compose exec -T postgres psql -U mywebdrive -d mywebdrive_core -c \
+    'SELECT "date", "uploadsCount", "uploadsBytes", "downloadsCount", "downloadsBytes" FROM "AnalyticsDaily" ORDER BY "date";' >&2
+  compose logs --no-color --tail=80 core-api analytics-worker storage-api storage-worker >&2
+  fail 'Business Analytics did not reconcile upload/download facts'
+fi
+
+system_ready=0
+for _ in $(seq 1 30); do
+  status=$(curl --silent --show-error --output "$TEMP_DIR/system.json" --write-out '%{http_code}' -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/system?range=today")
+  if [[ "$status" == 200 ]] && node -e '
+const fs=require("node:fs")
+const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))
+if(!["available","partial"].includes(value.availability))process.exit(1)
+if(typeof value.traffic.requestsCount!=="string")process.exit(1)
+' "$TEMP_DIR/system.json"; then system_ready=1; break; fi
+  sleep 1
+done
+[[ "$system_ready" == 1 ]] || fail 'System Health did not become available'
+
+compose stop prometheus
+request 200 "$TEMP_DIR/business-without-prometheus.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
+request 200 "$TEMP_DIR/system-without-prometheus.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/system?range=today"
+[[ $(json_get "$TEMP_DIR/system-without-prometheus.json" availability) == partial ]] || fail 'System Health did not isolate Prometheus failure'
+request 200 "$TEMP_DIR/page-without-prometheus.html" "$BASE_URL/admin/overview"
+compose up -d --wait --no-deps prometheus
+
+compose stop analytics-worker
+request 200 "$TEMP_DIR/private-ticket-pending.json" -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/files/$FILE_ID/download-ticket"
+PENDING_OBJECT=$(json_get "$TEMP_DIR/private-ticket-pending.json" objectKey)
+PENDING_GRANT=$(json_get "$TEMP_DIR/private-ticket-pending.json" downloadGrant)
+request 200 "$TEMP_DIR/private-download-pending.bin" -H "Authorization: Bearer $PENDING_GRANT" "$BASE_URL/api/v1/storage/objects/$PENDING_OBJECT"
+cmp "$TEMP_DIR/payload.bin" "$TEMP_DIR/private-download-pending.bin" >/dev/null || fail 'pending analytics download bytes mismatch'
+sleep 2
+request 200 "$TEMP_DIR/business-worker-stopped.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
+[[ $(json_get "$TEMP_DIR/business-worker-stopped.json" activity.downloads.count) == 3 ]] || fail 'stopped Analytics Worker changed projections'
+compose up -d --wait --no-deps analytics-worker
+worker_drained=0
+for _ in $(seq 1 60); do
+  request 200 "$TEMP_DIR/business-worker-drained.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
+  if [[ $(json_get "$TEMP_DIR/business-worker-drained.json" activity.downloads.count) == 4 ]]; then worker_drained=1; break; fi
+  sleep 1
+done
+[[ "$worker_drained" == 1 ]] || fail 'Analytics Worker did not drain pending completion'
+compose restart analytics-worker >/dev/null
+compose up -d --wait --no-deps analytics-worker
+sleep 2
+request 200 "$TEMP_DIR/business-worker-replayed.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
+[[ $(json_get "$TEMP_DIR/business-worker-replayed.json" activity.downloads.count) == 4 ]] || fail 'Analytics Worker replay double-counted completion'
+
+compose exec -T postgres psql -U mywebdrive -d mywebdrive_core -v ON_ERROR_STOP=1 -c \
+  'UPDATE "AnalyticsCoverage" SET "startedAt" = (date_trunc('\''day'\'', NOW() AT TIME ZONE '\''Asia/Shanghai'\'') AT TIME ZONE '\''Asia/Shanghai'\''), "complete" = TRUE, "gapStartedAt" = NULL;' >/dev/null
+request 200 "$TEMP_DIR/business-before-unknown.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
+[[ $(json_get "$TEMP_DIR/business-before-unknown.json" coverage.complete) == true ]] || fail 'coverage fixture did not become complete before unknown transition'
+request 200 "$TEMP_DIR/private-ticket-unknown.json" -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/files/$FILE_ID/download-ticket"
+UNKNOWN_GRANT=$(json_get "$TEMP_DIR/private-ticket-unknown.json" downloadGrant)
+UNKNOWN_ATTEMPT=$(node -e '
+const payload = process.argv[1].split(".")[1]
+if (!payload) process.exit(1)
+const value = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"))
+if (typeof value.downloadAttemptId !== "string") process.exit(1)
+process.stdout.write(value.downloadAttemptId)
+' "$UNKNOWN_GRANT")
+[[ "$UNKNOWN_ATTEMPT" =~ ^[0-9a-f-]{36}$ ]] || fail 'download attempt id is invalid'
+compose exec -T postgres psql -U mywebdrive -d mywebdrive_core -v ON_ERROR_STOP=1 -c \
+  "UPDATE \"DownloadAttempt\" SET \"status\" = 'started', \"issuedAt\" = NOW() - INTERVAL '10 minutes', \"startedAt\" = NOW() - INTERVAL '10 minutes' WHERE \"id\" = '$UNKNOWN_ATTEMPT';" >/dev/null
+compose restart analytics-worker >/dev/null
+compose up -d --wait --no-deps analytics-worker
+unknown_degraded=0
+for _ in $(seq 1 30); do
+  request 200 "$TEMP_DIR/business-after-unknown.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
+  request 200 "$TEMP_DIR/system-after-unknown.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/system?range=today"
+  if [[ $(json_get "$TEMP_DIR/business-after-unknown.json" coverage.complete) == false ]] && \
+    [[ $(json_get "$TEMP_DIR/system-after-unknown.json" pipeline.downloadTelemetry) == degraded ]]; then
+    unknown_degraded=1
+    break
+  fi
+  sleep 1
+done
+[[ "$unknown_degraded" == 1 ]] || fail 'unknown download did not degrade Dashboard coverage and telemetry'
 
 request 204 "$TEMP_DIR/logout.out" --cookie "$COOKIE_JAR" -X POST "$BASE_URL/api/v1/auth/logout"
 request 401 "$TEMP_DIR/revoked.json" --cookie "$COOKIE_JAR" -X POST "$BASE_URL/api/v1/auth/refresh"
@@ -297,7 +415,7 @@ compose up -d --wait --no-deps storage-api storage-worker
 wait_ready_status storage-api http://127.0.0.1:7084/ready 200
 
 compose logs --no-color >"$TEMP_DIR/compose.log"
-for sensitive in "$EMAIL" "$OTP" "$CHALLENGE_ID" "$ACCESS_INITIAL" "$ACCESS" "$REFRESH_INITIAL" "$REFRESH_ROTATED" "$UPLOAD_GRANT" "$PRIVATE_GRANT" "$SHARE_TOKEN" "$SHARE_GRANT" "$PUBLIC_GRANT"; do
+for sensitive in "$EMAIL" "$OTP" "$CHALLENGE_ID" "$ACCESS_INITIAL" "$ACCESS" "$REFRESH_INITIAL" "$REFRESH_ROTATED" "$UPLOAD_GRANT" "$PRIVATE_GRANT" "$SHARE_TOKEN" "$SHARE_GRANT" "$PUBLIC_GRANT" "$PENDING_GRANT" "$UNKNOWN_GRANT"; do
   [[ -n "$sensitive" ]] || fail 'sensitive scan input is empty'
   if grep -Fq -- "$sensitive" "$TEMP_DIR/compose.log"; then fail 'sensitive value appeared in logs'; fi
 done

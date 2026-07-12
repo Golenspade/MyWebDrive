@@ -41,6 +41,10 @@ type UploadRouterDependencies = {
   sessionSecret: string
   grantSecret: string
   callbackSecret: string
+  uploadMetrics: {
+    recordSuccess(durationMs: number): void
+    recordFailure(durationMs: number): void
+  }
 }
 
 function parseNonnegativeBigInt(value: unknown): bigint {
@@ -169,6 +173,7 @@ export function createUploadRouter(deps: UploadRouterDependencies): express.Rout
       }
       return res.status(400).json({ error: 'invalid completion' })
     }
+    const startedAt = performance.now()
     try {
       const result = await completeUploadIntent({
         prisma: deps.prisma,
@@ -176,8 +181,10 @@ export function createUploadRouter(deps: UploadRouterDependencies): express.Rout
         completion,
         now: deps.now(),
       })
+      deps.uploadMetrics.recordSuccess(performance.now() - startedAt)
       return res.json(result)
     } catch (error) {
+      deps.uploadMetrics.recordFailure(performance.now() - startedAt)
       if (error instanceof UploadIntentNotFoundError) {
         return res.status(404).json({ error: 'upload intent not found' })
       }

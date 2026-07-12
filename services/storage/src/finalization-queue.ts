@@ -20,6 +20,7 @@ export interface StreamRedis {
   xgroup(...args: Array<string | number>): Promise<unknown>
   xreadgroup(...args: Array<string | number>): Promise<unknown>
   xautoclaim(...args: Array<string | number>): Promise<unknown>
+  xpending(...args: Array<string | number>): Promise<unknown>
   xack(...args: Array<string | number>): Promise<unknown>
 }
 
@@ -277,6 +278,15 @@ export class FinalizationQueue {
 
   async ack(id: string): Promise<void> {
     await this.redis.xack(STREAM, GROUP, id)
+  }
+
+  async pendingCount(): Promise<number> {
+    const summary = await this.redis.xpending(STREAM, GROUP)
+    const count = Array.isArray(summary) ? Number(summary[0]) : Number.NaN
+    if (!Number.isSafeInteger(count) || count < 0) {
+      throw new Error('invalid finalization pending summary')
+    }
+    return count
   }
 
   async deadLetter(input: {

@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
+import { createAppTelemetry, createStorageWorkerMetrics } from '@mywebdrive/observability'
 
 import { runWorker, WorkerLoopState } from '../worker.js'
 
@@ -13,6 +14,54 @@ const fresh = {
 }
 
 describe('worker loop liveness', () => {
+  test('updates bounded worker metrics for reclaim, completion, and dead letter', async () => {
+    const controller = new AbortController()
+    const telemetry = createAppTelemetry({ service: 'storage-worker' })
+    const metrics = createStorageWorkerMetrics(telemetry.register)
+    const malformed = {
+      id: '271-0',
+      kind: 'malformed' as const,
+      errorCode: 'invalid_download_event' as const,
+    }
+    const queue = {
+      ensureGroup: vi.fn(async () => undefined),
+      reclaim: vi.fn(async () => [fresh]),
+      read: vi.fn(async () => []),
+      ack: vi.fn(async () => undefined),
+      deadLetter: vi.fn(async () => undefined),
+      pendingCount: vi.fn(async () => 2),
+    }
+    const downloadEvents = {
+      ensureGroup: vi.fn(async () => undefined),
+      reclaim: vi.fn(async () => [malformed]),
+      read: vi.fn(async () => []),
+      ack: vi.fn(async () => undefined),
+      deadLetter: vi.fn(async () => controller.abort()),
+      pendingCount: vi.fn(async () => 3),
+    }
+
+    await runWorker({
+      storage: {
+        completeObject: vi.fn(async () => ({ sizeBytes: 1n, sha256: 'a'.repeat(64) })),
+        deleteParts: vi.fn(async () => undefined),
+      } as never,
+      queue: queue as never,
+      downloadEvents: downloadEvents as never,
+      callbackSecret: 'x'.repeat(32),
+      coreApiUrl: 'http://core.test',
+      signal: controller.signal,
+      callback: vi.fn(async () => ({ status: 200, body: '{}' })),
+      sleep: vi.fn(async () => undefined),
+      metrics,
+    })
+
+    const output = await telemetry.register.metrics()
+    expect(output).toMatch(/storage_worker_events_total\{[^}]*outcome="reclaimed"[^}]*\} 2/)
+    expect(output).toMatch(/storage_worker_events_total\{[^}]*outcome="completed"[^}]*\} 1/)
+    expect(output).toMatch(/storage_worker_events_total\{[^}]*outcome="dead-letter"[^}]*\} 1/)
+    expect(output).toMatch(/storage_worker_pending\{[^}]*\} 5/)
+  })
+
   test('backs off and resumes consumption after transient Redis read failure', async () => {
     const controller = new AbortController()
     const queue = {
@@ -35,6 +84,11 @@ describe('worker loop liveness', () => {
       signal: controller.signal,
       state,
       sleep,
+      downloadEvents: {
+        ensureGroup: vi.fn(async () => undefined),
+        reclaim: vi.fn(async () => []),
+        read: vi.fn(async () => []),
+      } as never,
     })
     expect(queue.reclaim).toHaveBeenCalledTimes(2)
     expect(queue.read).toHaveBeenCalledOnce()
@@ -91,6 +145,11 @@ describe('worker loop liveness', () => {
       state,
       callback,
       sleep: vi.fn(async () => undefined),
+      downloadEvents: {
+        ensureGroup: vi.fn(async () => undefined),
+        reclaim: vi.fn(async () => []),
+        read: vi.fn(async () => []),
+      } as never,
     })
     expect(queue.reclaim).toHaveBeenCalledOnce()
     expect(queue.read).toHaveBeenCalledOnce()
@@ -101,5 +160,139 @@ describe('worker loop liveness', () => {
       2, fresh.objectKey, fresh.parts, fresh.generation, fresh.expectedSize,
     )
     expect(callback).toHaveBeenCalledOnce()
+  })
+
+  test('polls download work fairly even while upload reclaim keeps returning poison', async () => {
+    const controller = new AbortController()
+    const uploadQueue = {
+      ensureGroup: vi.fn(async () => undefined),
+      reclaim: vi.fn(async () => [poison]),
+      read: vi.fn(async () => []),
+      ack: vi.fn(),
+      deadLetter: vi.fn(),
+    }
+    const downloadEvent = {
+      id: '271-0', kind: 'started' as const,
+      attemptId: '126b455f-b9e7-49b9-aab6-4cb1ff971328',
+      fileVersionId: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
+      expectedBytes: 1n,
+      occurredAt: new Date('2026-07-12T12:00:00.000Z'),
+    }
+    const downloadEvents = {
+      ensureGroup: vi.fn(async () => undefined),
+      reclaim: vi.fn(async () => [downloadEvent]),
+      read: vi.fn(async () => []),
+      ack: vi.fn(async () => controller.abort()),
+    }
+    const downloadCallback = vi.fn(async () => ({ status: 200, body: '{}' }))
+    await runWorker({
+      storage: {
+        completeObject: vi.fn(async () => { throw new Error('poison') }),
+      } as never,
+      queue: uploadQueue as never,
+      downloadEvents: downloadEvents as never,
+      callbackSecret: 'x'.repeat(32),
+      coreApiUrl: 'http://core.test',
+      signal: controller.signal,
+      callback: vi.fn(),
+      downloadCallback,
+      sleep: vi.fn(async () => undefined),
+    })
+    expect(uploadQueue.reclaim).toHaveBeenCalled()
+    expect(downloadEvents.reclaim).toHaveBeenCalled()
+    expect(downloadCallback).toHaveBeenCalledOnce()
+    expect(downloadEvents.ack).toHaveBeenCalledWith(downloadEvent.id)
+  })
+
+  test('attempts an earlier started callback before completed after outage reordering', async () => {
+    const controller = new AbortController()
+    const started = {
+      id: '271-0', kind: 'started' as const,
+      attemptId: '126b455f-b9e7-49b9-aab6-4cb1ff971328',
+      fileVersionId: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
+      expectedBytes: 1n,
+      occurredAt: new Date('2026-07-12T12:00:00.000Z'),
+    }
+    const completed = {
+      id: '272-0', kind: 'completed' as const,
+      attemptId: started.attemptId,
+      fileVersionId: started.fileVersionId,
+      bytes: 1n,
+      occurredAt: new Date('2026-07-12T12:00:01.000Z'),
+    }
+    const uploadQueue = {
+      ensureGroup: vi.fn(async () => undefined),
+      reclaim: vi.fn(async () => []),
+      read: vi.fn(async () => []),
+    }
+    const downloadEvents = {
+      ensureGroup: vi.fn(async () => undefined),
+      reclaim: vi.fn(async () => [completed, started]),
+      read: vi.fn(async () => []),
+      ack: vi.fn(),
+      deadLetter: vi.fn(),
+    }
+    const attempted: string[] = []
+    const downloadCallback = vi.fn(async (request: { kind: string }) => {
+      attempted.push(request.kind)
+      if (request.kind === 'completed') controller.abort()
+      return { status: request.kind === 'started' ? 503 : 425, body: '' }
+    })
+    await runWorker({
+      storage: {} as never,
+      queue: uploadQueue as never,
+      downloadEvents: downloadEvents as never,
+      callbackSecret: 'x'.repeat(32),
+      coreApiUrl: 'http://core.test',
+      signal: controller.signal,
+      callback: vi.fn(),
+      downloadCallback: downloadCallback as never,
+      sleep: vi.fn(async () => undefined),
+    })
+    expect(attempted).toEqual(['started', 'completed'])
+    expect(downloadEvents.ack).not.toHaveBeenCalled()
+    expect(downloadEvents.deadLetter).not.toHaveBeenCalled()
+  })
+
+  test('dead-letters a malformed stream entry by raw ID without invoking Core', async () => {
+    const controller = new AbortController()
+    const uploadQueue = {
+      ensureGroup: vi.fn(async () => undefined),
+      reclaim: vi.fn(async () => []),
+      read: vi.fn(async () => []),
+    }
+    const poison = {
+      id: '371-0',
+      kind: 'malformed' as const,
+      errorCode: 'invalid_download_event' as const,
+    }
+    const downloadEvents = {
+      ensureGroup: vi.fn(async () => undefined),
+      reclaim: vi.fn(async () => [poison]),
+      read: vi.fn(async () => {
+        controller.abort()
+        return []
+      }),
+      ack: vi.fn(),
+      deadLetter: vi.fn(async () => controller.abort()),
+    }
+    const downloadCallback = vi.fn()
+    await runWorker({
+      storage: {} as never,
+      queue: uploadQueue as never,
+      downloadEvents: downloadEvents as never,
+      callbackSecret: 'x'.repeat(32),
+      coreApiUrl: 'http://core.test',
+      signal: controller.signal,
+      callback: vi.fn(),
+      downloadCallback,
+      sleep: vi.fn(async () => undefined),
+    })
+    expect(downloadEvents.deadLetter).toHaveBeenCalledWith({
+      id: poison.id,
+      kind: poison.kind,
+      errorCode: poison.errorCode,
+    })
+    expect(downloadCallback).not.toHaveBeenCalled()
   })
 })

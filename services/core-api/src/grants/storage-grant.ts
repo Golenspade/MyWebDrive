@@ -4,6 +4,7 @@ const AUDIENCE = 'storage-api'
 const MAX_GRANT_SECONDS = 300
 const DOWNLOAD_GRANT_SECONDS = 60
 const CLOCK_SKEW_SECONDS = 30
+const MAX_DATABASE_BIGINT = 9_223_372_036_854_775_807n
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const PURPOSES = new Set<string>([
@@ -37,6 +38,9 @@ type UploadGrantInput = {
 type DownloadGrantInput = {
   purpose: Exclude<StorageGrantPurpose, 'upload'>
   objectKey: string
+  downloadAttemptId: string
+  fileVersionId: string
+  expectedBytes: bigint
   now: Date
   expiresAt: Date
   secret: string
@@ -72,6 +76,13 @@ export function issueStorageGrant(input: StorageGrantInput): string {
   }
   if (input.purpose === 'upload') {
     if (!UUID_PATTERN.test(input.uploadIntentId) || input.maxBytes <= 0n) invalidInput()
+  } else if (
+    !UUID_PATTERN.test(input.downloadAttemptId) ||
+    !UUID_PATTERN.test(input.fileVersionId) ||
+    input.expectedBytes < 0n ||
+    input.expectedBytes > MAX_DATABASE_BIGINT
+  ) {
+    invalidInput()
   }
 
   const issuedAt = Math.floor(input.now.getTime() / 1000)
@@ -97,7 +108,11 @@ export function issueStorageGrant(input: StorageGrantInput): string {
           uploadIntentId: input.uploadIntentId,
           maxBytes: input.maxBytes.toString(),
         }
-      : {}),
+      : {
+          downloadAttemptId: input.downloadAttemptId,
+          fileVersionId: input.fileVersionId,
+          expectedBytes: input.expectedBytes.toString(),
+        }),
     jti: randomUUID(),
     iat: issuedAt,
     exp: expiresAt,
@@ -170,7 +185,22 @@ export function verifyStorageGrant(
     payload.purpose === 'upload' &&
     (!UUID_PATTERN.test(String(payload.uploadIntentId)) ||
       typeof payload.maxBytes !== 'string' ||
-      !/^[1-9]\d*$/.test(payload.maxBytes))
+      !/^[1-9]\d*$/.test(payload.maxBytes) ||
+      payload.downloadAttemptId !== undefined ||
+      payload.fileVersionId !== undefined ||
+      payload.expectedBytes !== undefined)
+  ) {
+    throw new Error('invalid storage grant')
+  }
+  if (
+    DOWNLOAD_PURPOSES.has(String(payload.purpose)) &&
+    (!UUID_PATTERN.test(String(payload.downloadAttemptId)) ||
+      !UUID_PATTERN.test(String(payload.fileVersionId)) ||
+      typeof payload.expectedBytes !== 'string' ||
+      !/^(0|[1-9]\d*)$/.test(payload.expectedBytes) ||
+      BigInt(payload.expectedBytes) > MAX_DATABASE_BIGINT ||
+      payload.uploadIntentId !== undefined ||
+      payload.maxBytes !== undefined)
   ) {
     throw new Error('invalid storage grant')
   }

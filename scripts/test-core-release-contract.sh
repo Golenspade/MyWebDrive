@@ -102,7 +102,7 @@ expect_script_failure missing-deploy-migration "$FIXTURES/missing-deploy-migrate
 mkdir -p "$FIXTURES/fake-bin"
 cat > "$FIXTURES/fake-bin/docker" <<'EOF'
 #!/usr/bin/env bash
-printf 'CORE=%s EMAIL=%s STORAGE=%s WEB=%s NGINX=%s :: %s\n' "${CORE_API_IMAGE-}" "${EMAIL_PROVIDER_IMAGE-}" "${STORAGE_IMAGE-}" "${WEB_IMAGE-}" "${NGINX_IMAGE-}" "$*" >> "$DOCKER_CALL_LOG"
+printf 'CORE=%s EMAIL=%s STORAGE=%s WEB=%s NGINX=%s PROMETHEUS=%s :: %s\n' "${CORE_API_IMAGE-}" "${EMAIL_PROVIDER_IMAGE-}" "${STORAGE_IMAGE-}" "${WEB_IMAGE-}" "${NGINX_IMAGE-}" "${PROMETHEUS_IMAGE-}" "$*" >> "$DOCKER_CALL_LOG"
 if [[ -n "${DOCKER_BLOCK_FILE-}" && "$1" == compose && "$2" == version ]]; then
   : > "$DOCKER_ENTERED_FILE"
   while [[ ! -f "$DOCKER_BLOCK_FILE" ]]; do sleep 0.05; done
@@ -116,6 +116,7 @@ if [[ "$1" == image && "$2" == inspect ]]; then
     */mywebdrive-storage) digest=$(printf 'b%.0s' {1..64}) ;;
     */mywebdrive-web) digest=$(printf 'c%.0s' {1..64}) ;;
     */mywebdrive-nginx) digest=$(printf 'd%.0s' {1..64}) ;;
+    */mywebdrive-prometheus) digest=$(printf '6%.0s' {1..64}) ;;
     *) exit 1 ;;
   esac
   printf '%s@sha256:%s\n' "$repository" "$digest"
@@ -129,7 +130,8 @@ if [[ "$1" == compose && "$*" == *' config --images'* ]]; then
   storage=${STORAGE_IMAGE:-registry.example/mywebdrive-storage:${IMAGE_TAG}}
   web=${WEB_IMAGE:-registry.example/mywebdrive-web:${IMAGE_TAG}}
   nginx=${NGINX_IMAGE:-registry.example/mywebdrive-nginx:${IMAGE_TAG}}
-  printf '%s\n' "$core" "$email" "$storage" "$web" "$nginx"
+  prometheus=${PROMETHEUS_IMAGE:-registry.example/mywebdrive-prometheus:${IMAGE_TAG}}
+  printf '%s\n' "$core" "$email" "$storage" "$web" "$nginx" "$prometheus"
 fi
 exit 0
 EOF
@@ -215,21 +217,49 @@ email_digest="registry.example/mywebdrive-email-provider@sha256:$(printf 'e%.0s'
 storage_digest="registry.example/mywebdrive-storage@sha256:$(printf 'b%.0s' {1..64})"
 web_digest="registry.example/mywebdrive-web@sha256:$(printf 'c%.0s' {1..64})"
 nginx_digest="registry.example/mywebdrive-nginx@sha256:$(printf 'd%.0s' {1..64})"
-grep -F "CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'deployment did not switch Compose to RepoDigests\n' >&2; exit 1; }
+prometheus_digest="registry.example/mywebdrive-prometheus@sha256:$(printf '6%.0s' {1..64})"
+grep -F "CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest PROMETHEUS=$prometheus_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'deployment did not switch Compose to RepoDigests\n' >&2; exit 1; }
 manifest=$(find "$state_dir/history" -type f -name "*-$release_tag-*.manifest" -print -quit)
 grep -Fx "CORE_API_IMAGE=$core_digest" "$manifest" >/dev/null
 grep -Fx "EMAIL_PROVIDER_IMAGE=$email_digest" "$manifest" >/dev/null
 grep -Fx "STORAGE_IMAGE=$storage_digest" "$manifest" >/dev/null
 grep -Fx "WEB_IMAGE=$web_digest" "$manifest" >/dev/null
 grep -Fx "NGINX_IMAGE=$nginx_digest" "$manifest" >/dev/null
+grep -Fx "PROMETHEUS_IMAGE=$prometheus_digest" "$manifest" >/dev/null
 
 : > "$FIXTURES/docker.log"
 PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$state_dir" "$ROOT_DIR/infrastructure/alicloud/rollback.sh" "$release_tag" >/dev/null
-grep -F "CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'rollback did not deploy the recorded digest manifest\n' >&2; exit 1; }
+grep -F "CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest PROMETHEUS=$prometheus_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'rollback did not deploy the recorded digest manifest\n' >&2; exit 1; }
 if grep -F 'image inspect' "$FIXTURES/docker.log" >/dev/null; then printf 'rollback resolved a mutable tag instead of using its manifest\n' >&2; exit 1; fi
 
+legacy_tag=sha-4444444444444444444444444444444444444444
+legacy_state="$FIXTURES/legacy-state"
+mkdir -p "$legacy_state/history"
+printf 'PROMETHEUS_IMAGE=%s\n' "$prometheus_digest" > "$legacy_state/current.env"
+legacy_manifest="$legacy_state/history/20260710T000000Z-$legacy_tag-1.manifest"
+printf '%s\n' \
+  "IMAGE_TAG=$legacy_tag" \
+  "CORE_API_IMAGE=$core_digest" \
+  "EMAIL_PROVIDER_IMAGE=$email_digest" \
+  "STORAGE_IMAGE=$storage_digest" \
+  "WEB_IMAGE=$web_digest" \
+  "NGINX_IMAGE=$nginx_digest" > "$legacy_manifest"
+: > "$FIXTURES/docker.log"
+PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$legacy_state" "$ROOT_DIR/infrastructure/alicloud/deploy.sh" --manifest "$legacy_manifest" "$legacy_tag" >/dev/null
+grep -F 'compose --env-file' "$FIXTURES/docker.log" | grep -F ' stop analytics-worker' >/dev/null || { printf 'legacy rollback did not stop the unsupported analytics worker\n' >&2; exit 1; }
+if grep -F ' up -d --no-deps ' "$FIXTURES/docker.log" | grep -F 'analytics-worker' >/dev/null; then
+  printf 'legacy rollback attempted to start an unsupported analytics worker\n' >&2
+  exit 1
+fi
+legacy_result=$(find "$legacy_state/history" -type f -name "*-$legacy_tag-*.manifest" ! -path "$legacy_manifest" -print -quit)
+[[ -n "$legacy_result" ]] || { printf 'legacy rollback did not record its resulting release\n' >&2; exit 1; }
+if grep -F 'ANALYTICS_WORKER_CONTAINER_IMAGE_ID=' "$legacy_result" >/dev/null; then
+  printf 'legacy rollback incorrectly recorded an analytics worker\n' >&2
+  exit 1
+fi
+
 malicious="$FIXTURES/malicious.manifest"
-printf '%s\n' "IMAGE_TAG=$release_tag" 'CORE_API_IMAGE=$(touch /tmp/contract-pwned)' "EMAIL_PROVIDER_IMAGE=$email_digest" "STORAGE_IMAGE=$storage_digest" "WEB_IMAGE=$web_digest" "NGINX_IMAGE=$nginx_digest" > "$malicious"
+printf '%s\n' "IMAGE_TAG=$release_tag" 'CORE_API_IMAGE=$(touch /tmp/contract-pwned)' "EMAIL_PROVIDER_IMAGE=$email_digest" "STORAGE_IMAGE=$storage_digest" "WEB_IMAGE=$web_digest" "NGINX_IMAGE=$nginx_digest" "PROMETHEUS_IMAGE=$prometheus_digest" > "$malicious"
 rm -f /tmp/contract-pwned
 : > "$FIXTURES/docker.log"
 set +e

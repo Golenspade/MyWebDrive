@@ -15,6 +15,7 @@
     "test": "vitest run src"
   },
   "dependencies": {
+    "@mywebdrive/observability": "workspace:*",
     "ali-oss": "6.23.0",
     "express": "^4.19.2",
     "helmet": "^8.1.0",

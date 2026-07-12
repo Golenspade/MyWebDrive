@@ -3,6 +3,7 @@ import { createHash, scrypt as nodeScrypt, timingSafeEqual } from 'node:crypto'
 import { Prisma, type PrismaClient } from '@prisma/client'
 
 import { encodeCursor, type CursorContext } from '../files/service.js'
+import { createDownloadAttempt } from '../analytics/download-attempt.js'
 import {
   issueDownloadStorageGrant,
   type StorageGrantPurpose,
@@ -269,6 +270,9 @@ function ticket(input: {
   objectKey: string
   fileName: string
   mimeType: string
+  downloadAttemptId: string
+  fileVersionId: string
+  expectedBytes: bigint
   now: Date
   grantSecret: string
 }) {
@@ -277,6 +281,9 @@ function ticket(input: {
     downloadGrant: issueDownloadStorageGrant({
       purpose: input.purpose,
       objectKey: input.objectKey,
+      downloadAttemptId: input.downloadAttemptId,
+      fileVersionId: input.fileVersionId,
+      expectedBytes: input.expectedBytes,
       now: input.now,
       secret: input.grantSecret,
     }),
@@ -300,17 +307,27 @@ export async function issuePrivateTicket(input: {
       versions: {
         orderBy: { version: 'desc' },
         take: 1,
-        select: { objectKey: true, mimeType: true },
+        select: { id: true, objectKey: true, sizeBytes: true, mimeType: true },
       },
     },
   })
   const version = file?.versions[0]
   if (!file || !version) throw new SharingNotFoundError()
+  const attempt = await createDownloadAttempt({
+    prisma: input.prisma,
+    fileVersionId: version.id,
+    purpose: 'private',
+    expectedBytes: version.sizeBytes,
+    now: input.now,
+  })
   return ticket({
     purpose: 'download-private',
     objectKey: version.objectKey,
     fileName: file.name,
     mimeType: version.mimeType,
+    downloadAttemptId: attempt.id,
+    fileVersionId: version.id,
+    expectedBytes: version.sizeBytes,
     now: input.now,
     grantSecret: input.grantSecret,
   })
@@ -353,7 +370,7 @@ export async function issueShareTicket(input: {
             versions: {
               orderBy: { version: 'desc' },
               take: 1,
-              select: { objectKey: true, mimeType: true },
+              select: { id: true, objectKey: true, sizeBytes: true, mimeType: true },
             },
           },
         },
@@ -383,7 +400,15 @@ export async function issueShareTicket(input: {
       RETURNING share."id"
     `)
     if (consumed.length !== 1) throw new ShareUnavailableError()
-    return { fileName: share.file.name, ...version }
+    const attempt = await tx.downloadAttempt.create({
+      data: {
+        fileVersionId: version.id,
+        purpose: 'share',
+        expectedBytes: version.sizeBytes,
+        issuedAt: input.now,
+      },
+    })
+    return { fileName: share.file.name, downloadAttemptId: attempt.id, ...version }
   })
 
   return ticket({
@@ -391,6 +416,9 @@ export async function issueShareTicket(input: {
     objectKey: selected.objectKey,
     fileName: selected.fileName,
     mimeType: selected.mimeType,
+    downloadAttemptId: selected.downloadAttemptId,
+    fileVersionId: selected.id,
+    expectedBytes: selected.sizeBytes,
     now: input.now,
     grantSecret: input.grantSecret,
   })
@@ -536,7 +564,7 @@ export async function issuePublicationTicket(input: {
           versions: {
             orderBy: { version: 'desc' },
             take: 1,
-            select: { objectKey: true, mimeType: true },
+            select: { id: true, objectKey: true, sizeBytes: true, mimeType: true },
           },
         },
       },
@@ -544,11 +572,21 @@ export async function issuePublicationTicket(input: {
   })
   const version = publication?.file.versions[0]
   if (!publication || !version) throw new PublicationUnavailableError()
+  const attempt = await createDownloadAttempt({
+    prisma: input.prisma,
+    fileVersionId: version.id,
+    purpose: 'publication',
+    expectedBytes: version.sizeBytes,
+    now: input.now,
+  })
   return ticket({
     purpose: 'download-publication',
     objectKey: version.objectKey,
     fileName: publication.file.name,
     mimeType: version.mimeType,
+    downloadAttemptId: attempt.id,
+    fileVersionId: version.id,
+    expectedBytes: version.sizeBytes,
     now: input.now,
     grantSecret: input.grantSecret,
   })

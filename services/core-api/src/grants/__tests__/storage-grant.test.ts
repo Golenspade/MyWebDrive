@@ -32,15 +32,23 @@ describe('storage grants', () => {
     'download-publication',
   ] as const)('issues an exact 60-second %s grant', (purpose) => {
     const now = new Date('2026-07-11T08:00:00.000Z')
+    const downloadAttemptId = '126b455f-b9e7-49b9-aab6-4cb1ff971328'
+    const fileVersionId = '16232aef-1f26-4bb4-98ba-ccc72d7f3915'
     const token = issueDownloadStorageGrant({
       purpose,
       objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
+      downloadAttemptId,
+      fileVersionId,
+      expectedBytes: 80n,
       now,
       secret: 'storage-grant-test-secret-at-least-32-bytes',
     })
 
     expect(decodePart(token, 1)).toMatchObject({
       purpose,
+      downloadAttemptId,
+      fileVersionId,
+      expectedBytes: '80',
       iat: Math.floor(now.getTime() / 1000),
       exp: Math.floor(now.getTime() / 1000) + 60,
     })
@@ -51,10 +59,39 @@ describe('storage grants', () => {
       issueDownloadStorageGrant({
         purpose: 'upload' as 'download-private',
         objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
+        downloadAttemptId: '126b455f-b9e7-49b9-aab6-4cb1ff971328',
+        fileVersionId: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
+        expectedBytes: 80n,
         now: new Date('2026-07-11T08:00:00.000Z'),
         secret: 'storage-grant-test-secret-at-least-32-bytes',
       }),
     ).toThrow('invalid storage grant input')
+  })
+
+  test.each([
+    ['missing attempt', { downloadAttemptId: undefined }],
+    ['wrong version shape', { fileVersionId: 'not-a-uuid' }],
+    ['zero-padded bytes', { expectedBytes: '080' }],
+    ['unexpected upload claim', { uploadIntentId: '126b455f-b9e7-49b9-aab6-4cb1ff971328' }],
+  ])('rejects a hand-signed download grant with %s', (_label, mutation) => {
+    const now = new Date('2026-07-11T08:00:00.000Z')
+    const secret = 'storage-grant-test-secret-at-least-32-bytes'
+    const change: Record<string, unknown> = mutation
+    const payload: Record<string, unknown> = {
+      aud: 'storage-api',
+      purpose: 'download-private',
+      objectKey: '5dd0d998-ec26-4fbd-9589-eca8aa9a9311',
+      downloadAttemptId: '126b455f-b9e7-49b9-aab6-4cb1ff971328',
+      fileVersionId: '16232aef-1f26-4bb4-98ba-ccc72d7f3915',
+      expectedBytes: '80',
+      jti: 'e4983ebf-91a9-427b-bd9f-fad43bc3b1b0',
+      iat: Math.floor(now.getTime() / 1000),
+      exp: Math.floor(now.getTime() / 1000) + 60,
+      ...change,
+    }
+    if (change.downloadAttemptId === undefined) delete payload.downloadAttemptId
+    expect(() => verifyStorageGrant(signStorageGrant(payload, secret), secret, now))
+      .toThrow('invalid storage grant')
   })
 
   test('issues the exact upload grant contract with an independent secret', () => {

@@ -489,6 +489,7 @@ export async function completeUploadIntent(input: {
         uploadIntentId: intent.id,
         sizeBytes: intent.sizeBytes,
         sha256: input.completion.sha256,
+        occurredAt: input.now,
       })
       const transitioned = await tx.uploadIntent.updateMany({
         where: { id: intent.id, status: { in: ['created', 'uploading', 'finalizing'] } },

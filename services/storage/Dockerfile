@@ -10,7 +10,7 @@ RUN pnpm install --frozen-lockfile --filter storage-service-node...
 COPY packages/common packages/common
 COPY packages/observability packages/observability
 COPY services/storage services/storage
-RUN pnpm --filter storage-service-node build
+RUN pnpm --filter storage-service-node... build
 
 FROM node:20.18.3-alpine3.21 AS runtime
 
@@ -20,6 +20,9 @@ COPY --from=build --chown=node:node /workspace/node_modules ./node_modules
 COPY --from=build --chown=node:node /workspace/services/storage/package.json ./services/storage/package.json
 COPY --from=build --chown=node:node /workspace/services/storage/node_modules ./services/storage/node_modules
 COPY --from=build --chown=node:node /workspace/services/storage/dist ./services/storage/dist
+COPY --from=build --chown=node:node /workspace/packages/observability/package.json ./packages/observability/package.json
+COPY --from=build --chown=node:node /workspace/packages/observability/dist ./packages/observability/dist
+COPY --from=build --chown=node:node /workspace/packages/observability/node_modules ./packages/observability/node_modules
 USER node
 EXPOSE 7084 7085
 WORKDIR /workspace/services/storage

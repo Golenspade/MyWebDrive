@@ -12,6 +12,12 @@ export type CoreConfig = {
   defaultUserQuotaBytes: bigint
 }
 
+export type AnalyticsWorkerConfig = {
+  nodeEnv: string
+  port: number
+  databaseUrl: string
+}
+
 type Environment = Record<string, string | undefined>
 const MAX_DATABASE_BIGINT = 9_223_372_036_854_775_807n
 
@@ -82,6 +88,14 @@ function parsePort(value: string | undefined): number {
   return port
 }
 
+function parseAnalyticsWorkerPort(value: string | undefined): number {
+  const port = Number(value ?? '8081')
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error('ANALYTICS_WORKER_PORT must be an integer between 1 and 65535')
+  }
+  return port
+}
+
 function parseDefaultUserQuotaBytes(value: string | undefined): bigint {
   if (value === undefined || !/^(0|[1-9]\d*)$/.test(value)) {
     throw new Error('DEFAULT_USER_QUOTA_BYTES must be a nonnegative decimal integer')
@@ -137,5 +151,17 @@ export function loadCoreConfig(env: Environment = process.env): CoreConfig {
     emailProviderUrl,
     emailProviderToken,
     defaultUserQuotaBytes: parseDefaultUserQuotaBytes(env.DEFAULT_USER_QUOTA_BYTES),
+  }
+}
+
+export function loadAnalyticsWorkerConfig(
+  env: Environment = process.env,
+): AnalyticsWorkerConfig {
+  return {
+    nodeEnv: env.NODE_ENV ?? 'development',
+    port: parseAnalyticsWorkerPort(env.ANALYTICS_WORKER_PORT),
+    databaseUrl:
+      env.CORE_DATABASE_URL ??
+      'postgresql://postgres:postgres@127.0.0.1:5432/mywebdrive_core?schema=public',
   }
 }

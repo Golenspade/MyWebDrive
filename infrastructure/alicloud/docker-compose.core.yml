@@ -104,6 +104,7 @@ services:
 
   core-api:
     image: ${CORE_API_IMAGE:-${REGISTRY:?REGISTRY is required}/mywebdrive-core-api:${IMAGE_TAG:?IMAGE_TAG is required}}
+    command: ["node", "dist/index.js", "api"]
     restart: unless-stopped
     read_only: true
     cap_drop: ["ALL"]
@@ -123,6 +124,7 @@ services:
       EMAIL_PROVIDER_TOKEN: ${EMAIL_PROVIDER_TOKEN:?EMAIL_PROVIDER_TOKEN is required}
       DEFAULT_USER_QUOTA_BYTES: ${DEFAULT_USER_QUOTA_BYTES:-10737418240}
       CORE_ADMIN_EMAILS: ${CORE_ADMIN_EMAILS:-}
+      PROMETHEUS_URL: http://prometheus:9090
       GIT_SHA: ${GIT_SHA:-unknown}
       BUILD_ID: ${IMAGE_TAG:?IMAGE_TAG is required}
     depends_on:
@@ -134,6 +136,30 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8080/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  analytics-worker:
+    image: ${CORE_API_IMAGE:-${REGISTRY:?REGISTRY is required}/mywebdrive-core-api:${IMAGE_TAG:?IMAGE_TAG is required}}
+    command: ["node", "dist/index.js", "analytics-worker"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=1777
+    environment:
+      NODE_ENV: production
+      ANALYTICS_WORKER_PORT: "8081"
+      CORE_DATABASE_URL: ${CORE_DATABASE_URL:?CORE_DATABASE_URL is required}
+      GIT_SHA: ${GIT_SHA:-unknown}
+      BUILD_ID: ${IMAGE_TAG:?IMAGE_TAG is required}
+    depends_on:
+      core-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8081/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -197,6 +223,34 @@ services:
       timeout: 3s
       retries: 20
 
+  prometheus:
+    image: ${PROMETHEUS_IMAGE:-${REGISTRY:?REGISTRY is required}/mywebdrive-prometheus:${IMAGE_TAG:?IMAGE_TAG is required}}
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=30d
+      - --web.listen-address=0.0.0.0:9090
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:uid=65534,gid=65534,mode=1777
+    volumes:
+      - prometheus-data:/prometheus
+    depends_on:
+      core-api:
+        condition: service_healthy
+      storage-api:
+        condition: service_healthy
+      storage-worker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9090/-/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
   web:
     image: ${WEB_IMAGE:-${REGISTRY:?REGISTRY is required}/mywebdrive-web:${IMAGE_TAG:?IMAGE_TAG is required}}
     restart: unless-stopped
@@ -246,3 +300,4 @@ volumes:
   postgres-data:
   redis-data:
   minio-data:
+  prometheus-data:

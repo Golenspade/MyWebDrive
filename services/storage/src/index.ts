@@ -1,8 +1,17 @@
-import express from 'express'
-import helmet from 'helmet'
+import {
+  createAppTelemetry,
+  createDependencyReadinessMetrics,
+  createDownloadMetrics,
+  createStorageWorkerMetrics,
+} from '@mywebdrive/observability'
 
 import { createStorageApi } from './api.js'
 import { connectRuntimeRedis, createApiRuntime, createWorkerRuntime } from './runtime.js'
+import {
+  checkStorageWorkerDependencies,
+  createStorageApiApp,
+  createStorageWorkerHealthApp,
+} from './server.js'
 import { runWorker, WorkerLoopState } from './worker.js'
 
 async function main(): Promise<void> {
@@ -10,21 +19,23 @@ async function main(): Promise<void> {
   if (command !== 'api' && command !== 'worker') {
     throw new Error('usage: node dist/index.js api|worker')
   }
-  const app = express()
-  app.disable('x-powered-by')
-  app.use(helmet({ contentSecurityPolicy: false }))
-
   if (command === 'api') {
     const runtime = createApiRuntime()
     await connectRuntimeRedis(runtime.redis)
-    app.use(
-      createStorageApi({
+    const telemetry = createAppTelemetry({ service: 'storage-api' })
+    const dependencyMetrics = createDependencyReadinessMetrics(telemetry.register)
+    const app = createStorageApiApp({
+      telemetry,
+      router: createStorageApi({
         storage: runtime.storage,
         redis: runtime.redis,
         queue: runtime.queue,
+        downloadEvents: runtime.downloadEvents,
         grantSecret: runtime.grantSecret,
+        downloadMetrics: createDownloadMetrics(telemetry.register),
+        dependencyMetrics,
       }),
-    )
+    })
     const server = app.listen(runtime.apiPort)
     const stop = () => server.close(() => void runtime.redis.quit())
     process.once('SIGTERM', stop)
@@ -35,15 +46,22 @@ async function main(): Promise<void> {
   const runtime = createWorkerRuntime()
   await connectRuntimeRedis(runtime.redis)
   const workerState = new WorkerLoopState()
-  app.get('/live', (_req, res) => res.json({ status: 'live', service: 'storage-worker' }))
-  app.get('/ready', async (_req, res) => {
-    try {
-      if (!workerState.isReady()) throw new Error('worker loop unavailable')
-      await Promise.all([runtime.queue.ready(), runtime.storage.ready()])
-      return res.json({ status: 'ready', service: 'storage-worker' })
-    } catch {
-      return res.status(503).json({ status: 'not_ready', service: 'storage-worker' })
-    }
+  const telemetry = createAppTelemetry({ service: 'storage-worker' })
+  const dependencyMetrics = createDependencyReadinessMetrics(telemetry.register)
+  const workerMetrics = createStorageWorkerMetrics(telemetry.register)
+  const app = createStorageWorkerHealthApp({
+    state: workerState,
+    telemetry,
+    ready: async () => {
+      await checkStorageWorkerDependencies({
+        redis: () => Promise.all([
+          runtime.queue.ready(),
+          runtime.downloadEvents.ready(),
+        ]),
+        objectStore: () => runtime.storage.ready(),
+        metrics: dependencyMetrics,
+      })
+    },
   })
   const server = app.listen(runtime.workerPort)
   const controller = new AbortController()
@@ -54,10 +72,12 @@ async function main(): Promise<void> {
     await runWorker({
       storage: runtime.storage,
       queue: runtime.queue,
+      downloadEvents: runtime.downloadEvents,
       callbackSecret: runtime.callbackSecret,
       coreApiUrl: runtime.coreApiUrl,
       signal: controller.signal,
       state: workerState,
+      metrics: workerMetrics,
     })
   } finally {
     process.off('SIGTERM', stop)

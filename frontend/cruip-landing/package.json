@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -p 4323",
     "lint": "next lint",
-    "test": "vitest run lib/auth/__tests__/cookie-mutation-coordinator.test.ts lib/api/__tests__/core-cutover-contract.test.ts",
+    "test": "vitest run lib/auth/__tests__/cookie-mutation-coordinator.test.ts lib/api/__tests__/core-cutover-contract.test.ts lib/api/__tests__/dashboard-contract.test.ts",
     "test:auth": "vitest run lib/auth/__tests__/cookie-mutation-coordinator.test.ts"
   },
   "dependencies": {

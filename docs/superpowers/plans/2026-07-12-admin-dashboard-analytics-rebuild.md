@@ -274,7 +274,7 @@ Update the object download route to:
 2. consume the one-time grant;
 3. append `started` before sending headers/body;
 4. count bytes and observe abort;
-5. append `completed` only after source completion with exact bytes;
+5. append `completed` only after source completion with exact bytes and the response `finish` event;
 6. never append completion on abort or mismatch.
 
 Run: `pnpm -C services/storage test -- src/__tests__/download-completion.test.ts`

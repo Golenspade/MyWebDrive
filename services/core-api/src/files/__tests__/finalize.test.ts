@@ -181,6 +181,7 @@ integration('transactional upload finalization', () => {
     expect(await prisma.quotaAccount.findUniqueOrThrow({ where: { userId: user.id } })).toMatchObject({ reservedBytes: 0n, committedBytes: 10n })
     const event = await prisma.outboxEvent.findFirstOrThrow()
     expect(event.dedupeKey).toBe(`file.version.created:${responses[0]?.body.versionId}`)
+    expect(event.occurredAt).toEqual(now)
     expect(event.payload).toEqual({
       fileId: responses[0]?.body.fileId,
       versionId: responses[0]?.body.versionId,
