@@ -1,6 +1,6 @@
 # Admin Dashboard Analytics Rebuild Design
 
-- **Status:** Proposed for written review
+- **Status:** Approved for implementation
 - **Date:** 2026-07-12
 - **Scope:** Rebuild the Admin Dashboard data subsystem around a Core Read Model, an Analytics Worker, and private Prometheus telemetry.
 
