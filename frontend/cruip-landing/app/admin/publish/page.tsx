@@ -1,415 +1,254 @@
-"use client"
+'use client'
 
-import { useCallback, useState } from 'react'
-import { cn } from '@/lib/utils'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Textarea } from '@/components/ui/textarea'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { Checkbox } from '@/components/ui/checkbox'
-import { useAuthStore } from '@/lib/stores/auth-store'
-import { useToast } from '@/components/ui/use-toast'
 import { apiClient } from '@/lib/api/client'
+import type { FileItem } from '@/lib/api/files'
+import { useProtectedAdmin } from '@/lib/hooks/use-protected'
 
-type FileItem = {
+type FilesResponse = {
+  items: FileItem[]
+  nextCursor: string | null
+}
+
+type PublicationStatus = 'draft' | 'published'
+
+type Publication = {
   id: string
-  name: string
-  size: number
-  mimeType?: string
+  fileId: string
+  slug: string
+  status: PublicationStatus | 'disabled'
   createdAt: string
   updatedAt: string
 }
 
-type CatalogFormData = {
-  slug: string
-  name: string
-  description: string
-  category: string
-  license: string
-  repo: string
-  version: string
-  channel: 'stable' | 'beta' | 'dev'
-  os: 'windows' | 'darwin' | 'linux' | 'any'
-  arch: 'amd64' | 'arm64' | 'any'
-  public: boolean
-  url: string
-}
-type CatalogRelease = {
-  version: string
-  channel: string
-  assets?: unknown[]
+type PageStatus = 'loading' | 'ready' | 'error'
+
+function suggestedSlug(name: string) {
+  return name
+    .replace(/\.[^/.]+$/, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64)
+    .replace(/-+$/g, '')
 }
 
-type CatalogPreview = {
-  slug: string
-  name?: string
-  description?: string
-  releases?: CatalogRelease[]
-}
-
-function fmtSize(n: number) {
-  if (!n) return '0 B'
-  const units = ['B','KB','MB','GB','TB']
-  let i = 0
-  let v = n
-  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++ }
-  return `${v.toFixed(i === 0 ? 0 : 2)} ${units[i]}`
+function formatBytes(value: string) {
+  let bytes: bigint
+  try {
+    bytes = BigInt(value)
+  } catch {
+    return `${value} B`
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'] as const
+  let unit = 0
+  let divisor = BigInt(1)
+  const radix = BigInt(1024)
+  while (unit < units.length - 1 && bytes >= divisor * radix) {
+    divisor *= radix
+    unit += 1
+  }
+  if (unit === 0) return `${bytes} B`
+  const whole = bytes / divisor
+  const decimal = ((bytes % divisor) * BigInt(100)) / divisor
+  return `${whole}.${decimal.toString().padStart(2, '0')} ${units[unit]}`
 }
 
 export default function AdminPublishPage() {
-  const { isAuthenticated, role } = useAuthStore()
-  const { toast } = useToast()
-
-  const [searchQuery, setSearchQuery] = useState('')
+  const { ready } = useProtectedAdmin()
+  const [status, setStatus] = useState<PageStatus>('loading')
+  const [error, setError] = useState('')
   const [files, setFiles] = useState<FileItem[]>([])
-  const [loading, setLoading] = useState(false)
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [searchQuery, setSearchQuery] = useState('')
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null)
+  const [slug, setSlug] = useState('')
+  const [publicationStatus, setPublicationStatus] = useState<PublicationStatus>('published')
+  const [publishing, setPublishing] = useState(false)
+  const [published, setPublished] = useState<Publication | null>(null)
 
-  const [formData, setFormData] = useState<CatalogFormData>({
-    slug: '',
-    name: '',
-    description: '',
-    category: '',
-    license: '',
-    repo: '',
-    version: '1.0.0',
-    channel: 'stable',
-    os: 'any',
-    arch: 'any',
-    public: true,
-    url: '',
-  })
-
-  const [previewOpen, setPreviewOpen] = useState(false)
-  const [previewData, setPreviewData] = useState<CatalogPreview | null>(null)
-
-  // Search files in uploaded assets for admin to publish.
-  const searchFiles = useCallback(async () => {
-    if (!isAuthenticated || role !== 'admin') return
-    setLoading(true)
+  const loadFiles = useCallback(async (cursor?: string) => {
+    if (cursor) setLoadingMore(true)
+    else setStatus('loading')
+    setError('')
     try {
-      const qs = `?q=${encodeURIComponent(searchQuery)}&only=files`
-      const response = await apiClient.get<{ items: FileItem[] }>(`/search${qs}`)
-      setFiles(response.items || [])
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      toast({
-        title: '搜索失败',
-        description: message || '无法搜索文件',
-      })
+      const response = cursor
+        ? await apiClient.get<FilesResponse>(
+          `/files?limit=100&cursor=${encodeURIComponent(cursor)}`,
+        )
+        : await apiClient.get<FilesResponse>('/files?limit=100')
+      setFiles((current) => cursor ? [...current, ...response.items] : response.items)
+      setNextCursor(response.nextCursor)
+      setStatus('ready')
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : '文件列表加载失败')
+      if (!cursor) setStatus('error')
     } finally {
-      setLoading(false)
+      setLoadingMore(false)
     }
-  }, [isAuthenticated, role, searchQuery, toast])
+  }, [])
+
+  useEffect(() => {
+    if (ready) void loadFiles()
+  }, [ready, loadFiles])
+
+  const visibleFiles = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase()
+    return files.filter((file) =>
+      file.type === 'file' &&
+      file.currentVersion !== null &&
+      (!query || file.name.toLocaleLowerCase().includes(query)),
+    )
+  }, [files, searchQuery])
 
   function selectFile(file: FileItem) {
     setSelectedFile(file)
-    const baseName = file.name.replace(/\.[^/.]+$/, '')
-    setFormData(prev => ({
-      ...prev,
-      slug: prev.slug || baseName.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
-      name: prev.name || baseName,
-    }))
+    setSlug(suggestedSlug(file.name))
+    setPublished(null)
+    setError('')
   }
 
-  async function publishCatalog() {
-    if (!selectedFile) {
-      toast({ title: '错误', description: '请先选择要发布的文件' })
-      return
-    }
-
-    if (!formData.slug || !formData.version) {
-      toast({ title: '错误', description: 'Slug 和 Version 是必填项' })
-      return
-    }
-
-    setLoading(true)
+  async function publish() {
+    if (!selectedFile?.currentVersion || !slug.trim()) return
+    setPublishing(true)
+    setPublished(null)
+    setError('')
     try {
-      await apiClient.put(`/files/${selectedFile.id}/catalog`, formData)
-
-      toast({
-        title: '发布成功',
-        description: `项目 ${formData.slug} 版本 ${formData.version} 已发布`,
-      })
-
-      // Fetch preview
-      const catalogData = await apiClient.get<CatalogPreview>(`/catalog/${formData.slug}`)
-      setPreviewData(catalogData)
-      setPreviewOpen(true)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      toast({
-        title: '发布失败',
-        description: message || '无法发布项目',
-      })
+      const publication = await apiClient.put<Publication>(
+        `/files/${encodeURIComponent(selectedFile.id)}/publication`,
+        { slug: slug.trim(), status: publicationStatus },
+      )
+      setPublished(publication)
+    } catch (publishError) {
+      setError(publishError instanceof Error ? publishError.message : '发布失败')
     } finally {
-      setLoading(false)
+      setPublishing(false)
     }
   }
+
+  if (!ready) return null
 
   return (
-    <div className='p-6 space-y-6'>
-      <div className='flex items-center justify-between'>
-        <h1 className='text-2xl font-nothing-head font-semibold text-nothing-display'>发布管理</h1>
+    <div className="mx-auto max-w-6xl space-y-6 p-6">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold">发布管理</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            仅可发布当前账户拥有且已经生成版本的文件。
+          </p>
+        </div>
+        <Button variant="outline" disabled={status === 'loading' || loadingMore} onClick={() => void loadFiles()}>
+          刷新
+        </Button>
       </div>
 
-      <div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
-        {/* 左侧：从已上传文件中选择要发布到 Catalog 的文件 */}
+      {status === 'error' ? (
+        <div className="rounded border border-destructive/40 p-4 text-sm text-destructive">
+          文件列表不可用：{error}
+        </div>
+      ) : null}
+
+      <div className="grid gap-6 lg:grid-cols-2">
         <Card>
-          <CardHeader>
-            <CardTitle className='text-base'>选择文件</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='flex gap-2'>
-              <Input
-                placeholder='搜索文件名...'
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') searchFiles() }}
-              />
-              <Button onClick={searchFiles} disabled={loading}>搜索</Button>
-            </div>
-
-            {selectedFile && (
-              <div className='p-3 bg-nothing-raised border border-nothing-line-2 rounded-[var(--nothing-r-sm)]'>
-                <div className='text-sm font-nothing-head font-medium text-nothing-display'>已选择文件</div>
-                <div className='text-sm text-nothing-primary'>{selectedFile.name}</div>
-                <div className='text-xs text-nothing-muted font-nothing-mono'>ID: {selectedFile.id}</div>
-              </div>
-            )}
-
-            <div className='max-h-96 overflow-y-auto space-y-2'>
-              {files.map((file) => {
-                const selected = selectedFile?.id === file.id
-                return (
-                  <div
-                    key={file.id}
-                    className={cn(
-                      'p-3 border rounded-[var(--nothing-r-sm)] cursor-pointer transition-colors duration-200 ease-in-out hover:bg-nothing-raised',
-                      selected
-                        ? 'border-nothing-display bg-nothing-raised border-l-2 border-l-nothing-display'
-                        : 'border-nothing-line-2'
-                    )}
-                    onClick={() => selectFile(file)}
-                  >
-                    <div className='text-sm font-nothing-ui font-medium text-nothing-primary'>{file.name}</div>
-                    <div className='text-xs text-nothing-secondary font-nothing-mono'>
-                      {fmtSize(file.size)}
-                    </div>
+          <CardHeader><CardTitle className="text-base">选择文件</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <Input
+              placeholder="按文件名筛选"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+            />
+            {status === 'loading' ? (
+              <div className="text-sm text-muted-foreground">正在加载文件…</div>
+            ) : null}
+            {status === 'ready' && !nextCursor && visibleFiles.length === 0 ? (
+              <div className="text-sm text-muted-foreground">暂无可发布的已完成文件</div>
+            ) : null}
+            <div className="max-h-96 space-y-2 overflow-y-auto">
+              {visibleFiles.map((file) => (
+                <button
+                  key={file.id}
+                  type="button"
+                  className={`w-full rounded border p-3 text-left transition-colors ${
+                    selectedFile?.id === file.id ? 'border-primary bg-muted' : 'hover:bg-muted/60'
+                  }`}
+                  onClick={() => selectFile(file)}
+                >
+                  <div className="font-medium">{file.name}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {formatBytes(file.currentVersion!.sizeBytes)} · v{file.currentVersion!.version}
                   </div>
-                )
-              })}
+                </button>
+              ))}
+              {nextCursor ? (
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  disabled={loadingMore}
+                  onClick={() => void loadFiles(nextCursor)}
+                >
+                  {loadingMore ? '加载中…' : '加载更多'}
+                </Button>
+              ) : null}
             </div>
           </CardContent>
         </Card>
 
-        {/* 右侧：填写 Catalog 元数据并发起发布 + 预览 */}
         <Card>
-          <CardHeader>
-            <CardTitle className='text-base'>发布信息</CardTitle>
-          </CardHeader>
-          <CardContent className='space-y-4'>
-            <div className='grid grid-cols-2 gap-4'>
-              <div className='space-y-2'>
-                <Label htmlFor='slug'>项目标识 *</Label>
-                <Input
-                  id='slug'
-                  value={formData.slug}
-                  onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                  placeholder='my-project'
-                />
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='version'>版本号 *</Label>
-                <Input
-                  id='version'
-                  value={formData.version}
-                  onChange={(e) => setFormData({ ...formData, version: e.target.value })}
-                  placeholder='1.0.0'
-                />
-              </div>
+          <CardHeader><CardTitle className="text-base">发布设置</CardTitle></CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="publication-file">文件</Label>
+              <Input id="publication-file" value={selectedFile?.name ?? ''} readOnly placeholder="请先选择文件" />
             </div>
-
-            <div className='space-y-2'>
-              <Label htmlFor='name'>名称</Label>
+            <div className="space-y-2">
+              <Label htmlFor="publication-slug">公开标识</Label>
               <Input
-                id='name'
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder='我的项目'
+                id="publication-slug"
+                value={slug}
+                onChange={(event) => setSlug(event.target.value)}
+                placeholder="stable-release"
               />
+              <div className="text-xs text-muted-foreground">仅允许小写字母、数字和中划线。</div>
             </div>
-
-            <div className='space-y-2'>
-              <Label htmlFor='description'>描述</Label>
-              <Textarea
-                id='description'
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder='项目描述...'
-                rows={3}
-              />
+            <div className="space-y-2">
+              <Label>状态</Label>
+              <Select
+                value={publicationStatus}
+                onValueChange={(value) => setPublicationStatus(value as PublicationStatus)}
+              >
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="published">立即公开</SelectItem>
+                  <SelectItem value="draft">保存为草稿</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
-
-            <div className='grid grid-cols-2 gap-4'>
-              <div className='space-y-2'>
-                <Label htmlFor='category'>分类</Label>
-                <Select value={formData.category || undefined} onValueChange={v => setFormData({ ...formData, category: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder='选择分类' />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='base'>基础工具</SelectItem>
-                    <SelectItem value='writing'>写作工具</SelectItem>
-                    <SelectItem value='model'>模型工具</SelectItem>
-                    <SelectItem value='script'>脚本工具</SelectItem>
-                    <SelectItem value='bundle'>整合包</SelectItem>
-                    <SelectItem value='modelAsset'>模型</SelectItem>
-                    <SelectItem value='article'>文章</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className='space-y-2'>
-                <Label htmlFor='license'>许可证</Label>
-                <Input
-                  id='license'
-                  value={formData.license}
-                  onChange={(e) => setFormData({ ...formData, license: e.target.value })}
-                  placeholder='MIT'
-                />
-              </div>
-            </div>
-
-            <div className='space-y-2'>
-              <Label htmlFor='repo'>代码仓库</Label>
-              <Input
-                id='repo'
-                value={formData.repo}
-                onChange={(e) => setFormData({ ...formData, repo: e.target.value })}
-                placeholder='https://github.com/user/repo'
-              />
-            </div>
-
-            <div className='grid grid-cols-3 gap-4'>
-              <div className='space-y-2'>
-                <Label htmlFor='channel'>通道</Label>
-                <Select value={formData.channel} onValueChange={(v) => setFormData({ ...formData, channel: v as CatalogFormData['channel'] })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='stable'>稳定</SelectItem>
-                    <SelectItem value='beta'>测试</SelectItem>
-                    <SelectItem value='dev'>开发</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className='space-y-2'>
-                <Label htmlFor='os'>操作系统</Label>
-                <Select value={formData.os} onValueChange={(v) => setFormData({ ...formData, os: v as CatalogFormData['os'] })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='any'>通用</SelectItem>
-                    <SelectItem value='windows'>Windows</SelectItem>
-                    <SelectItem value='darwin'>macOS</SelectItem>
-                    <SelectItem value='linux'>Linux</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className='space-y-2'>
-                <Label htmlFor='arch'>架构</Label>
-                <Select value={formData.arch} onValueChange={(v) => setFormData({ ...formData, arch: v as CatalogFormData['arch'] })}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value='any'>通用</SelectItem>
-                    <SelectItem value='amd64'>AMD64</SelectItem>
-                    <SelectItem value='arm64'>ARM64</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-
-            <div className='space-y-2'>
-              <Label htmlFor='url'>自定义下载 URL（可选）</Label>
-              <Input
-                id='url'
-                value={formData.url}
-                onChange={(e) => setFormData({ ...formData, url: e.target.value })}
-                placeholder='https://cdn.example.com/file.zip'
-              />
-            </div>
-
-            <div className='flex items-center gap-2'>
-              <Checkbox
-                id='public'
-                checked={formData.public}
-                onCheckedChange={(v) => setFormData({ ...formData, public: Boolean(v) })}
-              />
-              <Label htmlFor='public' className='cursor-pointer'>公开（在目录中可见）</Label>
-            </div>
-
-            <Button onClick={publishCatalog} disabled={loading || !selectedFile} className='w-full'>
-              {loading ? '发布中...' : '发布'}
+            {error && status !== 'error' ? <div className="text-sm text-destructive">{error}</div> : null}
+            <Button
+              className="w-full"
+              disabled={!selectedFile?.currentVersion || !slug.trim() || publishing}
+              onClick={() => void publish()}
+            >
+              {publishing ? '提交中…' : '保存发布状态'}
             </Button>
+            {published ? (
+              <div className="rounded border p-4 text-sm">
+                <div className="font-medium">已保存：{published.slug}</div>
+                <div className="mt-1 text-muted-foreground">
+                  {published.status === 'published' ? '已进入公开发布目录' : '当前为草稿，不会出现在公开目录'}
+                </div>
+              </div>
+            ) : null}
           </CardContent>
         </Card>
       </div>
-
-      <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-        <DialogContent className='max-w-2xl max-h-[80vh] overflow-y-auto'>
-          <DialogHeader>
-            <DialogTitle>发布预览</DialogTitle>
-          </DialogHeader>
-          {previewData && (
-            <div className='space-y-4'>
-              <div>
-                <div className='text-sm font-nothing-mono uppercase tracking-[0.08em] text-nothing-secondary'>项目标识</div>
-                <div className='text-lg font-nothing-head font-semibold text-nothing-display'>{previewData.slug}</div>
-              </div>
-              <div>
-                <div className='text-sm font-nothing-mono uppercase tracking-[0.08em] text-nothing-secondary'>名称</div>
-                <div className='text-nothing-primary'>{previewData.name}</div>
-              </div>
-              {previewData.description && (
-                <div>
-                  <div className='text-sm font-nothing-mono uppercase tracking-[0.08em] text-nothing-secondary'>描述</div>
-                  <div className='text-sm text-nothing-primary'>{previewData.description}</div>
-                </div>
-              )}
-              <div>
-                <div className='text-sm font-nothing-mono uppercase tracking-[0.08em] text-nothing-secondary'>版本</div>
-                <div className='space-y-2 mt-2'>
-                  {previewData.releases?.map((rel: CatalogRelease, idx: number) => (
-                    <div key={idx} className='p-3 border border-nothing-line-2 rounded-[var(--nothing-r-sm)]'>
-                      <div className='font-nothing-ui font-medium text-nothing-primary'>
-                        {rel.version} ({rel.channel})
-                      </div>
-                      <div className='text-sm text-nothing-secondary font-nothing-mono mt-1'>
-                        <span className='font-nothing-display'>{rel.assets?.length || 0}</span> 个资产
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div className='pt-4 border-t border-nothing-line'>
-                <div className='text-sm font-nothing-mono uppercase tracking-[0.08em] text-nothing-secondary'>API 接口</div>
-                <code className='text-xs font-nothing-mono text-nothing-primary bg-nothing-raised p-2 rounded-[var(--nothing-r-sm)] block mt-1'>
-                  GET /catalog/{previewData.slug}
-                </code>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   )
 }

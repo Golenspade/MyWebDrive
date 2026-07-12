@@ -52,6 +52,12 @@ fail() {
   exit 1
 }
 
+on_error() {
+  local line=$1 status=$2
+  printf 'core smoke failed at line %s (exit %s)\n' "$line" "$status" >&2
+  exit "$status"
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
@@ -64,6 +70,7 @@ cleanup() {
   exit "$status"
 }
 trap cleanup EXIT INT TERM
+trap 'on_error "$LINENO" "$?"' ERR
 
 json_get() {
   node -e '
@@ -170,6 +177,8 @@ compose up -d --wait --no-deps nginx
 compose run --rm --no-deps core-migrate
 
 request 200 "$TEMP_DIR/nginx-health.json" "$BASE_URL/healthz"
+request 200 "$TEMP_DIR/web-home.html" "$BASE_URL/"
+request 200 "$TEMP_DIR/web-publish.html" "$BASE_URL/admin/publish"
 request 404 "$TEMP_DIR/internal-exact.json" "$BASE_URL/api/v1/internal"
 request 404 "$TEMP_DIR/internal.json" "$BASE_URL/api/v1/internal/probe"
 wait_ready_status core-api http://127.0.0.1:8080/ready 200
@@ -231,6 +240,11 @@ request 401 "$TEMP_DIR/private-replay.json" -H "Authorization: Bearer $PRIVATE_G
 
 request 201 "$TEMP_DIR/share.json" -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' --data '{"maxDownloads":1}' "$BASE_URL/api/v1/files/$FILE_ID/shares"
 SHARE_TOKEN=$(json_get "$TEMP_DIR/share.json" token)
+compose stop core-api
+request 502 "$TEMP_DIR/share-upstream-down.json" -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/shares/$SHARE_TOKEN/download-ticket"
+compose start core-api
+compose up -d --wait --no-deps core-api
+wait_ready_status core-api http://127.0.0.1:8080/ready 200
 curl --silent --show-error --output "$TEMP_DIR/share-ticket-1.json" --write-out '%{http_code}' -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/shares/$SHARE_TOKEN/download-ticket" >"$TEMP_DIR/share-status-1" &
 PID_ONE=$!
 curl --silent --show-error --output "$TEMP_DIR/share-ticket-2.json" --write-out '%{http_code}' -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/shares/$SHARE_TOKEN/download-ticket" >"$TEMP_DIR/share-status-2" &

@@ -9,6 +9,8 @@ fail() { printf 'cutover contract violation: %s\n' "$*" >&2; exit 1; }
 require() { grep -Eq -- "$1" "$2" || fail "$3"; }
 reject() { if grep -Eiq -- "$1" "$2"; then fail "$3"; fi; }
 
+require 'trap .*on_error.*ERR' "$ROOT_DIR/scripts/smoke-core-e2e.sh" 'Core smoke must report silent command failures'
+
 for file in "$NGINX_DIR/Dockerfile" "$NGINX_DIR/nginx.conf" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/next.config.js" "$ROOT_DIR/docs/runbooks/core-cutover-and-rollback.md" "$ROOT_DIR/scripts/smoke-core-e2e.sh"; do
   [[ -f "$file" ]] || fail "missing $file"
 done
@@ -23,6 +25,13 @@ require 'proxy_pass[[:space:]]+http://core-api:8080' "$NGINX_DIR/nginx.conf" 'Co
 require 'proxy_pass[[:space:]]+http://web:4323' "$NGINX_DIR/nginx.conf" 'web route target is invalid'
 require 'log_format[[:space:]]+safe[[:space:]]+.*\$remote_addr[[:space:]]+\$request_method[[:space:]]+\$status[[:space:]]+\$body_bytes_sent[[:space:]]+\$request_time' "$NGINX_DIR/nginx.conf" 'nginx access log must omit URLs, query strings and credentials'
 require 'access_log /dev/stdout safe;' "$NGINX_DIR/nginx.conf" 'nginx must use the safe access log format'
+share_location=$(awk '
+  /location[[:space:]]+\^~[[:space:]]+\/api\/v1\/shares\// { capture = 1 }
+  capture { print }
+  capture && /^[[:space:]]*}/ { exit }
+' "$NGINX_DIR/nginx.conf")
+grep -Eq 'proxy_pass[[:space:]]+http://core-api:8080' <<<"$share_location" || fail 'share route must target Core explicitly'
+grep -Eq 'error_log[[:space:]]+/dev/null[[:space:]]+crit' <<<"$share_location" || fail 'share route must suppress token-bearing upstream errors'
 for setting in 'proxy_request_buffering[[:space:]]+off' 'proxy_buffering[[:space:]]+off' 'proxy_read_timeout[[:space:]]+3600s' 'proxy_set_header[[:space:]]+Authorization[[:space:]]+\$http_authorization'; do
   require "$setting" "$NGINX_DIR/nginx.conf" "storage streaming setting missing: $setting"
 done

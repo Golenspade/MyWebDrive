@@ -65,4 +65,24 @@ describe('Core-first frontend source contract', () => {
     const source = read('frontend/cruip-landing/lib/api/files.ts')
     expect(source).toContain('/shares/${encodeURIComponent(token)}/download-ticket')
   })
+
+  test('publishes only versioned owned files through the Core publication model', () => {
+    const source = read('frontend/cruip-landing/app/admin/publish/page.tsx')
+
+    expect(source).toContain("apiClient.get<FilesResponse>('/files?limit=100')")
+    expect(source).toContain('cursor=${encodeURIComponent(cursor)}')
+    expect(source).toContain('setNextCursor(response.nextCursor)')
+    expect(source).toContain('loadFiles(nextCursor)')
+    expect(source).toContain('/files/${encodeURIComponent(selectedFile.id)}/publication')
+    expect(source).toContain("status: publicationStatus")
+    expect(source).toContain('file.currentVersion')
+    expect(source).toContain("status === 'loading'")
+    expect(source).toContain("status === 'error'")
+    expect(source).toContain("status === 'ready' && !nextCursor && visibleFiles.length === 0")
+    expect(source).toMatch(/async function publish\(\) \{[\s\S]*?setPublished\(null\)[\s\S]*?try/)
+    expect(source).toMatch(/\.slice\(0, 64\)\s*\.replace\(\/-\+\$\/g, ''\)/)
+    for (const legacy of ['/search', '/catalog/', '/catalog`', '/catalog\'', 'CatalogFormData']) {
+      expect(source).not.toContain(legacy)
+    }
+  })
 })
