@@ -136,7 +136,7 @@ Local Adapter 必须使用 `path.resolve` 后验证结果仍位于配置根目�
 - OTP 有效期固定为 10 分钟，同一 challenge 最多失败 5 次，成功后必须在同一事务内原子标记为已消费。重发冷却为 60 秒；每个规范化邮箱每小时最多发送 5 次，每个来源 IP 每小时最多发送 20 次。Redis 限流不可用时请求验证码失败关闭。
 - `POST /api/v1/auth/email/verify` 校验 `challengeId + email + code`。首次验证成功在事务内创建用户，后续验证成功直接登录；两个并发验证最多一个成功消费 challenge。
 - 邮箱语法只做基本规范化与长度检查；邮箱是否可投递、域名政策和提供商风控由上游邮件组件负责。Core 不因上游能力而省略验证码摘要、过期、尝试次数、限流和一次性消费。
-- Core 只通过 Docker 私有网络调用 `email-provider` 的 `/v1/messages/otp`，使用独立 Bearer token 进行服务鉴权。Provider 只允许 `purpose=login`、六位数字验证码和固定 600 秒 TTL，并通过 `SingleSendMail` 使用已审核模板 `436289` 发送单封事务邮件；唯一模板变量为大小写敏感的 `code`。Provider 不接受调用方传入模板 ID、主题或正文。
+- Core 只通过 Docker 私有网络调用 `email-provider` 的 `/v1/messages/otp`，使用独立 Bearer token 进行服务鉴权。Provider 只允许 `purpose=login`、六位数字验证码和固定 600 秒 TTL，并通过 `SingleSendMail` 使用已审核模板 `436289` 发送单封事务邮件；请求固定使用发送人名称 `MyWebDrive` 和邮件标题 `【MyWebDrive】登录验证码`，唯一模板变量为大小写敏感的 `code`。Provider 不接受调用方传入模板 ID、发送人名称、主题或正文。
 - `email-provider` 使用 ECS 实例元数据的 IMDSv2 获取 `MyWebDriveDirectMailRole` 的短期 STS 凭证，并只拥有 `dm:SingleSendMail` 权限。生产环境禁止为该服务配置长期 AccessKey；容器仅能访问阿里云 API 和 Docker 内部网络，不映射宿主机端口。
 - 访问令牌有效期固定为 15 分钟，只保存在前端内存中。
 - 刷新凭证使用 256 位随机 opaque token，数据库只保存 SHA-256 摘要；Cookie 名为 `mwd_refresh`，使用 `HttpOnly`、生产环境 `Secure`、`SameSite=Lax` 和 `/api/v1/auth` Path，不进入 localStorage。

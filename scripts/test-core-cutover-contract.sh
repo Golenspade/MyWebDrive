@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 NGINX_DIR="$ROOT_DIR/infrastructure/alicloud/nginx"
+HOST_NGINX="$ROOT_DIR/infrastructure/alicloud/nginx-mywebdrive.conf"
 COMPOSE="$ROOT_DIR/infrastructure/alicloud/docker-compose.core.yml"
 
 fail() { printf 'cutover contract violation: %s\n' "$*" >&2; exit 1; }
@@ -11,7 +12,7 @@ reject() { if grep -Eiq -- "$1" "$2"; then fail "$3"; fi; }
 
 require 'trap .*on_error.*ERR' "$ROOT_DIR/scripts/smoke-core-e2e.sh" 'Core smoke must report silent command failures'
 
-for file in "$NGINX_DIR/Dockerfile" "$NGINX_DIR/nginx.conf" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/next.config.js" "$ROOT_DIR/docs/runbooks/core-cutover-and-rollback.md" "$ROOT_DIR/scripts/smoke-core-e2e.sh"; do
+for file in "$NGINX_DIR/Dockerfile" "$NGINX_DIR/nginx.conf" "$HOST_NGINX" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/next.config.js" "$ROOT_DIR/docs/runbooks/core-cutover-and-rollback.md" "$ROOT_DIR/scripts/smoke-core-e2e.sh"; do
   [[ -f "$file" ]] || fail "missing $file"
 done
 
@@ -36,6 +37,16 @@ for setting in 'proxy_request_buffering[[:space:]]+off' 'proxy_buffering[[:space
   require "$setting" "$NGINX_DIR/nginx.conf" "storage streaming setting missing: $setting"
 done
 reject 'gateway|api-gateway' "$NGINX_DIR/nginx.conf" 'nginx must not route to the old Gateway'
+require 'server[[:space:]]+127\.0\.0\.1:18080' "$HOST_NGINX" 'host Nginx must route only to the private Core-first listener'
+require 'log_format[[:space:]]+mywebdrive_safe[[:space:]]+.*\$remote_addr[[:space:]]+\$request_method[[:space:]]+\$status[[:space:]]+\$body_bytes_sent[[:space:]]+\$request_time' "$HOST_NGINX" 'host Nginx access log must omit URLs, query strings and credentials'
+require 'access_log[[:space:]]+/var/log/nginx/mywebdrive-access\.log[[:space:]]+mywebdrive_safe' "$HOST_NGINX" 'host Nginx must use its path-free access log'
+host_share_location=$(awk '
+  /location[[:space:]]+\^~[[:space:]]+\/api\/v1\/shares\// { capture = 1 }
+  capture { print }
+  capture && /^[[:space:]]*}/ { exit }
+' "$HOST_NGINX")
+grep -Eq 'error_log[[:space:]]+/dev/null[[:space:]]+crit' <<<"$host_share_location" || fail 'host share route must suppress token-bearing upstream errors'
+reject '127\.0\.0\.1:(3100|9090)|mywebdrive_(frontend|gateway)|api-gateway' "$HOST_NGINX" 'host Nginx must not retain a legacy route'
 reject 'rewrites|API_BASE_URL|localhost:9080|gateway' "$ROOT_DIR/frontend/cruip-landing/next.config.js" 'web build must not contain an API rewrite'
 require 'outputFileTracingRoot' "$ROOT_DIR/frontend/cruip-landing/next.config.js" 'monorepo tracing root is required'
 require '^USER[[:space:]]+node$' "$ROOT_DIR/frontend/cruip-landing/Dockerfile" 'web image must run as node'

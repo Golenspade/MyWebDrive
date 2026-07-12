@@ -893,7 +893,7 @@ Cover missing/wrong bearer tokens, malformed email, non-six-digit code, wrong TT
 
 - [x] **Step 2: Implement the DirectMail adapter with ECS RAM role credentials**
 
-Use `@alicloud/credentials` in `ecs_ram_role` mode with role `MyWebDriveDirectMailRole`, IMDSv2-only credential retrieval, endpoint `dm.aliyuncs.com` and region `cn-hangzhou`. Call only `SingleSendMail` with sender `no-reply@mygoavemujica.top`, `AddressType=1`, no reply-to address and approved template `436289`; pass only the case-sensitive template variable `{ code: <six digits> }`. Do not support AccessKey environment variables, automatic send retries, caller-selected templates, arbitrary subject/body input or batch recipient lists.
+Use `@alicloud/credentials` in `ecs_ram_role` mode with role `MyWebDriveDirectMailRole`, IMDSv2-only credential retrieval, endpoint `dm.aliyuncs.com` and region `cn-hangzhou`. Call only `SingleSendMail` with sender `no-reply@mygoavemujica.top`, fixed sender alias `MyWebDrive`, fixed subject `【MyWebDrive】登录验证码`, `AddressType=1`, no reply-to address and approved template `436289`; pass only the case-sensitive template variable `{ code: <six digits> }`. Do not support AccessKey environment variables, automatic send retries, caller-selected templates, arbitrary subject/body input or batch recipient lists. Provider failures may log only a sanitized provider error code and numeric HTTP status; recipient, OTP, message, request ID and request body remain forbidden.
 
 - [x] **Step 3: Add the private production process**
 
@@ -905,7 +905,7 @@ The main-branch CI publishes all five application images as `ghcr.io/golenspade/
 
 From an existing production container, verify IMDSv2 returns `MyWebDriveDirectMailRole`. Build the provider image without AccessKey variables and verify the private health/readiness path. Do not send a real OTP before the immutable image has been published and selected by digest.
 
-- [ ] **Step 5: Verify and commit**
+- [x] **Step 5: Verify and commit**
 
 Run:
 
@@ -921,9 +921,17 @@ git add services/email-provider services/core-api infrastructure/alicloud .githu
 git commit -m "feat(email): deliver OTP through DirectMail"
 ```
 
-- [ ] **Step 6: Publish, deploy and run one redacted live OTP smoke test**
+- [x] **Step 6: Publish, deploy and run one redacted live OTP smoke test**
 
 Push the verified commit to `main`, wait for CI to publish all five `sha-<commit>` images, and verify they are anonymously pullable by digest. Install a verified Docker Compose v2 plugin if the host does not provide one, generate the missing production secrets, preserve the old stack snapshot, and deploy the selected release manifest. Send one OTP only to the configured operator-owned admin mailbox, confirm DirectMail accepts it, then verify the public request/verify flow without printing the recipient or code in logs. A failed or unauthorized send blocks completion and leaves rollback available.
+
+Production evidence captured on 2026-07-12:
+
+- Main CI run `29188539739` passed image smoke tests, typecheck, lint, Core/Storage/frontend tests, release-contract enforcement and production Compose validation before publishing all five images.
+- Production selected immutable release `sha-b54f7e5a95423e5e46baa21d0a0274c1c0a78b72`; `/var/lib/mywebdrive/releases/current.env` records digest references for Core API, email provider, Storage, web and Nginx.
+- The first live diagnostic send failed closed with sanitized DirectMail error `MissingSubject` and HTTP 400. The adapter was corrected to send the approved fixed subject and alias, with regression coverage that still forbids caller-supplied content.
+- The final operator-owned mailbox smoke advanced from request to code entry, consumed exactly one delivered challenge, created one `admin` user and one active refresh session, and reloaded the authenticated `/admin/overview` route after the full release deployment.
+- All nine production services were healthy after deployment. Public probes returned `/` 200, `/health` 200, `/api/v1/internal` 404, unauthenticated `/api/v1/auth/me` 401 and `/metrics` 404. The pre-cutover backup and old stack remain available for rollback.
 
 ---
 
@@ -941,3 +949,7 @@ The Core-first migration is complete only when all of the following are captured
 - Production compose contains no source mounts, mutable tags, split control-plane services or independent migration histories.
 - Public API logs contain no email, OTP, access token, refresh token, grant, Cookie or Authorization value.
 - The production email provider obtains short-lived credentials from `MyWebDriveDirectMailRole`, has only `dm:SingleSendMail`, exposes no public port and can deliver one redacted OTP smoke request without any AccessKey environment variable.
+
+## Known post-cutover blocker
+
+- The authenticated admin shell currently calls `GET /api/v1/admin/overview?range=...`, but Core has no matching route. Login and session restoration succeed, yet `/admin/overview` displays `Request failed` and no metrics. This is a pre-existing frontend-to-Core contract gap outside Task 10; the admin overview cannot be considered operational until the endpoint is either implemented in Core or the page is removed from the post-login route.
