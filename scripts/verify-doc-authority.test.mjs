@@ -22,6 +22,7 @@ async function fixture() {
     'docs/manage-services.md',
     'docs/openapi.yaml',
     'docs/runbooks/core-cutover-and-rollback.md',
+    'frontend/cruip-landing/README.md',
     'infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md',
     'infrastructure/alicloud/deploy.sh',
     'infrastructure/alicloud/docker-compose.core.yml',
@@ -54,6 +55,14 @@ function runVerifier(root) {
 async function mutate(root, relative, transform) {
   const file = path.join(root, relative)
   await writeFile(file, transform(await readFile(file, 'utf8')))
+}
+
+async function mutateRequired(root, relative, transform) {
+  const file = path.join(root, relative)
+  const source = await readFile(file, 'utf8')
+  const changed = transform(source)
+  assert.notEqual(changed, source, `fixture mutation did not change ${relative}`)
+  await writeFile(file, changed)
 }
 
 async function track(root, relative, source) {
@@ -136,6 +145,150 @@ test('rejects mount drift even when a comment retains the expected mount marker'
   const result = runVerifier(root)
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /source authority is missing mount \/api\/v1\/auth -> createIdentityRouter/)
+})
+
+test('rejects a route registration inside a dead block', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/identity/router.ts', (source) =>
+    source.replace(
+      '  const router = express.Router()\n',
+      "  const router = express.Router()\n  if (false) {\n    router.get('/dead-route', (_req, res) => res.sendStatus(204))\n  }\n",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /unsupported or dead route registration GET \/dead-route/)
+})
+
+test('rejects a route registration inside an unused helper', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/identity/router.ts', (source) =>
+    source.replace(
+      '  const router = express.Router()\n',
+      "  const router = express.Router()\n  function registerDeadRoute() {\n    router.post('/email/request', (_req, res) => res.sendStatus(204))\n  }\n",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /unsupported or dead route registration POST \/email\/request/)
+})
+
+test('rejects a const-backed dynamic route path', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/identity/router.ts', (source) =>
+    source.replace(
+      "  router.post('/email/request'",
+      "  const emailRequestPath = '/email/request'\n  router.post(emailRequestPath",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /unsupported dynamic route path in createIdentityRouter/)
+})
+
+test('rejects chained router.route registration', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/identity/router.ts', (source) =>
+    source.replace(
+      "router.post('/email/request', async",
+      "router.route('/email/request').post(async",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /unsupported chained route registration \/email\/request/)
+})
+
+test('rejects an aliased route receiver', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/identity/router.ts', (source) =>
+    source.replace(
+      "  router.post('/email/request'",
+      "  const routeAlias = router\n  routeAlias.post('/email/request'",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /unsupported aliased route receiver routeAlias/)
+})
+
+test('rejects an unresolved Express receiver binding', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/identity/router.ts', (source) =>
+    source.replace("import express from 'express'", "import expressRuntime from 'express'"),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /source authority cannot resolve default Express binding/)
+})
+
+test('rejects a nested dead Core mount', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/app.ts', (source) =>
+    source.replace(
+      "  app.use(\n    '/api/v1/auth',",
+      "  if (false) {\n    app.use('/api/v1/auth', createIdentityRouter({} as never))\n  }\n\n  app.use(\n    '/api/v1/auth',",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /unsupported or dead Core mount \/api\/v1\/auth -> createIdentityRouter/)
+})
+
+test('rejects a dynamic Core mount prefix', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/app.ts', (source) =>
+    source.replace(
+      "  app.use(\n    '/api/v1/auth',",
+      "  const identityMountPrefix = '/api/v1/auth'\n  app.use(\n    identityMountPrefix,",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /unsupported dynamic Core mount prefix in createCoreApp/)
+})
+
+test('rejects an indirect Core mount factory', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/app.ts', (source) =>
+    source.replace(
+      "  app.use(\n    '/api/v1/auth',\n    createIdentityRouter(",
+      "  const identityRouterFactory = createIdentityRouter\n\n  app.use(\n    '/api/v1/auth',\n    identityRouterFactory(",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /unsupported indirect Core mount factory identityRouterFactory/)
+})
+
+test('rejects a Core router factory imported from the wrong module', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/app.ts', (source) =>
+    source.replace("from './identity/router.js'", "from './identity/not-the-router.js'"),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /cannot resolve Core router factory binding createIdentityRouter from \.\/identity\/router\.js/)
 })
 
 test('rejects retired register and password-login claims in active docs', async (t) => {
@@ -265,6 +418,106 @@ test('requires share passwords to use a 1024-byte UTF-8 limit', async (t) => {
   const result = runVerifier(root)
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /SharePassword must declare a 1024-byte UTF-8 limit/)
+})
+
+test('rejects source drift in the upload signed-64-bit maximum', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/uploads/service.ts', (source) =>
+    source.replace('9_223_372_036_854_775_807n', '9_223_372_036_854_775_806n'),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /PositiveByteString maximum does not match upload source validator/)
+})
+
+test('rejects source drift in the upload filename forbidden-character regex', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/uploads/service.ts', (source) =>
+    source.replace(
+      String.raw`/[\\/\x00-\x1f\x7f]/.test(fileName)`,
+      String.raw`/[\\/\x00-\x20\x7f]/.test(fileName)`,
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /UploadFileName pattern does not match upload source validator/)
+})
+
+test('rejects source drift in the upload MIME forbidden-character regex', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/uploads/service.ts', (source) =>
+    source.replace(
+      String.raw`/[\x00-\x1f\x7f]/.test(body.mimeType)`,
+      String.raw`/[\x00-\x20\x7f]/.test(body.mimeType)`,
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /UploadMimeType pattern does not match upload source validator/)
+})
+
+test('fails closed when upload trim validation becomes unsupported', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/uploads/service.ts', (source) =>
+    source.replace('body.fileName !== body.fileName.trim()', 'body.fileName !== body.fileName.trimStart()'),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /could not resolve upload source validator: fileName trim guard/)
+})
+
+test('rejects source drift in the share-password UTF-8 byte ceiling', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/sharing/service.ts', (source) =>
+    source.replace('const PASSWORD_MAX_BYTES = 1024', 'const PASSWORD_MAX_BYTES = 1025'),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /SharePassword byte limit does not match sharing source validator/)
+})
+
+test('fails closed when a source validator constant is no longer statically resolvable', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/sharing/service.ts', (source) =>
+    source.replace('const PASSWORD_MAX_BYTES = 1024', 'const PASSWORD_MAX_BYTES = 512 * 2'),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /could not resolve sharing source validator: PASSWORD_MAX_BYTES/)
+})
+
+test('requires the persistent Storage parser runtime contract test', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await unlink(path.join(root, 'services/storage/src/__tests__/completion-parser-contract.test.ts'))
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /persistent Storage completion parser runtime contract is missing/)
+})
+
+test('rejects stale Nextra 3 claims in the active frontend README', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'frontend/cruip-landing/README.md', (source) =>
+    `${source}\nRetired documentation stack: Nextra 3.\n`,
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /frontend\/cruip-landing\/README\.md contains a stale Nextra 3 claim/)
 })
 
 test('rejects an OpenAPI lint exception broader than idempotent logout', async (t) => {

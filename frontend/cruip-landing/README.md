@@ -15,14 +15,14 @@
 - 下载中心（`/download`）：应用与资源下载列表
 - 账号体系（`/signin`）：邮箱验证码登录，首次验证成功即由 Core 创建账户
 - 管理后台（`/admin`）：用户与配额管理等
-- 文档站（`/docs`）：基于 Nextra 的文档系统
+- 文档站（`/docs`）：基于 Nextra 4 的文档系统
 
 ## 技术栈
 
 - [Next.js 15](https://nextjs.org/)（App Router）
 - [React 19](https://react.dev/)
 - [Tailwind CSS 4](https://tailwindcss.com/)
-- [Nextra 3](https://nextra.site/) 用于文档
+- [Nextra 4](https://nextra.site/)（当前锁文件解析为 4.6.0）用于文档
 - 自托管中文字体：Noto Sans SC、站酷小薇、Ma Shan Zheng
 
 ## 本地开发
