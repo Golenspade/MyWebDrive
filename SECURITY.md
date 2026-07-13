@@ -24,4 +24,4 @@ The supported production topology is defined by `infrastructure/alicloud/docker-
 - Do not log Authorization headers, cookies, share tokens, URL queries, one-time codes, or secret values.
 - Run `./manage-services.sh quality` before merging. Run `./manage-services.sh smoke` for runtime-boundary changes.
 
-The archived split control plane is **SOFT-RETIRED** and must not receive security fixes as a substitute for fixing the active Core-first runtime. Its observation-only compatibility window ends after 2026-07-26.
+The archived split control plane is **SOFT-RETIRED** and must not receive security fixes as a substitute for fixing the active Core-first runtime. Its observation and deletion eligibility follow the event-based rule in `docs/manage-services.md`.

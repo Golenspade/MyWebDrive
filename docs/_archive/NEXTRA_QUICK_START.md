@@ -1,3 +1,5 @@
+> Historical frontend guide. For current setup, see [the repository overview](../../README.md).
+
 # Nextra v3 快速上手指南
 
 ## 🚀 快速开始
@@ -305,4 +307,3 @@ A: 运行 `npm run build` 然后 `npm start`，或部署到 Vercel
 - [Nextra 官方文档](https://nextra.site/)
 - [MDX 文档](https://mdxjs.com/)
 - [Next.js 文档](https://nextjs.org/docs)
-

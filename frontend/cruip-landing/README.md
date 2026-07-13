@@ -2,11 +2,12 @@
 
 本目录包含 MyWebDrive 的主站与文档站前端代码，基于 **Next.js 15**、**React 19** 和 **Tailwind CSS 4** 构建。
 
-## 最新状态（2026-01-13）
-- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
-- 部署方式：ECS Docker Compose（镜像离线导入）
-- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
-- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+## 当前边界
+
+- 本目录是仓库权威 Web 应用，由 Core-first Compose 中的 Nginx 同源提供。
+- 公共 API 合同位于 [`../../docs/openapi.yaml`](../../docs/openapi.yaml)。
+- 本地完整栈通过仓库根目录的 `./manage-services.sh start` 启动。
+- 生产部署遵循 [`../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md`](../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md)。
 
 ## 功能概览
 

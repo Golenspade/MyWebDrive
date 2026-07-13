@@ -1,3 +1,5 @@
+> Historical frontend migration note. For current authority, see [the repository overview](../../README.md).
+
 # Nextra v3 回退记录
 
 ## 📅 迁移日期
@@ -184,4 +186,3 @@ export default {
 - [x] 导航正常显示
 - [x] 主题配置生效
 - [x] API 代理正常工作
-

@@ -6,7 +6,7 @@ Read `AGENTS.md` first. Its repository authority, style, security, testing, and 
 
 MyWebDrive is Core-first. `services/core-api` owns control-plane state and the authoritative Prisma history; `services/storage` owns object transfer and storage workers; `services/email-provider` is private; `frontend/cruip-landing` is the active Web app. Production authority is `infrastructure/alicloud/docker-compose.core.yml` with `infrastructure/alicloud/deploy.sh` and `infrastructure/alicloud/rollback.sh`.
 
-The former split control plane is **SOFT-RETIRED** under `archive/legacy-split-control-plane-2026-07-13`. It is excluded from default build, test, migration, local development, and deployment paths.
+The former split control plane is **SOFT-RETIRED** in `archive/`. It is excluded from default build, test, migration, local development, and deployment paths.
 
 ## Supported local interface
 
@@ -25,7 +25,7 @@ The former split control plane is **SOFT-RETIRED** under `archive/legacy-split-c
 
 The local site is `http://127.0.0.1:8080`; the Compose project is `mywebdrive-core-dev`. See `docs/manage-services.md` for exact behavior. Unrecognized former commands warn `SOFT-RETIRED`, exit 64, and never start an archived topology.
 
-The `legacy:<command>` escape hatch is observation-only from 2026-07-13 through 2026-07-26. Do not use it for implementation, migrations, deployments, or production writes; remove it on or after 2026-07-27 unless a new explicit expiry is approved.
+The `legacy:<command>` escape hatch is observation-only. Do not use it for implementation, migrations, deployments, or production writes. Follow the event-based retirement clock and deletion rule in `docs/manage-services.md`.
 
 ## Narrow verification
 

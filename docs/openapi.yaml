@@ -505,9 +505,8 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: false
               properties:
-                password: { type: string, minLength: 1, maxLength: 1024 }
+                password: { $ref: '#/components/schemas/SharePassword' }
       responses:
         '200':
           description: Short-lived Storage download grant.
@@ -707,7 +706,6 @@ paths:
           application/json:
             schema:
               type: object
-              additionalProperties: false
               required: [parts]
               properties:
                 parts: { type: integer, minimum: 1, maximum: 100000 }
@@ -727,6 +725,11 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '409':
           $ref: '#/components/responses/Conflict'
+        '413':
+          description: The route-scoped 1kb strict JSON parser rejected the body. Storage has no trailing error middleware, so Express returns its default HTML error document rather than the service JSON error shape.
+          content:
+            text/html:
+              schema: { type: string }
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
@@ -944,7 +947,8 @@ components:
     PositiveByteString:
       type: string
       pattern: '^[1-9]\d*$'
-      description: Positive byte count encoded as a decimal string.
+      x-maximum-decimal: '9223372036854775807'
+      description: Positive byte count encoded as a canonical decimal string, capped at the signed 64-bit database maximum.
     NonnegativeByteString:
       type: string
       pattern: '^(0|[1-9]\d*)$'
@@ -1002,22 +1006,34 @@ components:
         mimeType: { type: string }
         sha256: { type: string }
         createdAt: { type: string, format: date-time }
+    UploadFileName:
+      type: string
+      minLength: 1
+      pattern: '^(?=\S(?:[\s\S]*\S)?$)[^/\\\x00-\x1F\x7F]+$'
+      x-trimmed: true
+      x-max-js-utf16-code-units: 255
+      description: Must already equal its JavaScript trim result, contain at most 255 JavaScript UTF-16 code units, and contain no slash, backslash, control, or DEL character.
+    UploadMimeType:
+      type: string
+      minLength: 1
+      pattern: '^(?=\S(?:[\s\S]*\S)?$)[^\x00-\x1F\x7F]+$'
+      x-trimmed: true
+      x-max-js-utf16-code-units: 255
+      description: Must already equal its JavaScript trim result, contain at most 255 JavaScript UTF-16 code units, and contain no control or DEL character.
     NewFileUploadIntent:
       type: object
-      additionalProperties: false
       required: [fileName, sizeBytes, mimeType]
       properties:
-        fileName: { type: string, minLength: 1, maxLength: 255 }
+        fileName: { $ref: '#/components/schemas/UploadFileName' }
         sizeBytes: { $ref: '#/components/schemas/PositiveByteString' }
-        mimeType: { type: string, minLength: 1, maxLength: 255 }
+        mimeType: { $ref: '#/components/schemas/UploadMimeType' }
         parentId: { type: string, format: uuid, nullable: true }
     ReplacementUploadIntent:
       type: object
-      additionalProperties: false
       required: [sizeBytes, mimeType]
       properties:
         sizeBytes: { $ref: '#/components/schemas/PositiveByteString' }
-        mimeType: { type: string, minLength: 1, maxLength: 255 }
+        mimeType: { $ref: '#/components/schemas/UploadMimeType' }
     UploadIntentGrant:
       type: object
       required: [id, objectKey, uploadGrant, expiresAt]
@@ -1034,11 +1050,15 @@ components:
         reservedBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
         committedBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
         availableBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+    SharePassword:
+      type: string
+      minLength: 1
+      x-max-utf8-bytes: 1024
+      description: Non-empty password capped at 1024 bytes when encoded as UTF-8; this is a byte limit, not a character-count limit.
     CreateShare:
       type: object
-      additionalProperties: false
       properties:
-        password: { type: string, minLength: 1, maxLength: 1024 }
+        password: { $ref: '#/components/schemas/SharePassword' }
         expiresAt: { type: string, format: date-time }
         maxDownloads: { type: integer, minimum: 1, maximum: 2147483647 }
     CreatedShare:

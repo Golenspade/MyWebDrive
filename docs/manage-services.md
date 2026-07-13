@@ -41,7 +41,7 @@ The topology contains PostgreSQL, Redis, MinIO initialization, Core migration, C
 | `./manage-services.sh smoke` | Run `scripts/smoke-core-e2e.sh` in an isolated project with disposable volumes. |
 | `./manage-services.sh quality` | Run the root fail-closed quality gate without starting the stack. |
 | `./manage-services.sh reset --confirm` | Remove local containers, volumes, and orphans while preserving `.state/core-dev.env`. |
-| `./manage-services.sh legacy:<command>` | Invoke an archived command during the time-boxed observation window only. |
+| `./manage-services.sh legacy:<command>` | Invoke an archived command for observation only while the retirement policy permits it. |
 
 Commands reject unexpected arguments. `logs` rejects option-like and undefined service names. `reset` requires the exact `--confirm` token. Any unrecognized former lifecycle command warns `SOFT-RETIRED`, exits 64, and does not start an archived stack.
 
@@ -90,8 +90,8 @@ Local commands do not replace the release runbooks. Production uses:
 
 Read `infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md` and `docs/runbooks/core-cutover-and-rollback.md`. Deploy only immutable `sha-<40 lowercase hex>` images through the scripts; do not manually bypass migrations, locks, health/version checks, digests, or manifests.
 
-## 14-day soft-retirement policy
+## Event-based soft-retirement policy
 
-The former split control plane is archived at `archive/legacy-split-control-plane-2026-07-13`. Its observation window covers 2026-07-13 through 2026-07-26 inclusive. During that window, `legacy:<command>` may be used only for read-only comparison or evidence recovery; it must not support new development, schema changes, deployment, or production writes.
+The former split control plane is archived under `archive/`. `legacy:<command>` may be used only for read-only comparison or evidence recovery; it must not support new development, schema changes, deployment, or production writes.
 
-On or after 2026-07-27, remove the compatibility entrypoint and archive unless an owner explicitly approves a new purpose and expiry date. Documentation, CI, and release tooling must never depend on the observation window.
+The retirement clock has not started. It starts only after the final production deploy, rollback, and redeploy acceptance is successful and has a recorded UTC completion timestamp. The earliest physical deletion is that timestamp plus 14 consecutive dependency-free 24-hour periods. Until that evidence exists and the full period completes, neither the compatibility entrypoint nor the archive is eligible for deletion. Documentation, CI, and release tooling must never depend on the observation window.

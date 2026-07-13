@@ -1,3 +1,5 @@
+> Historical design record. For current repository authority, see [the repository overview](../../../README.md).
+
 # MyWebDrive Core API + Storage Data Plane 架构设计
 
 - 状态：已批准，实施中

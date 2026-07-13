@@ -2,7 +2,7 @@
 
 MyWebDrive 是一个 Node.js、TypeScript 与 Next.js 构建的文件存储和分发平台。当前仓库采用 Core-first 架构：Core 负责身份、文件、上传意图、配额、分享、发布和 Dashboard；Storage 负责对象传输与后台存储工作；Web 通过同源 Nginx 入口访问公开 API。
 
-## 当前权威（2026-07-13）
+## 当前权威
 
 - 控制平面：`services/core-api`
 - 存储 API 与 Worker：`services/storage`
@@ -13,7 +13,7 @@ MyWebDrive 是一个 Node.js、TypeScript 与 Next.js 构建的文件存储和�
 - 生产编排：`infrastructure/alicloud/docker-compose.core.yml`
 - 生产部署与回滚：`infrastructure/alicloud/deploy.sh`、`infrastructure/alicloud/rollback.sh`
 
-曾经的拆分式控制平面已 **SOFT-RETIRED**，其归档副本仅用于限时观察，不属于默认构建、测试、迁移、开发或发布路径。
+曾经的拆分式控制平面已 **SOFT-RETIRED**，其归档副本仅用于观察，不属于默认构建、测试、迁移、开发或发布路径。
 
 ## 本地开发
 
@@ -39,7 +39,7 @@ reset --confirm
 legacy:<command>
 ```
 
-`reset` 只在显式提供 `--confirm` 时删除本地容器和卷。`legacy:<command>` 不是开发入口，只允许在 14 天软退役观察期内检查归档行为。
+`reset` 只在显式提供 `--confirm` 时删除本地容器和卷。`legacy:<command>` 不是开发入口，只允许按软退役政策检查归档行为。
 
 ## 验证矩阵
 
@@ -75,9 +75,9 @@ bash infrastructure/alicloud/rollback.sh "sha-<40-lowercase-hex>"
 
 发布合同由 `infrastructure/alicloud/docker-compose.core.yml` 和 `scripts/smoke-core-e2e.sh` 支撑。不要绕过 migration、发布锁、健康/版本校验或 manifest 选择；不要通过删除持久卷回滚。
 
-## 14 天软退役窗口
+## 软退役观察与删除资格
 
-归档运行时位于 `archive/legacy-split-control-plane-2026-07-13`。观察窗口从 2026-07-13 到 2026-07-26（含）共 14 个日历日；期间只能用 `./manage-services.sh legacy:<command>` 做只读或对照观察，不得承载新开发、迁移、部署或生产写入。自 2026-07-27 起应移除兼容入口和归档运行时，除非另有明确审批与到期日。
+归档运行时仅供只读或对照观察，不得承载新开发、迁移、部署或生产写入。退役计时尚未开始；只有最终生产部署、回滚和重新部署验收成功并记录 UTC 完成时间后才开始。最早物理删除时间是该记录时间之后连续 14 个无依赖的 24 小时周期。完整规则与证据要求见 [`docs/manage-services.md`](docs/manage-services.md)。
 
 ## 安全与贡献
 

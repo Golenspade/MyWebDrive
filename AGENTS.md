@@ -3,7 +3,7 @@
 This file is for agentic coding tools operating in this repository.
 Keep changes minimal, follow existing patterns, and prefer commands documented here.
 
-## Repository Authority (2026-07-13)
+## Repository Authority
 
 - The active control plane is `services/core-api`; `services/storage`,
   `services/email-provider`, and `frontend/cruip-landing` remain active peers.
@@ -61,8 +61,8 @@ Notes:
   it builds images, creates disposable volumes, and cleans them afterward.
 - Any unrecognized former command must warn `SOFT-RETIRED`, exit `64`, and must
   never start an archived stack.
-- `legacy:<command>` is observation-only from 2026-07-13 through 2026-07-26;
-  remove the escape hatch on or after 2026-07-27 unless a new expiry is approved.
+- `legacy:<command>` is observation-only. Its retirement clock and deletion
+  eligibility are defined by the event-based rule in `docs/manage-services.md`.
 
 ## Database (Prisma)
 

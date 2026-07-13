@@ -1,3 +1,5 @@
+> Historical deployment report. It does not describe current runtime authority; see [the current repository overview](../../README.md).
+
 # 部署日志：第一次成功部署（静态导出 + Nginx）
 
 日期：2025-10-12
@@ -135,4 +137,3 @@ server {
 - 若需严格“原子切换”，可采用 `releases/<tag>` 目录 + 符号链接方式发布
 - 如需 HTTPS，后续可申请并配置 Let’s Encrypt 证书（自动续期）
 - 可将本日志与 Nginx 模板固化为部署脚本，便于复用
-

@@ -1,3 +1,5 @@
+> Historical design record. For current repository authority, see [the repository overview](../../../README.md).
+
 # Admin Dashboard Analytics Rebuild Design
 
 - **Status:** Approved for implementation
