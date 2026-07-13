@@ -25,6 +25,8 @@ pnpm-debug.log*
 # Framework outputs
 **/.next/
 **/out/
+playwright-report/
+test-results/
 
 # Prisma generated clients and dev DBs
 services/*/prisma/client/

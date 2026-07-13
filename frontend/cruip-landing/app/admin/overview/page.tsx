@@ -76,7 +76,7 @@ function TrendCard({
       <CardHeader><CardTitle className='text-base'>{title}</CardTitle></CardHeader>
       <CardContent>
         {data.some(point => point.value != null) ? (
-          <div className='h-80'>
+          <div data-visual-dynamic className='h-80'>
             <ResponsiveContainer width='100%' height='100%'>
               <LineChart data={data} margin={{ left: 8, right: 8, top: 8, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke='var(--nothing-line)' />
@@ -95,7 +95,7 @@ function TrendCard({
               </LineChart>
             </ResponsiveContainer>
           </div>
-        ) : <div className='text-sm text-nothing-secondary'>无可用数据</div>}
+        ) : <div data-visual-dynamic className='text-sm text-nothing-secondary'>无可用数据</div>}
       </CardContent>
     </Card>
   )
@@ -207,9 +207,9 @@ export default function AdminDashboardPage() {
         <div className='flex flex-wrap items-end justify-between gap-2'>
           <div>
             <h2 className='font-nothing-head text-lg text-nothing-display'>业务分析</h2>
-            <p className='text-xs text-nothing-secondary'>数据覆盖：上传自 {business?.coverage.uploadsFrom ?? '不可用'}；下载自 {business?.coverage.downloadsFrom ?? '不可用'}；{business?.coverage.complete ? '完整' : '部分覆盖'}</p>
+            <p data-visual-dynamic className='text-xs text-nothing-secondary'>数据覆盖：上传自 {business?.coverage.uploadsFrom ?? '不可用'}；下载自 {business?.coverage.downloadsFrom ?? '不可用'}；{business?.coverage.complete ? '完整' : '部分覆盖'}</p>
           </div>
-          <p className='text-xs text-nothing-secondary'>读模型更新：{business?.freshness.readModelUpdatedAt ?? '不可用'} · 延迟 {business?.freshness.lagSeconds ?? '-'} 秒</p>
+          <p data-visual-dynamic className='text-xs text-nothing-secondary'>读模型更新：{business?.freshness.readModelUpdatedAt ?? '不可用'} · 延迟 {business?.freshness.lagSeconds ?? '-'} 秒</p>
         </div>
         <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
           <MetricCard label='用户总数' value={formatDashboardInteger(business?.totals.totalUsers ?? null)} loading={businessLoading} />
@@ -229,7 +229,7 @@ export default function AdminDashboardPage() {
             <h2 className='font-nothing-head text-lg text-nothing-display'>系统健康</h2>
             <p className='text-xs text-nothing-secondary'>Prometheus 状态：{system?.availability ?? '不可用'} · 下载遥测：{system?.pipeline.downloadTelemetry ?? 'unknown'}</p>
           </div>
-          <p className='text-xs text-nothing-secondary'>生成时间：{system?.generatedAt ?? '不可用'}</p>
+          <p data-visual-dynamic className='text-xs text-nothing-secondary'>生成时间：{system?.generatedAt ?? '不可用'}</p>
         </div>
         <div className='grid gap-3 sm:grid-cols-2 lg:grid-cols-4'>
           <MetricCard label='请求总数' value={formatDashboardInteger(system?.traffic.requestsCount ?? null)} loading={systemLoading} />

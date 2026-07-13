@@ -156,7 +156,7 @@ require_pattern 'exec .*deploy\.sh.*--manifest' "$ROLLBACK_SCRIPT" 'rollback.sh 
 reject_pattern '\|[[:space:]]*node[[:space:]]+-e|^[[:space:]]*node[[:space:]]+-e' "$DEPLOY_SCRIPT" 'deploy.sh must not require Node.js on the production host'
 
 reject_pattern '\|\|[[:space:]]*true|--no-frozen-lockfile|SQLite|sqlite|services/(auth|user|metadata|sharing)|api-gateway' "$CI_FILE" 'CI contains a best-effort, mutable install, SQLite, or split-control-plane path'
-for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'prisma migrate deploy' 'verify-core-release-contract\.sh' 'test-core-cutover-contract\.sh' 'test-repo-authority-contract\.sh' 'test-core-dev-contract\.sh' 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'packages/observability test' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/email-provider/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' 'docker build.*infrastructure/alicloud/prometheus/Dockerfile' 'mywebdrive-prometheus' 'packages:[[:space:]]*write' 'docker login ghcr\.io' 'release_tag=sha-\$\{GITHUB_SHA\}' 'docker push' '--read-only' '--tmpfs' 'id -u'; do
+for pattern in '--frozen-lockfile' 'postgres:' 'redis:' 'pnpm run quality' 'playwright install --with-deps chromium' 'SMOKE_REUSE_IMAGES:[[:space:]]*"1"' 'SMOKE_BROWSER_GATE:[[:space:]]*"1"' 'smoke-core-e2e\.sh' 'docker build.*services/core-api/Dockerfile' 'docker build.*services/email-provider/Dockerfile' 'docker build.*services/storage/Dockerfile' 'docker build.*frontend/cruip-landing/Dockerfile' 'docker build.*infrastructure/alicloud/nginx/Dockerfile' 'docker build.*infrastructure/alicloud/prometheus/Dockerfile' 'mywebdrive-prometheus' 'packages:[[:space:]]*write' 'docker login ghcr\.io' 'release_tag=sha-\$\{GITHUB_SHA\}' 'docker push' '--read-only' '--tmpfs' 'id -u'; do
   require_pattern "$pattern" "$CI_FILE" "CI is missing required gate: $pattern"
 done
 for upstream in storage-api core-api web; do
@@ -176,9 +176,10 @@ authority_filters="--filter './packages/common' --filter './packages/observabili
 [[ "$(script_value build:all)" == "pnpm $authority_filters run build" ]] || fail 'build:all selectors are not exact'
 [[ "$(script_value typecheck)" == "pnpm $authority_filters exec tsc -b --pretty false" ]] || fail 'typecheck selectors are not exact'
 [[ "$(script_value lint:all)" == "pnpm --if-present $authority_filters run lint" ]] || fail 'lint:all selectors are not exact'
-[[ "$(script_value test:all)" == "pnpm --if-present $authority_filters run test && pnpm run test:generated && pnpm run verify:generated" ]] || fail 'test:all selectors are not exact'
+[[ "$(script_value test:all)" == "pnpm --if-present $authority_filters run test && pnpm run test:generated && pnpm run verify:generated && pnpm run test:release-gate" ]] || fail 'test:all selectors are not exact'
 [[ "$(script_value test:legacy)" == 'bash scripts/run-legacy-tests.sh' ]] || fail 'test:legacy must remain explicit'
 [[ "$(script_value verify:generated)" == 'bash scripts/verify-no-generated-artifacts.sh' ]] || fail 'generated artifact verifier is not exposed'
+[[ "$(script_value test:e2e)" == 'playwright test' ]] || fail 'test:e2e must expose Playwright directly'
 require_pattern 'SOFT-RETIRED' "$LEGACY_TEST_SCRIPT" 'legacy test warning is missing'
 for legacy in auth user metadata sharing api-gateway-node; do
   require_pattern "--filter '\./services/$legacy'" "$LEGACY_TEST_SCRIPT" "legacy test discovery is missing $legacy"

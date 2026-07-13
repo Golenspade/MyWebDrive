@@ -67,7 +67,7 @@ export default function CatalogPage() {
   }, [])
 
   if (status === 'loading') {
-    return <div className="mx-auto max-w-6xl p-8 text-sm text-muted-foreground">正在加载发布目录…</div>
+    return <div className="mx-auto max-w-6xl p-8 text-sm text-nothing-secondary">正在加载发布目录…</div>
   }
   if (status === 'error') {
     return <div className="mx-auto max-w-6xl p-8 text-sm text-destructive">发布目录不可用：{error}</div>
@@ -77,18 +77,18 @@ export default function CatalogPage() {
     <main className="mx-auto max-w-6xl space-y-6 p-8">
       <div>
         <h1 className="text-2xl font-semibold">软件分发</h1>
-        <p className="mt-2 text-sm text-muted-foreground">下载凭证仅在点击时签发，且只能使用一次。</p>
+        <p className="mt-2 text-sm text-nothing-secondary">下载凭证仅在点击时签发，且只能使用一次。</p>
       </div>
       {publications.length === 0 ? (
-        <div className="rounded border p-8 text-center text-sm text-muted-foreground">暂无已发布文件</div>
+        <div className="rounded border p-8 text-center text-sm text-nothing-secondary">暂无已发布文件</div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {publications.map((publication) => (
             <Card key={publication.id}>
               <CardHeader><CardTitle className="truncate text-base">{publication.fileName}</CardTitle></CardHeader>
               <CardContent className="space-y-3 text-sm">
-                <div className="text-muted-foreground">{publication.mimeType}</div>
-                <div className="text-muted-foreground">{formatCompactBytes(Number(publication.sizeBytes))}</div>
+                <div className="text-nothing-secondary">{publication.mimeType}</div>
+                <div className="text-nothing-secondary">{formatCompactBytes(Number(publication.sizeBytes))}</div>
                 <Button onClick={() => void downloadPublication(publication)}>下载</Button>
               </CardContent>
             </Card>

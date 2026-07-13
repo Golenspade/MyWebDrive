@@ -119,7 +119,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
               <li>
                 <span
                   className="flex items-center justify-center text-nothing-secondary opacity-30"
-                  aria-label="Twitter"
+                  aria-hidden="true"
                 >
                   <svg
                     className="h-8 w-8 fill-current"
@@ -133,7 +133,7 @@ export default function Footer({ border = false }: { border?: boolean }) {
               <li>
                 <span
                   className="flex items-center justify-center text-nothing-secondary opacity-30"
-                  aria-label="Medium"
+                  aria-hidden="true"
                 >
                   <svg
                     className="h-8 w-8 fill-current"

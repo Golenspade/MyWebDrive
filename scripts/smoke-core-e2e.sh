@@ -3,21 +3,26 @@ set -Eeuo pipefail
 
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/infrastructure/alicloud/docker-compose.core.yml"
+source "$ROOT_DIR/scripts/smoke-core-mode.sh"
+
+SMOKE_REUSE_IMAGES=${SMOKE_REUSE_IMAGES:-0}
+SMOKE_BROWSER_GATE=${SMOKE_BROWSER_GATE:-0}
+[[ "$SMOKE_REUSE_IMAGES" == 0 || "$SMOKE_REUSE_IMAGES" == 1 ]] || { printf 'SMOKE_REUSE_IMAGES must be 0 or 1\n' >&2; exit 64; }
+[[ "$SMOKE_BROWSER_GATE" == 0 || "$SMOKE_BROWSER_GATE" == 1 ]] || { printf 'SMOKE_BROWSER_GATE must be 0 or 1\n' >&2; exit 64; }
 RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$"
 SHA_TAG="sha-$(printf '%040x' "$$")"
 PROJECT="mwd-core-smoke-$RUN_ID"
-TAG="mywebdrive-smoke:$RUN_ID"
-CORE_IMAGE="${TAG}-core"
-STORAGE_IMAGE="${TAG}-storage"
-WEB_IMAGE="${TAG}-web"
-NGINX_IMAGE="${TAG}-nginx"
-EMAIL_IMAGE="${TAG}-email"
-PROMETHEUS_IMAGE="${TAG}-prometheus"
+smoke_configure_images "$SMOKE_REUSE_IMAGES" "$RUN_ID"
 TEMP_DIR=$(mktemp -d "${TMPDIR:-/tmp}/mywebdrive-core-smoke.XXXXXX")
 OVERRIDE_FILE="$TEMP_DIR/compose.smoke.yml"
 COOKIE_JAR="$TEMP_DIR/cookies.txt"
 HTTP_PORT=${SMOKE_HTTP_PORT:-$((18080 + ($$ % 1000)))}
+FAKE_EMAIL_HOST_PORT=${SMOKE_FAKE_EMAIL_PORT:-$((20080 + ($$ % 1000)))}
 BASE_URL="http://127.0.0.1:$HTTP_PORT"
+FAKE_EMAIL_TEST_TOKEN="smoke-mailbox-${RUN_ID}-000000000000000000"
+SMOKE_ARTIFACT_DIR=${SMOKE_ARTIFACT_DIR:-}
+PLAYWRIGHT_OUTPUT_DIR="$TEMP_DIR/test-results"
+PLAYWRIGHT_REPORT_DIR="$TEMP_DIR/playwright-report"
 
 export COMPOSE_PROJECT_NAME="$PROJECT"
 export POSTGRES_PASSWORD="smoke-postgres-$RUN_ID"
@@ -40,6 +45,7 @@ export IMAGE_TAG="$SHA_TAG"
 export GIT_SHA="${SHA_TAG#sha-}"
 export HTTP_PORT
 export CORE_API_IMAGE="$CORE_IMAGE"
+export EMAIL_PROVIDER_IMAGE="$EMAIL_PROVIDER_IMAGE"
 export STORAGE_IMAGE="$STORAGE_IMAGE"
 export WEB_IMAGE="$WEB_IMAGE"
 export NGINX_IMAGE="$NGINX_IMAGE"
@@ -60,14 +66,58 @@ on_error() {
   exit "$status"
 }
 
+redact_stream() {
+  node "$ROOT_DIR/scripts/verify-smoke-artifacts.mjs" redact
+}
+
+copy_safe_playwright_files() {
+  local source=$1 destination=$2 file relative extension
+  [[ -d "$source" ]] || return 0
+  while IFS= read -r -d '' file; do
+    [[ -f "$file" && ! -L "$file" ]] || continue
+    relative=${file#"$source"/}
+    extension=${relative##*.}
+    case "$extension" in
+      css|html|js|json|png|txt) ;;
+      *) continue ;;
+    esac
+    mkdir -p "$destination/$(dirname "$relative")"
+    cp "$file" "$destination/$relative"
+  done < <(find "$source" -type f -print0)
+}
+
+collect_failure_artifacts() {
+  [[ -n "$SMOKE_ARTIFACT_DIR" ]] || return 0
+  if [[ -e "$SMOKE_ARTIFACT_DIR" || -L "$SMOKE_ARTIFACT_DIR" ]]; then
+    printf 'core smoke warning: artifact directory must not already exist: %s\n' "$SMOKE_ARTIFACT_DIR" >&2
+    return 1
+  fi
+  mkdir -m 700 -p "$SMOKE_ARTIFACT_DIR/compose"
+  compose ps --all 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/ps.txt" || true
+  compose config --services 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/services.txt" || true
+  compose config --images 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/images.txt" || true
+  compose logs --no-color 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/logs.txt" || true
+  copy_safe_playwright_files "$PLAYWRIGHT_REPORT_DIR" "$SMOKE_ARTIFACT_DIR/playwright-report"
+  if [[ -d "$PLAYWRIGHT_OUTPUT_DIR" ]]; then
+    while IFS= read -r -d '' file; do
+      [[ -f "$file" && ! -L "$file" ]] || continue
+      relative=${file#"$PLAYWRIGHT_OUTPUT_DIR"/}
+      mkdir -p "$SMOKE_ARTIFACT_DIR/test-results/$(dirname "$relative")"
+      cp "$file" "$SMOKE_ARTIFACT_DIR/test-results/$relative"
+    done < <(find "$PLAYWRIGHT_OUTPUT_DIR" -type f -name '*.png' -print0)
+  fi
+  node "$ROOT_DIR/scripts/verify-smoke-artifacts.mjs" verify "$SMOKE_ARTIFACT_DIR"
+}
+
 cleanup() {
   local status=$?
   trap - EXIT INT TERM
   set +e
+  if [[ $status -ne 0 ]]; then collect_failure_artifacts; fi
   if [[ -f "$OVERRIDE_FILE" ]]; then
     compose down --volumes --remove-orphans >/dev/null 2>&1
   fi
-  docker image rm "$CORE_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE" "$EMAIL_IMAGE" "$PROMETHEUS_IMAGE" >/dev/null 2>&1
+  smoke_cleanup_owned_images
   rm -rf "$TEMP_DIR"
   exit "$status"
 }
@@ -102,15 +152,68 @@ wait_ready_status() {
   fail "$service $url never reached HTTP $expected"
 }
 
+run_browser_gate() {
+  local scenario=$1 email grep_pattern
+  [[ "$SMOKE_BROWSER_GATE" == 1 ]] || return 0
+  case "$scenario" in
+    healthy)
+      email=browser-healthy-admin@example.test
+      grep_pattern=@healthy
+      ;;
+    prometheus-down)
+      email=browser-degraded-admin@example.test
+      grep_pattern=@degraded
+      ;;
+    *) fail "unknown browser gate scenario: $scenario" ;;
+  esac
+
+  if [[ -n "${SMOKE_BROWSER_CONTAINER_IMAGE:-}" ]]; then
+    docker run --rm \
+      --network "${PROJECT}_default" \
+      --read-only \
+      --tmpfs "/tmp:uid=$(id -u),gid=$(id -g),mode=1777" \
+      --user "$(id -u):$(id -g)" \
+      --volume "$ROOT_DIR:/work:rw" \
+      --volume "$TEMP_DIR:/smoke-output:rw" \
+      --workdir /work \
+      --env CI=1 \
+      --env HOME=/tmp \
+      --env E2E_BASE_URL=http://nginx:8080 \
+      --env E2E_MAILBOX_BASE_URL=http://fake-email:8025 \
+      --env E2E_MAILBOX_TOKEN="$FAKE_EMAIL_TEST_TOKEN" \
+      --env E2E_ADMIN_EMAIL="$email" \
+      --env E2E_OUTPUT_DIR=/smoke-output/test-results \
+      --env E2E_REPORT_DIR=/smoke-output/playwright-report \
+      "${SMOKE_BROWSER_CONTAINER_IMAGE}" \
+      corepack pnpm exec playwright test --grep "$grep_pattern" ${SMOKE_UPDATE_SNAPSHOTS:+--update-snapshots}
+    return
+  fi
+
+  CI=1 \
+  E2E_BASE_URL="$BASE_URL" \
+  E2E_MAILBOX_BASE_URL="http://127.0.0.1:$FAKE_EMAIL_HOST_PORT" \
+  E2E_MAILBOX_TOKEN="$FAKE_EMAIL_TEST_TOKEN" \
+  E2E_ADMIN_EMAIL="$email" \
+  E2E_OUTPUT_DIR="$PLAYWRIGHT_OUTPUT_DIR" \
+  E2E_REPORT_DIR="$PLAYWRIGHT_REPORT_DIR" \
+    corepack pnpm exec playwright test --grep "$grep_pattern" ${SMOKE_UPDATE_SNAPSHOTS:+--update-snapshots}
+}
+
 cat >"$OVERRIDE_FILE" <<EOF
 services:
   fake-email:
-    image: $EMAIL_IMAGE
+    image: $FAKE_EMAIL_IMAGE
     read_only: true
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
     tmpfs:
       - /tmp:uid=1000,gid=1000,mode=1777
+    environment:
+      EMAIL_PROVIDER_PORT: "8025"
+      EMAIL_PROVIDER_TOKEN: smoke-email-token
+      FAKE_EMAIL_TEST_TOKEN: $FAKE_EMAIL_TEST_TOKEN
+    ports:
+      - "127.0.0.1:$FAKE_EMAIL_HOST_PORT:8025"
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8025/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 2s
@@ -121,7 +224,7 @@ services:
       NODE_ENV: development
       EMAIL_PROVIDER_URL: http://fake-email:8025
       EMAIL_PROVIDER_TOKEN: smoke-email-token
-      CORE_ADMIN_EMAILS: smoke-admin@example.test
+      CORE_ADMIN_EMAILS: smoke-admin@example.test,browser-healthy-admin@example.test,browser-healthy-admin-retry1@example.test,browser-degraded-admin@example.test,browser-degraded-admin-retry1@example.test
     depends_on:
       fake-email:
         condition: service_healthy
@@ -139,24 +242,42 @@ const server = net.createServer()
 server.once("error", () => process.exit(1))
 server.listen(Number(process.argv[1]), "127.0.0.1", () => server.close(() => process.exit(0)))
 ' "$HTTP_PORT" || fail "selected smoke HTTP port is unavailable"
+node -e '
+const net = require("node:net")
+const server = net.createServer()
+server.once("error", () => process.exit(1))
+server.listen(Number(process.argv[1]), "127.0.0.1", () => server.close(() => process.exit(0)))
+' "$FAKE_EMAIL_HOST_PORT" || fail "selected fake-email host port is unavailable"
 
-docker build --file "$ROOT_DIR/services/core-api/Dockerfile" --tag "$CORE_IMAGE" "$ROOT_DIR"
-docker build --file "$ROOT_DIR/services/storage/Dockerfile" --tag "$STORAGE_IMAGE" "$ROOT_DIR"
-docker build --file "$ROOT_DIR/frontend/cruip-landing/Dockerfile" --tag "$WEB_IMAGE" "$ROOT_DIR"
-docker build --file "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" --tag "$PROMETHEUS_IMAGE" "$ROOT_DIR/infrastructure/alicloud/prometheus"
-if [[ $(docker info --format '{{.OperatingSystem}}') == 'Docker Desktop' ]]; then
-  # Docker Desktop 28.4 on macOS can leave the BuildKit client waiting after
-  # a successful Nginx image export. The narrow-context legacy path is local-only;
-  # Linux CI keeps the BuildKit + provenance=false path below.
-  DOCKER_BUILDKIT=0 docker build --file "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" --tag "$NGINX_IMAGE" "$ROOT_DIR/infrastructure/alicloud/nginx"
+if [[ "$SMOKE_REUSE_IMAGES" == 1 ]]; then
+  smoke_validate_reuse_images
 else
-  docker build --provenance=false --file "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" --tag "$NGINX_IMAGE" "$ROOT_DIR/infrastructure/alicloud/nginx"
+  docker build --file "$ROOT_DIR/services/core-api/Dockerfile" --tag "$CORE_IMAGE" "$ROOT_DIR"
+  docker build --file "$ROOT_DIR/services/email-provider/Dockerfile" --tag "$EMAIL_PROVIDER_IMAGE" "$ROOT_DIR"
+  docker build --file "$ROOT_DIR/services/storage/Dockerfile" --tag "$STORAGE_IMAGE" "$ROOT_DIR"
+  if [[ $(docker info --format '{{.OperatingSystem}}') == 'Docker Desktop' ]]; then
+    sed '1{/^# syntax=/d;}' "$ROOT_DIR/frontend/cruip-landing/Dockerfile" >"$TEMP_DIR/web.Dockerfile"
+    docker build --file "$TEMP_DIR/web.Dockerfile" --tag "$WEB_IMAGE" "$ROOT_DIR"
+  else
+    docker build --file "$ROOT_DIR/frontend/cruip-landing/Dockerfile" --tag "$WEB_IMAGE" "$ROOT_DIR"
+  fi
+  docker build --file "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" --tag "$PROMETHEUS_IMAGE" "$ROOT_DIR/infrastructure/alicloud/prometheus"
+  if [[ $(docker info --format '{{.OperatingSystem}}') == 'Docker Desktop' ]]; then
+    # Docker Desktop 28.4 on macOS can leave the BuildKit client waiting after
+    # a successful Nginx image export. The narrow-context legacy path is local-only.
+    # Removing the optional syntax directive also avoids a network-only frontend
+    # lookup; Linux CI keeps the canonical BuildKit path below.
+    sed '1{/^# syntax=/d;}' "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" >"$TEMP_DIR/nginx.Dockerfile"
+    DOCKER_BUILDKIT=0 docker build --file "$TEMP_DIR/nginx.Dockerfile" --tag "$NGINX_IMAGE" "$ROOT_DIR/infrastructure/alicloud/nginx"
+  else
+    docker build --provenance=false --file "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" --tag "$NGINX_IMAGE" "$ROOT_DIR/infrastructure/alicloud/nginx"
+  fi
+  docker build --file "$ROOT_DIR/scripts/smoke/fake-email/Dockerfile" --tag "$FAKE_EMAIL_IMAGE" "$ROOT_DIR"
 fi
-docker build --file "$ROOT_DIR/scripts/smoke/fake-email/Dockerfile" --tag "$EMAIL_IMAGE" "$ROOT_DIR"
 
-for image in "$CORE_IMAGE" "$STORAGE_IMAGE" "$WEB_IMAGE" "$NGINX_IMAGE" "$EMAIL_IMAGE" "$PROMETHEUS_IMAGE"; do
+while IFS= read -r image; do
   [[ "$(docker run --rm --entrypoint sh "$image" -c 'id -u')" != "0" ]] || fail "$image runs as root"
-done
+done < <(smoke_required_images)
 docker run --rm --read-only --tmpfs /tmp --entrypoint node "$WEB_IMAGE" -e "process.stdout.write('web readonly ok')" >/dev/null
 
 services=$(compose config --services)
@@ -196,7 +317,7 @@ compose exec -T core-api node -e "fetch('http://127.0.0.1:8080/version').then(as
 EMAIL="smoke-admin@example.test"
 request 202 "$TEMP_DIR/challenge.json" -H 'Content-Type: application/json' --data "{\"email\":\"$EMAIL\"}" "$BASE_URL/api/v1/auth/email/request"
 CHALLENGE_ID=$(json_get "$TEMP_DIR/challenge.json" challengeId)
-compose exec -T fake-email node -e "fetch('http://127.0.0.1:8025/last').then(async r=>{if(!r.ok)process.exit(1);process.stdout.write(await r.text())})" >"$TEMP_DIR/email.json"
+compose exec -T fake-email node -e "fetch('http://127.0.0.1:8025/v1/test/mailboxes/latest?recipient=smoke-admin%40example.test',{headers:{'X-Test-Mailbox-Token':'$FAKE_EMAIL_TEST_TOKEN'}}).then(async r=>{if(!r.ok)process.exit(1);process.stdout.write(await r.text())})" >"$TEMP_DIR/email.json"
 OTP=$(json_get "$TEMP_DIR/email.json" code)
 [[ $(json_get "$TEMP_DIR/email.json" to) == "$EMAIL" ]] || fail 'fake email recipient mismatch'
 
@@ -326,11 +447,14 @@ if(typeof value.traffic.requestsCount!=="string")process.exit(1)
 done
 [[ "$system_ready" == 1 ]] || fail 'System Health did not become available'
 
+run_browser_gate healthy
+
 compose stop prometheus
 request 200 "$TEMP_DIR/business-without-prometheus.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
 request 200 "$TEMP_DIR/system-without-prometheus.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/system?range=today"
 [[ $(json_get "$TEMP_DIR/system-without-prometheus.json" availability) == partial ]] || fail 'System Health did not isolate Prometheus failure'
 request 200 "$TEMP_DIR/page-without-prometheus.html" "$BASE_URL/admin/overview"
+run_browser_gate prometheus-down
 compose up -d --wait --no-deps prometheus
 
 compose stop analytics-worker

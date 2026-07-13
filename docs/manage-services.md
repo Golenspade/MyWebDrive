@@ -66,6 +66,8 @@ Use `config` when changing either Compose file. Use `reset --confirm` only when 
 | Active package tests and generated-artifact contracts | `pnpm run test:all` | No |
 | Documentation verifier tests | `pnpm run test:docs` | No |
 | Source/OpenAPI/docs authority and OpenAPI lint | `pnpm run verify:docs` | No |
+| Browser discovery | `pnpm run test:e2e --list` | No |
+| Chromium UI, accessibility, and visual regression | `pnpm run test:e2e` | Running Core stack |
 | Repository authority | `bash scripts/test-repo-authority-contract.sh` | No |
 | Local manager contract | `bash scripts/test-core-dev-contract.sh` | No |
 | Release contract | `bash scripts/test-core-release-contract.sh` | No |
@@ -74,6 +76,23 @@ Use `config` when changing either Compose file. Use `reset --confirm` only when 
 | Core-first end-to-end smoke | `./manage-services.sh smoke` | Yes |
 
 Legacy tests are available only through `pnpm run test:legacy`; they are not part of the active quality or release authority.
+
+## Browser and visual release gate
+
+The browser suite uses Chromium only. Desktop tests run at `1440x900`; mobile tests run at `390x844`. It signs in through the real `/signin` form and retrieves the one-time code from the recipient-scoped, test-token-protected fake mailbox. The suite records neither traces nor video, and failure screenshots mask authentication inputs and fixed test identities before artifacts are considered for upload.
+
+Committed snapshots under `e2e/snapshots/` are Linux-authoritative. A normal `pnpm run test:e2e` compares against them and must never rewrite them. Snapshot changes are reviewable product changes. Do not generate authoritative snapshots on macOS. Update them only by running the complete Compose gate with the six already-built release images and a Playwright `1.61.1` Linux container:
+
+```bash
+SMOKE_REUSE_IMAGES=1 \
+SMOKE_BROWSER_GATE=1 \
+SMOKE_BROWSER_CONTAINER_IMAGE=mcr.microsoft.com/playwright:v1.61.1-noble \
+SMOKE_UPDATE_SNAPSHOTS=1 \
+bash scripts/smoke-core-e2e.sh
+git diff -- e2e/snapshots
+```
+
+CI performs the same browser checks after its six release images are built and before any image is published. On failure, only the allowlisted, sanitized directory selected by `SMOKE_ARTIFACT_DIR` may be uploaded.
 
 ## Public and private HTTP boundaries
 
