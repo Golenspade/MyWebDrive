@@ -63,6 +63,32 @@ const gradientFunctionPattern =
   /(?:repeating-)?(?:linear|radial|conic)-gradient\s*\(/gi
 const dropShadowFunctionPattern = /drop-shadow\s*\(/i
 const hexColorPattern = /#(?:[\da-f]{8}|[\da-f]{6}|[\da-f]{4}|[\da-f]{3})(?![\da-f])/gi
+const SHADOW_PROPERTIES = new Set(['boxshadow', 'textshadow'])
+const MASK_PROPERTIES = new Set([
+  'mask',
+  'maskimage',
+  'maskmode',
+  'maskrepeat',
+  'maskposition',
+  'maskclip',
+  'maskorigin',
+  'masksize',
+  'maskcomposite',
+  'masktype',
+  'maskborder',
+  'maskbordersource',
+  'maskbordermode',
+  'maskborderslice',
+  'maskborderwidth',
+  'maskborderoutset',
+  'maskborderrepeat',
+  'maskboximage',
+  'maskboximagesource',
+  'maskboximageslice',
+  'maskboximagewidth',
+  'maskboximageoutset',
+  'maskboximagerepeat',
+])
 
 function normalizeRelativePath(relativePath) {
   return relativePath.split(path.sep).join('/')
@@ -107,18 +133,34 @@ function normalizeArbitraryCssValue(value) {
     .toLowerCase()
 }
 
-function arbitraryShadowValue(token) {
-  const match = token.match(/^\[(?:box|text)-shadow:(.*)\]$/i)
-  return match ? normalizeArbitraryCssValue(match[1]) : null
-}
-
 function normalizeStyleProperty(property) {
   const normalized = property
     .replace(/^-(?:webkit|moz|ms|o)-/i, '')
     .replace(/[-_]/g, '')
     .toLowerCase()
 
-  return normalized.replace(/^(?:webkit|moz|ms|o)(?=mask)/, '')
+  for (const vendor of ['webkit', 'moz', 'ms', 'o']) {
+    if (!normalized.startsWith(vendor)) continue
+    const unprefixed = normalized.slice(vendor.length)
+    if (SHADOW_PROPERTIES.has(unprefixed) || MASK_PROPERTIES.has(unprefixed)) {
+      return unprefixed
+    }
+  }
+
+  return normalized
+}
+
+function arbitraryCssDeclaration(token) {
+  const match = token.match(/^\[([^:\]]+):(.*)\]$/i)
+  if (!match) return null
+  return {
+    property: normalizeStyleProperty(match[1]),
+    value: normalizeArbitraryCssValue(match[2]),
+  }
+}
+
+function isMaskProperty(property) {
+  return MASK_PROPERTIES.has(property)
 }
 
 function isFlatShadowValue(value) {
@@ -132,7 +174,7 @@ function findTailwindViolations(value) {
     const token = stripVariantPrefixes(rawToken.trim())
     if (!token) continue
 
-    const arbitraryValue = arbitraryShadowValue(token)
+    const arbitraryDeclaration = arbitraryCssDeclaration(token)
 
     if (
       token !== 'shadow-none' &&
@@ -142,7 +184,11 @@ function findTailwindViolations(value) {
         token.startsWith('shadow-') ||
         token === 'drop-shadow' ||
         token.startsWith('drop-shadow-') ||
-        (arbitraryValue !== null && !isFlatShadowValue(arbitraryValue))
+        (
+          arbitraryDeclaration &&
+          SHADOW_PROPERTIES.has(arbitraryDeclaration.property) &&
+          !isFlatShadowValue(arbitraryDeclaration.value)
+        )
       )
     ) {
       findings.push({ rule: 'positive-shadow', message: `Positive shadow utility: ${token}` })
@@ -152,8 +198,25 @@ function findTailwindViolations(value) {
       findings.push({ rule: 'gradient', message: `Gradient utility: ${token}` })
     }
 
-    if (/^(?:\[(?:-webkit-)?mask(?:-[^:]+)?:|(?:-webkit-)?mask(?:-|$))/i.test(token)) {
+    if (/^bg-\$\{\}-(?:to-[\w-]+|gradient|linear|radial|conic)(?:-|$)/i.test(token)) {
+      findings.push({
+        rule: 'gradient',
+        message: `Dynamic gradient utility: ${token}`,
+      })
+    }
+
+    if (
+      (arbitraryDeclaration && isMaskProperty(arbitraryDeclaration.property)) ||
+      /^(?:-webkit-)?mask(?:-|$)/i.test(token)
+    ) {
       findings.push({ rule: 'mask', message: `Mask utility: ${token}` })
+    }
+
+    if (/(?:^|-)brand-(?:\$\{\}|primary-\$\{\}|accent-\$\{\})/i.test(token)) {
+      findings.push({
+        rule: 'legacy-brand-token',
+        message: `Dynamic legacy brand utility: ${token}`,
+      })
     }
   }
 
@@ -252,6 +315,17 @@ function scanCss({ relativePath, source }) {
     const location = declaration.source?.start ?? { line: 1, column: 1 }
     const allowedDotField = isAllowedDotFieldDeclaration(relativePath, declaration)
 
+    if (declaration.prop.includes(DYNAMIC_CSS_VALUE)) {
+      findings.push(
+        violation(
+          relativePath,
+          'dynamic-css-property',
+          'Dynamic CSS property names cannot be verified against the Nothing UI contract',
+          location,
+        ),
+      )
+    }
+
     if (
       (property === 'boxshadow' || property === 'textshadow') &&
       !isFlatShadowValue(value)
@@ -261,7 +335,7 @@ function scanCss({ relativePath, source }) {
       )
     }
 
-    if (property.startsWith('mask')) {
+    if (isMaskProperty(property)) {
       findings.push(violation(relativePath, 'mask', `Mask property: ${declaration.prop}`, location))
     }
 
@@ -351,8 +425,17 @@ function propertyName(node) {
 }
 
 function isFragmentAttribute(node) {
-  if (!ts.isStringLiteral(node) || !ts.isJsxAttribute(node.parent)) return false
-  return ['href', 'xlinkHref'].includes(node.parent.name.getText())
+  let attribute = ts.isJsxAttribute(node.parent) ? node.parent : null
+  if (
+    !attribute &&
+    ts.isJsxExpression(node.parent) &&
+    node.parent.expression === node &&
+    ts.isJsxAttribute(node.parent.parent)
+  ) {
+    attribute = node.parent.parent
+  }
+
+  return attribute ? ['href', 'xlinkHref'].includes(attribute.name.getText()) : false
 }
 
 function isCssTaggedTemplate(node) {
@@ -366,34 +449,42 @@ function templateText(template, interpolationValue) {
 
   let value = template.head.text
   for (const span of template.templateSpans) {
-    value += interpolationValue
+    value += typeof interpolationValue === 'function'
+      ? interpolationValue(span.expression)
+      : interpolationValue
     value += span.literal.text
   }
   return value
 }
 
-function dynamicTemplateFindings({ relativePath, source, value, offset }) {
-  const findings = []
-  const location = lineAndColumn(source, offset)
-
-  if (/(?:^|\s)(?:[\w-]+:)*bg-\$\{\}-(?:to-[\w-]+|gradient|linear|radial|conic)(?=\s|$)/i.test(value)) {
-    findings.push(
-      violation(relativePath, 'gradient', 'Dynamic Tailwind template may produce a gradient', location),
-    )
+function staticStringValue(expression) {
+  let node = expression
+  while (
+    ts.isParenthesizedExpression(node) ||
+    ts.isAsExpression(node) ||
+    ts.isTypeAssertionExpression(node) ||
+    ts.isSatisfiesExpression(node) ||
+    ts.isNonNullExpression(node)
+  ) {
+    node = node.expression
   }
 
-  if (/(?:^|[^A-Za-z0-9])brand-(?:\$\{\}|primary-\$\{\}|accent-\$\{\})/i.test(value)) {
-    findings.push(
-      violation(
-        relativePath,
-        'legacy-brand-token',
-        'Dynamic Tailwind template may produce a legacy brand token',
-        location,
-      ),
-    )
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text
   }
 
-  return findings
+  if (ts.isTemplateExpression(node)) {
+    let value = node.head.text
+    for (const span of node.templateSpans) {
+      const interpolation = staticStringValue(span.expression)
+      if (interpolation === null) return null
+      value += interpolation
+      value += span.literal.text
+    }
+    return value
+  }
+
+  return null
 }
 
 function scanScript({ relativePath, source }) {
@@ -417,7 +508,10 @@ function scanScript({ relativePath, source }) {
 
   function visit(node) {
     if (isCssTaggedTemplate(node)) {
-      const cssSource = templateText(node.template, DYNAMIC_CSS_VALUE)
+      const cssSource = templateText(
+        node.template,
+        (expression) => staticStringValue(expression) ?? DYNAMIC_CSS_VALUE,
+      )
       const location = lineAndColumn(source, node.template.getStart(sourceFile))
       const cssFindings = scanCss({ relativePath, source: cssSource })
       findings.push(
@@ -438,7 +532,6 @@ function scanScript({ relativePath, source }) {
       const value = templateText(node, DYNAMIC_TEMPLATE_MARKER)
       const offset = node.getStart(sourceFile)
       findings.push(...scanTextValue({ relativePath, source, value, offset }))
-      findings.push(...dynamicTemplateFindings({ relativePath, source, value, offset }))
       for (const span of node.templateSpans) visit(span.expression)
       return
     }
@@ -465,13 +558,29 @@ function scanScript({ relativePath, source }) {
       const location = lineAndColumn(source, node.getStart(sourceFile))
 
       if (
-        (normalizedName === 'boxshadow' || normalizedName === 'textshadow') &&
+        SHADOW_PROPERTIES.has(normalizedName) &&
         !isFlatShadowValue(rawValue)
       ) {
         findings.push(violation(relativePath, 'positive-shadow', `Positive ${name} value`, location))
       }
 
-      if (normalizedName.startsWith('mask')) {
+      if (isMaskProperty(normalizedName)) {
+        findings.push(violation(relativePath, 'mask', `Mask property: ${name}`, location))
+      }
+    }
+
+    if (ts.isShorthandPropertyAssignment(node)) {
+      const name = node.name.text
+      const normalizedName = normalizeStyleProperty(name)
+      const location = lineAndColumn(source, node.getStart(sourceFile))
+
+      if (SHADOW_PROPERTIES.has(normalizedName)) {
+        findings.push(
+          violation(relativePath, 'positive-shadow', `Unverified shorthand ${name} value`, location),
+        )
+      }
+
+      if (isMaskProperty(normalizedName)) {
         findings.push(violation(relativePath, 'mask', `Mask property: ${name}`, location))
       }
     }
@@ -498,7 +607,7 @@ function scanScript({ relativePath, source }) {
       for (const attribute of node.attributes.properties) {
         if (
           ts.isJsxAttribute(attribute) &&
-          normalizeStyleProperty(attribute.name.getText(sourceFile)).startsWith('mask')
+          isMaskProperty(normalizeStyleProperty(attribute.name.getText(sourceFile)))
         ) {
           findings.push(
             violation(

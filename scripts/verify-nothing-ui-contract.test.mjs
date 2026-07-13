@@ -234,6 +234,18 @@ test('allows flat Tailwind shadow controls and rejects positive arbitrary shadow
   assert.deepEqual(rulesFor(componentPath, forbidden), ['positive-shadow', 'positive-shadow'])
 })
 
+test('normalizes vendor-prefixed arbitrary CSS properties', () => {
+  const allowed = `
+    export const Example = () => <div className="[-webkit-box-shadow:none] hover:[-webkit-box-shadow:_none] [masking-enabled:true]" />
+  `
+  const forbidden = `
+    export const Example = () => <div className="[-webkit-box-shadow:0_1px_black] [-moz-mask-image:none]" />
+  `
+
+  assert.deepEqual(rulesFor(componentPath, allowed), [])
+  assert.deepEqual(rulesFor(componentPath, forbidden), ['positive-shadow', 'mask'])
+})
+
 test('rejects CSS filter drop-shadow and positive text-shadow values', () => {
   const css = `
     .allowed { box-shadow: none; text-shadow: none; filter: none; }
@@ -260,6 +272,22 @@ test('rejects forbidden declarations in styled and css tagged templates', () => 
   assert.equal(rules.filter((rule) => rule === 'gradient').length, 1)
 })
 
+test('resolves static tagged CSS interpolations without weakening sensitive contexts', () => {
+  const allowed = `
+    const flat = styled.div\`box-shadow: \${"none"}; filter: \${\`none\`}; background: \${"var(--nothing-surface)"}; border-color: \${line};\`
+  `
+  const forbidden = `
+    const unknownProperty = css\`\${property}: \${value};\`
+    const sensitive = css\`box-shadow: \${depth}; filter: \${filterValue}; background: \${paint};\`
+  `
+
+  assert.deepEqual(rulesFor(componentPath, allowed), [])
+  const rules = rulesFor(componentPath, forbidden)
+  assert.equal(rules.filter((rule) => rule === 'dynamic-css-property').length, 1)
+  assert.equal(rules.filter((rule) => rule === 'positive-shadow').length, 2)
+  assert.equal(rules.filter((rule) => rule === 'gradient').length, 1)
+})
+
 test('rejects vendor and case variants of mask style properties', () => {
   const source = `
     export const styles = {
@@ -277,6 +305,22 @@ test('rejects vendor and case variants of mask style properties', () => {
     rulesFor('frontend/cruip-landing/app/example.css', css).filter((rule) => rule === 'mask').length,
     3,
   )
+})
+
+test('handles shorthand CSS style keys without matching unrelated mask prefixes', () => {
+  const forbidden = `
+    const WebkitMaskImage = 'none'
+    const WebkitBoxShadow = 'none'
+    export const styles = { WebkitMaskImage, WebkitBoxShadow }
+  `
+  const allowed = `
+    const maskingEnabled = true
+    export const styles = { maskingEnabled, maskVersion: 2 }
+    export const Example = () => <Widget maskingEnabled maskVersion={2} />
+  `
+
+  assert.deepEqual(rulesFor(componentPath, forbidden), ['mask', 'positive-shadow'])
+  assert.deepEqual(rulesFor(componentPath, allowed), [])
 })
 
 test('rejects legacy brand tokens in CSS selectors', () => {
@@ -305,6 +349,30 @@ test('rejects recognizable dynamic Tailwind forbidden fragments', () => {
   assert.equal(rules.filter((rule) => rule === 'legacy-brand-token').length, 1)
 })
 
+test('applies dynamic Tailwind detection after data and arbitrary variants', () => {
+  const dataVariant = `
+    export const Example = () => <div className={\`data-[state=open]:bg-\${kind}-to-r\`} />
+  `
+  const arbitraryVariant = `
+    export const Example = () => <div className={\`[&>*]:bg-\${kind}-to-r\`} />
+  `
+  const otherForbidden = `
+    export const Example = () => <div className={\`hover:shadow-\${size} group-[&>*]:mask-\${mode} sm:text-brand-\${tone}\`} />
+  `
+  const allowed = `
+    export const Example = () => <div className={\`data-[state=open]:grid-cols-\${columns} [&>*]:text-\${size}\`} />
+  `
+
+  assert.deepEqual(rulesFor(componentPath, dataVariant), ['gradient'])
+  assert.deepEqual(rulesFor(componentPath, arbitraryVariant), ['gradient'])
+
+  const rules = rulesFor(componentPath, otherForbidden)
+  assert.equal(rules.filter((rule) => rule === 'positive-shadow').length, 1)
+  assert.equal(rules.filter((rule) => rule === 'mask').length, 1)
+  assert.equal(rules.filter((rule) => rule === 'legacy-brand-token').length, 1)
+  assert.deepEqual(rulesFor(componentPath, allowed), [])
+})
+
 test('rejects SVG gradient and mask elements', () => {
   const source = `
     export const Example = () => (
@@ -319,6 +387,16 @@ test('rejects JSX mask attributes', () => {
   const source = 'export const Example = () => <path mask="url(#cutout)" />'
 
   assert.deepEqual(rulesFor(componentPath, source), ['mask'])
+})
+
+test('exempts JSX anchor expression literals while rejecting raw hex elsewhere', () => {
+  const source = `
+    export const Example = () => (
+      <><use href={"#abc"} xlinkHref={"#abcdef"} /><Widget dataColor={"#abc"} /></>
+    )
+  `
+
+  assert.deepEqual(rulesFor(componentPath, source), ['raw-hex-color'])
 })
 
 test('exports and rejects every inventoried legacy brand token', () => {
