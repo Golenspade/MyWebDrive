@@ -38,6 +38,7 @@ quality-check:
 	pnpm run lint:all
 	pnpm run test:all
 	pnpm run verify:generated
+	bash scripts/test-repo-authority-contract.sh
 	bash scripts/verify-core-release-contract.sh infrastructure/alicloud/docker-compose.core.yml
 	bash scripts/test-core-release-contract.sh
 	bash scripts/test-core-cutover-contract.sh

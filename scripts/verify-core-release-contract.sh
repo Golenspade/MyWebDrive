@@ -184,7 +184,7 @@ for legacy in auth user metadata sharing api-gateway-node; do
   require_pattern "--filter '\./services/$legacy'" "$LEGACY_TEST_SCRIPT" "legacy test discovery is missing $legacy"
 done
 reject_pattern '\|\|[[:space:]]*true' "$MAKEFILE" 'Makefile must fail closed'
-for pattern in 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'pnpm run verify:generated' 'verify-core-release-contract\.sh'; do require_pattern "$pattern" "$MAKEFILE" "Makefile quality-check is missing: $pattern"; done
+for pattern in 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'pnpm run verify:generated' 'test-repo-authority-contract\.sh' 'verify-core-release-contract\.sh'; do require_pattern "$pattern" "$MAKEFILE" "Makefile quality-check is missing: $pattern"; done
 
 for dockerfile in "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/email-provider/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile"; do
   require_pattern '^FROM .+ AS build$' "$dockerfile" "$(basename "$(dirname "$dockerfile")") Dockerfile must be multi-stage"

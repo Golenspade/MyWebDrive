@@ -3,87 +3,71 @@
 This file is for agentic coding tools operating in this repository.
 Keep changes minimal, follow existing patterns, and prefer commands documented here.
 
-## 最新状态（2026-01-13）
-- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
-- 部署方式：ECS Docker Compose（镜像离线导入）
-- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
-- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+## Repository Authority (2026-07-13)
+
+- The active control plane is `services/core-api`; `services/storage`,
+  `services/email-provider`, and `frontend/cruip-landing` remain active peers.
+- The former split Auth/User/Metadata/Sharing/Gateway runtime is
+  **SOFT-RETIRED** and excluded from default build, test, and deployment paths.
+- Production authority is `infrastructure/alicloud/docker-compose.core.yml`
+  with `infrastructure/alicloud/deploy.sh` and `rollback.sh`.
+- Local multi-service startup is intentionally unavailable until its Core-first
+  contract is implemented. Do not revive a retired launcher as a workaround.
 
 ## Repo Layout
-- `services/*` — Node/TS microservices (Express). Entry: `src/index.ts`.
+
+- `services/core-api` — authoritative Node/TS control plane.
+- `services/storage` — active storage API and worker.
+- `services/email-provider` — private email delivery adapter.
 - `packages/*` — shared libraries (`@mywebdrive/common`, `@mywebdrive/observability`).
-- `services/*/prisma` — Prisma schema and generated client in each service.
+- `services/core-api/prisma` — authoritative control-plane schema and migrations.
 - `frontend/cruip-landing` — primary Next.js landing/app.
-- `infrastructure/` — docker compose, deploy scripts.
+- `infrastructure/alicloud` — Core-first production compose and release scripts.
 
 ## Prereqs
+
 - Node: `>= 20` (repo uses `corepack` + `pnpm@9.7.0`).
 - Package manager: `pnpm` via `corepack`.
-- Database: PostgreSQL 14+ (required for backend tests and many services).
+- Docker with Compose v2 is required for the isolated end-to-end smoke test.
 
 ## Setup / Install
-- Install workspace deps: `pnpm -w install`
-- (Optional) ensure pnpm via script: `./manage-services.sh setup`
+
+- Install workspace deps: `corepack pnpm install --frozen-lockfile`
+- List the supported compatibility surface: `./manage-services.sh help`
 
 ## Build / Typecheck
-- Build everything (workspace): `pnpm run build:all`
-- Build everything (Make wrapper): `make build`
-- Typecheck root references: `pnpm run typecheck`
-- Clean dist folders: `pnpm run clean`
+
+- Run the full fail-closed gate: `./manage-services.sh quality`
+- Build the authoritative workspace: `pnpm run build:all`
+- Typecheck authoritative project references: `pnpm run typecheck`
+- Verify tracked generated artifacts: `pnpm run verify:generated`
 
 Notes:
-- Backend packages/services use TypeScript project references (`tsc -b`).
-- Services are ESM (`"type": "module"`) and compile to `dist/`.
 
-## Run Services (Local Dev)
-- Start Postgres (docker): `./manage-services.sh db:start`
-- Start backend stack: `./manage-services.sh start-backend`
-- Start frontend (landing): `./manage-services.sh start-frontend`
-- Start frontend (prod mode): `./manage-services.sh start-frontend-prod`
-- Status dashboard (ports + health): `./manage-services.sh status`
+- Active packages and services use TypeScript project references (`tsc -b`).
+- Services are ESM (`"type": "module"`) and compile to untracked `dist/` output.
 
-Per-service dev (watch mode):
-- Example: `pnpm -C services/auth dev`
-- Example: `pnpm -C services/metadata dev`
+## Runtime and Smoke Testing
+
+- `./manage-services.sh` is a compatibility shim, not a lifecycle manager.
+- `./manage-services.sh smoke` runs the isolated Core-first Docker smoke test;
+  it builds images, creates disposable volumes, and cleans them afterward.
+- Any former lifecycle/default command must warn `SOFT-RETIRED`, exit `64`,
+  and must never start the split-service stack.
 
 ## Database (Prisma)
-- Generate Prisma client (service-local): `pnpm -C services/auth prisma:generate`
-- Push schema (service-local, if available): `pnpm -C services/metadata db:push`
-- Loop push (common dev workflow):
-  `for svc in auth user metadata storage sharing api-gateway-node; do pnpm -C services/$svc db:push || true; done`
+
+- Core migrations are the only active control-plane migration authority.
+- Production migrations run through the release contract before service startup.
+- Do not run or document split-service schema loops as a normal workflow.
 
 ## Tests
-### Unit/Integration (Vitest)
-Currently, Vitest is used in:
-- `services/auth` (`pnpm -C services/auth test`)
-- `services/metadata` (`pnpm -C services/metadata test`)
 
-Run all tests in a service:
-- `pnpm -C services/auth test`
-- `pnpm -C services/metadata test`
-
-Run a single test file:
-- `pnpm -C services/auth test -- tests/auth-api.test.ts`
-- `pnpm -C services/metadata test -- tests/metadata-api.test.ts`
-
-Run a single test by name (pattern):
-- `pnpm -C services/auth test -- tests/auth-api.test.ts -t "register"`
-- `pnpm -C services/metadata test -- tests/metadata-api.test.ts -t "creates folder"`
-
-Watch mode (when needed):
-- `pnpm -C services/auth exec vitest --watch`
-- `pnpm -C services/metadata exec vitest --watch`
-
-Test DB requirements:
-- Tests expect Postgres reachable (see test files for default URLs).
-- Common defaults used in tests:
-  - `AUTH_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/auth?schema=public`
-  - `METADATA_DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/metadata?schema=public`
-- Start DB quickly: `./manage-services.sh db:start`
-
-### Smoke scripts
-- Guest download smoke: `GATEWAY_PORT=9080 bash ./test_guest_download.sh`
-- Invitation flows: `bash ./test_invitation_flow.sh`, `bash ./test_invitation_system.sh`
+- Default authoritative tests: `pnpm run test:all`
+- Repository authority contract: `bash scripts/test-repo-authority-contract.sh`
+- Core release contracts: `bash scripts/test-core-release-contract.sh`
+- Full container smoke: `./manage-services.sh smoke`
+- Retired tests are opt-in only through `pnpm run test:legacy`.
 
 ## Lint / Format
 This repo does not currently have a single unified root lint/format command.
@@ -141,11 +125,11 @@ Formatting:
 - Use structured logging for unexpected errors (see `logger.error({ err, status }, ...)`).
 - Only swallow errors intentionally for best-effort operations (and keep it narrow).
 
-### Security (v0.3.1+)
-- All services use `helmet` for security headers
-- Gateway uses `express-rate-limit` + Redis for distributed rate limiting
-- Gateway uses `@godaddy/terminus` for graceful shutdown
-- Health endpoints: `/healthz`, `/ready` (Kubernetes compatible)
+### Security
+- The public Nginx layer owns the external security-header and route boundary.
+- Storage uses `helmet`; Core disables `x-powered-by` and validates dedicated secrets.
+- Internal Core routes must remain unreachable from the public listener.
+- Service health endpoints use `/live` and `/ready`; public Nginx uses `/healthz`.
 
 ### Logging / Observability
 - Use `@mywebdrive/observability` helpers:
@@ -159,14 +143,16 @@ Formatting:
   - `getEnv(key, fallback?)`
   - `requireEnvs([...])`
 - Don’t hardcode secrets.
-- Several services enforce non-default `JWT_SECRET` outside `NODE_ENV=test`.
+- Production Core secrets must be present, sufficiently long, and pairwise distinct.
 
 Key Environment Variables:
 ```bash
-# Rate Limiting & Security (Gateway)
-REDIS_URL=redis://localhost:6379/0      # Distributed rate limiting
-TRUST_PROXY=1                           # Proxy hops to trust
-CORS_ALLOWED_ORIGINS=...                # Production whitelist
+CORE_DATABASE_URL=postgresql://...      # Core control-plane database
+REDIS_URL=redis://...                   # Core and storage coordination
+CORE_SESSION_SECRET=...                 # Browser session signing
+OTP_PEPPER=...                          # One-time-code protection
+STORAGE_GRANT_SECRET=...                # Core-to-storage authorization
+CORE_CALLBACK_SECRET=...                # Storage-to-Core callback signing
 ```
 
 ## Testing Style (Vitest)
@@ -179,8 +165,8 @@ CORS_ALLOWED_ORIGINS=...                # Production whitelist
 ## Security & Hygiene
 - Never commit secrets (`.env`, credentials, tokens).
 - Prefer least-privilege error messages externally; log details internally.
-- Be careful with raw SQL (`$executeRawUnsafe` exists in metadata as best-effort init).
+- Keep raw SQL limited and constant; Core readiness uses a fixed `SELECT 1` probe.
 
 ## Git / PR expectations (for humans + agents)
-- Conventional Commits with scope (example): `feat(auth): refresh tokens`.
+- Conventional Commits with scope (example): `feat(core): rotate sessions`.
 - Keep changes focused; avoid drive-by refactors.
