@@ -71,7 +71,7 @@ function SheetContent({
       <DialogPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          "fixed z-50 grid w-full gap-4 bg-background p-6 shadow-lg duration-200 sm:max-w-md",
+          "fixed z-50 grid w-full gap-4 bg-background p-6 duration-200 sm:max-w-md",
           sheetSideClasses(side),
           className
         )}
@@ -146,4 +146,3 @@ export {
   SheetTitle,
   SheetDescription,
 }
-

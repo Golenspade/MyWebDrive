@@ -13,6 +13,8 @@
     "test:legacy": "bash scripts/run-legacy-tests.sh",
     "test:docs": "node --test scripts/verify-doc-authority.test.mjs",
     "verify:docs": "pnpm run test:docs && node scripts/verify-doc-authority.mjs && redocly lint docs/openapi.yaml",
+    "test:ui": "node --test scripts/verify-nothing-ui-contract.test.mjs",
+    "verify:ui": "pnpm run test:ui && node scripts/verify-nothing-ui-contract.mjs",
     "test:generated": "bash scripts/test-generated-artifacts-contract.sh",
     "verify:generated": "bash scripts/verify-no-generated-artifacts.sh",
     "lint:all": "pnpm --if-present --filter './packages/common' --filter './packages/observability' --filter './services/core-api' --filter './services/email-provider' --filter './services/storage' --filter './frontend/cruip-landing' run lint",

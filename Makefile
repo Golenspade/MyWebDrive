@@ -30,6 +30,7 @@ lint:
 quality-check:
 	@echo "🚦 质量检查套件..."
 	pnpm run verify:docs
+	pnpm run verify:ui
 	pnpm run build:all
 	pnpm run typecheck
 	pnpm run lint:all

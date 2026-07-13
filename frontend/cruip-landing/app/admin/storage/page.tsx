@@ -109,14 +109,14 @@ export default function AdminStoragePage(){
                 <XAxis dataKey="name" hide />
                 <YAxis allowDecimals={false} />
                 <Tooltip />
-                <Bar dataKey="used" stackId="a" fill="#3b82f6" name="已用(MB)">
+                <Bar dataKey="used" stackId="a" fill="var(--nothing-primary)" name="已用(MB)">
                   {chartData.map((d, i)=> (
-                    <Cell key={`used-${i}`} stroke={d.isAdmin ? '#f59e0b' : undefined} strokeWidth={d.isAdmin ? 2 : 0} />
+                    <Cell key={`used-${i}`} stroke={d.isAdmin ? 'var(--nothing-warning)' : undefined} strokeWidth={d.isAdmin ? 2 : 0} />
                   ))}
                 </Bar>
-                <Bar dataKey="remain" stackId="a" fill="#e5e7eb" name="剩余(MB)">
+                <Bar dataKey="remain" stackId="a" fill="var(--nothing-line-2)" name="剩余(MB)">
                   {chartData.map((d, i)=> (
-                    <Cell key={`remain-${i}`} stroke={d.isAdmin ? '#f59e0b' : undefined} strokeWidth={d.isAdmin ? 2 : 0} />
+                    <Cell key={`remain-${i}`} stroke={d.isAdmin ? 'var(--nothing-warning)' : undefined} strokeWidth={d.isAdmin ? 2 : 0} />
                   ))}
                 </Bar>
               </BarChart>
