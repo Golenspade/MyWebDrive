@@ -1,70 +1,97 @@
-# Manage services (local dev)
+# Core-first local development and repository authority
 
-This repository ships with a helper script to simplify common tasks when developing MyWebDrive locally.
+`manage-services.sh` is the supported local interface for MyWebDrive. It composes the production authority in `infrastructure/alicloud/docker-compose.core.yml` with the development overlay in `infrastructure/docker-compose.core-dev.yml` under the fixed project name `mywebdrive-core-dev`.
 
-## 最新状态（2026-01-13）
-- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
-- 部署方式：ECS Docker Compose（镜像离线导入）
-- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
-- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+## Prerequisites
 
-Quick start
-- One-time: ./manage-services.sh setup
-- Install deps: ./manage-services.sh install
-- Build all: ./manage-services.sh build
-- Run everything (backend + frontend): ./manage-services.sh start
-- Stop everything: ./manage-services.sh stop
-- Status: ./manage-services.sh status
+- Node.js 20+
+- Corepack with the repository's `pnpm@9.7.0`
+- Docker Engine
+- Docker Compose 2.24.4 or newer; the overlay uses the `!override` merge tag
 
-Run single services
-- API Gateway: ./manage-services.sh start-backend (starts all backend services)
-- Or individually: ./manage-services.sh start-frontend (dev) / start-frontend-prod (build + start)
-- Single service dev:
-  - Auth: pnpm -C services/auth dev
-  - Storage: pnpm -C services/storage dev
-  - Gateway: pnpm -C services/api-gateway-node dev
-  - Frontend: pnpm --dir frontend/cruip-landing dev
+No checked-in development secret file is required. The manager creates `.state/core-dev.env` with owner-only permissions and preserves it across normal stop/reset operations. Do not copy or commit that file.
 
-Health Endpoints (terminus-based)
-- `/health` - Basic health check
-- `/healthz` - Kubernetes liveness probe
-- `/ready` - Kubernetes readiness probe
-- `/api/v1/health` - API-prefixed health check
-- All endpoints return `{"status":"ok"}` when healthy.
+## First start
 
-Environment templates
-- Print recommended env: ./manage-services.sh env:print [all|auth|storage]
-- Write example file: ./manage-services.sh env:write [.env.example]
+```bash
+./manage-services.sh setup
+./manage-services.sh start
+```
 
-Important environment variables
-- Common
-  - DOWNLOAD_CONCURRENCY_LIMIT (default 3)
-  - DOWNLOAD_Mbps (default 300)
-  - REDIS_URL (default redis://localhost:6379/0)
-- Owner cookie (same secret in auth & storage)
-  - OWNER_COOKIE_SECRET (please change)
-  - OWNER_COOKIE_TTL_SEC (default 86400)
-  - COOKIE_SECURE (true in production)
-  - OWNER_CODE_HASH (bcrypt hash of your plaintext owner code)
-    - Generate via: node -e "console.log(require('bcryptjs').hashSync('your-owner-code', 10))"
-- Aliyun STS
-  - ALIYUN_ROLE_ARN (RAM Role for STS issuance; endpoint pending implementation)
-- Storage
-  - STORAGE_PORT (default 7084)
-  - STORAGE_PATH (default ./storage)
-  - USE_MINIO, MINIO_* options if using MinIO
-  - METADATA_SERVICE_URL (default http://localhost:7083)
-- Auth
-  - AUTH_PORT (default 7081)
-  - JWT_SECRET (please change)
-  - ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL
+`setup` creates protected local state when absent and runs `corepack pnpm install --frozen-lockfile`. `start` builds the Core-first images, removes orphans, starts the complete stack, and waits for Compose health checks.
 
-- Databases (PostgreSQL)
-  - Each service uses its own `*_DATABASE_URL` (e.g., `AUTH_DATABASE_URL`, `USER_DATABASE_URL`, `METADATA_DATABASE_URL`, `STORAGE_DATABASE_URL`, `SHARING_DATABASE_URL`, `GATEWAY_DATABASE_URL`)
-  - See docs/env.example for examples and connection options (schema, pool limits)
+- Site: <http://127.0.0.1:8080>
+- Development email viewer: <http://127.0.0.1:8025>
+- Compose project: `mywebdrive-core-dev`
 
-Notes
-- The script uses Corepack to activate pnpm@9.7.0 to match the repo’s packageManager field.
-- For production, set COOKIE_SECURE=true and use a strong OWNER_COOKIE_SECRET.
-- The storage service reads REDIS_URL and download limit envs for concurrency gating and bandwidth throttling.
-- STS endpoint is stubbed and will be implemented once RAM role details are confirmed.
+The topology contains PostgreSQL, Redis, MinIO initialization, Core migration, Core API, analytics worker, private email adapter, Storage API, Storage worker, Prometheus, Web, and Nginx. Only Nginx and the development email viewer publish host-facing application ports.
+
+## Exact command surface
+
+| Command | Behavior |
+|---|---|
+| `./manage-services.sh help` | Print this supported interface, site, project, and Compose prerequisite. |
+| `./manage-services.sh setup` | Prepare protected local state and install the frozen workspace. |
+| `./manage-services.sh start` | Build and start the Core-first development stack with health waiting. |
+| `./manage-services.sh stop` | Stop containers without deleting volumes or local secrets. |
+| `./manage-services.sh status` | Show Compose status for the fixed development project. |
+| `./manage-services.sh logs` | Show the latest 200 lines for the stack. |
+| `./manage-services.sh logs <service>` | Show the latest 200 lines for one service after validating it against the Compose model. |
+| `./manage-services.sh config` | Validate the merged Compose model and print its service names. |
+| `./manage-services.sh smoke` | Run `scripts/smoke-core-e2e.sh` in an isolated project with disposable volumes. |
+| `./manage-services.sh quality` | Run the root fail-closed quality gate without starting the stack. |
+| `./manage-services.sh reset --confirm` | Remove local containers, volumes, and orphans while preserving `.state/core-dev.env`. |
+| `./manage-services.sh legacy:<command>` | Invoke an archived command during the time-boxed observation window only. |
+
+Commands reject unexpected arguments. `logs` rejects option-like and undefined service names. `reset` requires the exact `--confirm` token. Any unrecognized former lifecycle command warns `SOFT-RETIRED`, exits 64, and does not start an archived stack.
+
+## Daily workflow
+
+```bash
+./manage-services.sh start
+./manage-services.sh status
+./manage-services.sh logs core-api
+./manage-services.sh stop
+```
+
+Use `config` when changing either Compose file. Use `reset --confirm` only when local data can be discarded. If the protected state file is invalid, move it aside manually after confirming it contains no value that must be preserved, then rerun `setup`; the manager fails closed rather than overwriting an unexpected file.
+
+## Verification matrix
+
+| Scope | Command | Docker required |
+|---|---|---|
+| Build | `pnpm run build:all` | No |
+| TypeScript references | `pnpm run typecheck` | No |
+| Package lint | `pnpm run lint:all` | No |
+| Active package tests and generated-artifact contracts | `pnpm run test:all` | No |
+| Documentation verifier tests | `pnpm run test:docs` | No |
+| Source/OpenAPI/docs authority and OpenAPI lint | `pnpm run verify:docs` | No |
+| Repository authority | `bash scripts/test-repo-authority-contract.sh` | No |
+| Local manager contract | `bash scripts/test-core-dev-contract.sh` | No |
+| Release contract | `bash scripts/test-core-release-contract.sh` | No |
+| Cutover contract | `bash scripts/test-core-cutover-contract.sh` | No |
+| Full quality gate | `./manage-services.sh quality` | No |
+| Core-first end-to-end smoke | `./manage-services.sh smoke` | Yes |
+
+Legacy tests are available only through `pnpm run test:legacy`; they are not part of the active quality or release authority.
+
+## Public and private HTTP boundaries
+
+The public API is defined in `docs/openapi.yaml`. Nginx routes grant-authorized Storage upload/object paths to Storage and other public API paths to Core. Private callbacks under `/api/v1/internal/*` and operational endpoints `/metrics`, `/live`, `/ready`, and `/version` are excluded from the public contract. The public listener exposes `/healthz` as the Nginx boundary check.
+
+## Production authority
+
+Local commands do not replace the release runbooks. Production uses:
+
+- `infrastructure/alicloud/docker-compose.core.yml`
+- `infrastructure/alicloud/deploy.sh`
+- `infrastructure/alicloud/rollback.sh`
+- `scripts/smoke-core-e2e.sh` for isolated pre-release behavior verification
+
+Read `infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md` and `docs/runbooks/core-cutover-and-rollback.md`. Deploy only immutable `sha-<40 lowercase hex>` images through the scripts; do not manually bypass migrations, locks, health/version checks, digests, or manifests.
+
+## 14-day soft-retirement policy
+
+The former split control plane is archived at `archive/legacy-split-control-plane-2026-07-13`. Its observation window covers 2026-07-13 through 2026-07-26 inclusive. During that window, `legacy:<command>` may be used only for read-only comparison or evidence recovery; it must not support new development, schema changes, deployment, or production writes.
+
+On or after 2026-07-27, remove the compatibility entrypoint and archive unless an owner explicitly approves a new purpose and expiry date. Documentation, CI, and release tooling must never depend on the observation window.

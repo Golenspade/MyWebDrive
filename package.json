@@ -11,6 +11,8 @@
     "build:all": "pnpm --filter './packages/common' --filter './packages/observability' --filter './services/core-api' --filter './services/email-provider' --filter './services/storage' --filter './frontend/cruip-landing' run build",
     "test:all": "pnpm --if-present --filter './packages/common' --filter './packages/observability' --filter './services/core-api' --filter './services/email-provider' --filter './services/storage' --filter './frontend/cruip-landing' run test && pnpm run test:generated && pnpm run verify:generated",
     "test:legacy": "bash scripts/run-legacy-tests.sh",
+    "test:docs": "node --test scripts/verify-doc-authority.test.mjs",
+    "verify:docs": "pnpm run test:docs && node scripts/verify-doc-authority.mjs && redocly lint docs/openapi.yaml",
     "test:generated": "bash scripts/test-generated-artifacts-contract.sh",
     "verify:generated": "bash scripts/verify-no-generated-artifacts.sh",
     "lint:all": "pnpm --if-present --filter './packages/common' --filter './packages/observability' --filter './services/core-api' --filter './services/email-provider' --filter './services/storage' --filter './frontend/cruip-landing' run lint",
@@ -19,6 +21,7 @@
     "dev": "pnpm -C frontend/cruip-landing dev"
   },
   "devDependencies": {
+    "@redocly/cli": "1.34.17",
     "eslint-plugin-react-refresh": "^0.4.24",
     "typescript": "5.9.3"
   }

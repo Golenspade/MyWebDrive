@@ -1,123 +1,66 @@
 # CLAUDE.md
 
-This file provides repository-specific guidance to Claude Code. Read
-`AGENTS.md` first; its code style, security, hygiene, and test rules apply here.
+Read `AGENTS.md` first. Its repository authority, style, security, testing, and Git rules apply to every change.
 
-## Repository Authority (2026-07-13)
+## Current architecture
 
-MyWebDrive is in a Core-first cutover:
+MyWebDrive is Core-first. `services/core-api` owns control-plane state and the authoritative Prisma history; `services/storage` owns object transfer and storage workers; `services/email-provider` is private; `frontend/cruip-landing` is the active Web app. Production authority is `infrastructure/alicloud/docker-compose.core.yml` with `infrastructure/alicloud/deploy.sh` and `infrastructure/alicloud/rollback.sh`.
 
-- `services/core-api` is the authoritative control plane.
-- `services/storage` owns the active storage API and worker.
-- `services/email-provider` is a private outbound-email adapter.
-- `frontend/cruip-landing` is the active Next.js frontend.
-- `packages/common` and `packages/observability` are active shared packages.
-- `infrastructure/alicloud/docker-compose.core.yml` is the only production
-  Compose authority.
+The former split control plane is **SOFT-RETIRED** under `archive/legacy-split-control-plane-2026-07-13`. It is excluded from default build, test, migration, local development, and deployment paths.
 
-The old split Auth/User/Metadata/Sharing/Gateway runtime is **SOFT-RETIRED**.
-It is excluded from default workspace gates and must not be started, migrated,
-or deployed as a normal workflow. Historical source may remain for provenance;
-its presence does not make it active.
-
-## Supported Commands
-
-Install exactly from the lockfile:
+## Supported local interface
 
 ```bash
-corepack pnpm install --frozen-lockfile
-```
-
-Run the complete fail-closed quality gate:
-
-```bash
-./manage-services.sh quality
-```
-
-Run the isolated Docker end-to-end smoke test:
-
-```bash
+./manage-services.sh setup
+./manage-services.sh start
+./manage-services.sh stop
+./manage-services.sh status
+./manage-services.sh logs [service]
+./manage-services.sh config
 ./manage-services.sh smoke
+./manage-services.sh quality
+./manage-services.sh reset --confirm
+./manage-services.sh legacy:<command>
 ```
 
-List the compatibility shim surface:
+The local site is `http://127.0.0.1:8080`; the Compose project is `mywebdrive-core-dev`. See `docs/manage-services.md` for exact behavior. Unrecognized former commands warn `SOFT-RETIRED`, exit 64, and never start an archived topology.
 
-```bash
-./manage-services.sh help
-```
+The `legacy:<command>` escape hatch is observation-only from 2026-07-13 through 2026-07-26. Do not use it for implementation, migrations, deployments, or production writes; remove it on or after 2026-07-27 unless a new explicit expiry is approved.
 
-The shim intentionally has no lifecycle command. Any old or unknown command
-must warn `SOFT-RETIRED`, exit `64`, and never start the split-service stack.
-Core-first local startup will be documented only after a dedicated contract is
-implemented.
-
-Useful narrow gates:
+## Narrow verification
 
 ```bash
 pnpm run build:all
 pnpm run typecheck
 pnpm run lint:all
 pnpm run test:all
+pnpm run test:docs
+pnpm run verify:docs
 bash scripts/test-repo-authority-contract.sh
+bash scripts/test-core-dev-contract.sh
 bash scripts/test-core-release-contract.sh
 bash scripts/test-core-cutover-contract.sh
 ```
 
-Legacy tests are explicit and non-authoritative: `pnpm run test:legacy`.
+`./manage-services.sh quality` runs the full fail-closed gate without requiring a running stack. `./manage-services.sh smoke` delegates to `scripts/smoke-core-e2e.sh` and requires Docker.
 
-## Active Design Boundaries
+## Active boundaries
 
-- Core owns identity, profile, metadata, sharing, quota, admin, and analytics
-  control-plane state in the Core Prisma schema.
-- Storage owns object transfer and background storage work; Core callbacks and
-  storage grants use dedicated secrets.
-- Email delivery stays private to the Compose network and authenticates with an
-  internal provider token. Production cloud access uses the approved ECS role,
-  not persistent AccessKey environment variables.
-- The frontend uses same-origin `/api/v1/...` requests. Do not reintroduce a
-  browser-facing Gateway base URL or a Next.js API rewrite.
-- Nginx routes storage traffic to Storage, other public API traffic to Core,
-  and blocks `/api/v1/internal` from public access.
+- Browser traffic is same-origin. Nginx sends Storage transfer paths to Storage, other public API paths to Core, and blocks private callback paths.
+- Public API authority is `docs/openapi.yaml`; operational endpoints and private callbacks are excluded.
+- Core and Storage exchange dedicated Storage Grants and signed callbacks. Storage does not own control-plane state.
+- Core migrations run before Core starts in the production release contract. Never add a split-schema migration loop.
+- Prisma clients, native engines, `dist`, `.next`, `.tsbuildinfo`, PID files, and frontend npm lockfiles are generated outputs and remain untracked.
 
-## Prisma and Generated Artifacts
+## Production release
 
-`services/core-api/prisma` is the authoritative control-plane schema and
-migration history. Production migrations run through the release script before
-Core starts. Do not add split-schema migration loops to active tooling.
-
-Prisma clients, native engines, `dist`, `.next`, `.tsbuildinfo`, PID files, and
-frontend npm lockfiles are generated outputs and must remain untracked. Run:
-
-```bash
-bash scripts/test-generated-artifacts-contract.sh
-bash scripts/verify-no-generated-artifacts.sh
-```
-
-The verifier must fail closed if it cannot inspect the Git index.
-
-## Production Release
-
-Production uses immutable images tagged `sha-<40 lowercase hex>` and recorded by
-digest. The only supported release entrypoints are:
+Use only immutable `sha-<40 lowercase hex>` images through:
 
 - `infrastructure/alicloud/deploy.sh`
 - `infrastructure/alicloud/rollback.sh`
 
-See `infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md` and
-`docs/runbooks/core-cutover-and-rollback.md`. Never bypass their migration,
-health, version, lock, or manifest checks; never destroy persistent volumes as
-part of deployment recovery.
+Follow `infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md` and `docs/runbooks/core-cutover-and-rollback.md`. Never bypass their migration, lock, health, version, digest, or manifest checks, and never destroy persistent volumes as a recovery shortcut.
 
-## Implementation Rules
+## Implementation rules
 
-- Use Node.js 20+, pnpm 9.7.0, strict TypeScript, ESM, two-space indentation,
-  single quotes, and omitted semicolons.
-- Keep changes focused and preserve active Core/Storage/Email/Web boundaries.
-- Prefer `unknown` plus narrowing over `any`.
-- Validate request data early and route unexpected errors through structured
-  logging and the unified error middleware.
-- Use `@mywebdrive/observability`; do not add service `console.log` calls.
-- Never commit secrets, credentials, generated clients, native binaries, or
-  build output.
-- Add or update a failing contract/test before changing authority, release,
-  migration, or lifecycle behavior.
+Use Node.js 20+, pnpm 9.7.0, strict TypeScript, ESM, two-space indentation, single quotes, and omitted semicolons. Keep changes focused, use `unknown` plus narrowing instead of broad `any`, route unexpected errors through structured logging, and never commit secrets or generated output. Add a failing contract or test before changing authority, release, migration, lifecycle, or documentation-verifier behavior.

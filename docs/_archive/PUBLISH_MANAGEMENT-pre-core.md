@@ -1,3 +1,5 @@
+> **Superseded:** This guide targets retired publication APIs. The current public contract is [`../openapi.yaml`](../openapi.yaml).
+
 # 发布管理系统
 
 ## 概述
@@ -334,4 +336,3 @@ A: 为不同平台的文件分别上传，使用相同的 slug 和 version，但
 - [ ] 发布审批流程
 - [ ] 自动化发布 (CI/CD 集成)
 - [ ] 下载统计与分析
-

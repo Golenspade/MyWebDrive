@@ -1,84 +1,54 @@
 # Contributing to MyWebDrive
 
-Thank you for your interest in contributing to MyWebDrive! This document provides guidelines and instructions for contributing.
+Thank you for contributing. Read `AGENTS.md` before editing; it defines repository authority, code style, security boundaries, and required tests.
 
-## 最新状态（2026-01-13）
-- 生产域名：`https://mygoavemujica.top`（HTTP/2 + HTTPS 正常）
-- 部署方式：ECS Docker Compose（镜像离线导入）
-- 服务健康：网关 `/api/v1/health` 返回 `200`，登录/注册可用
-- 数据库：`auth`/`user`/`metadata` schema 已初始化；邮件服务未配置
+## Development setup
 
-## Code of Conduct
-
-Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
-
-## How to Contribute
-
-### Reporting Bugs
-
-1. Check if the bug has already been reported in [Issues](https://github.com/Golenspade/MyWebDrive/issues)
-2. If not, create a new issue with:
-   - Clear, descriptive title
-   - Steps to reproduce
-   - Expected vs actual behavior
-   - Environment details (OS, Node version, etc.)
-
-### Suggesting Features
-
-1. Check existing issues for similar suggestions
-2. Create a new issue with the `enhancement` label
-3. Describe the feature and its use case
-
-### Pull Requests
-
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feat/your-feature`
-3. Follow our coding conventions (see below)
-4. Write tests for new functionality
-5. Run the quality check: `make quality-check`
-6. Commit with [Conventional Commits](https://www.conventionalcommits.org/):
-   - `feat(scope): add new feature`
-   - `fix(scope): fix bug`
-   - `docs(scope): update documentation`
-   - `chore(scope): maintenance task`
-7. Push and create a Pull Request
-
-## Development Setup
+Prerequisites are Node.js 20+, Corepack, Docker Engine, and Docker Compose 2.24.4+.
 
 ```bash
-# Prerequisites: Node.js 20+, pnpm
-pnpm -w install
-
-# Start database
-docker compose -f infrastructure/docker-compose.db.yml up -d
-
-# Initialize databases
-for svc in auth user metadata storage sharing; do
-  pnpm --filter ./services/$svc db:push
-done
-
-# Start backend services
-./manage-services.sh start-backend
-
-# Start frontend
-./manage-services.sh start-frontend
+git clone <your-fork>
+cd MyWebDrive
+./manage-services.sh setup
+./manage-services.sh start
 ```
 
-## Coding Conventions
+The Core-first site is available at `http://127.0.0.1:8080` in the `mywebdrive-core-dev` Compose project. See `docs/manage-services.md` for the exact command surface.
 
-- **Language**: TypeScript (strict mode)
-- **Formatting**: 2-space indent, single quotes, no semicolons
-- **Filenames**: kebab-case
-- **Exports**: Prefer named exports
-- **Environment variables**: UPPER_SNAKE_CASE
+## Pull requests
 
-## Testing
+1. Keep the change focused and follow existing patterns.
+2. Add or update tests before behavior changes.
+3. Run `./manage-services.sh quality`.
+4. Run `./manage-services.sh smoke` when the change affects the container runtime or end-to-end API flow.
+5. Use a scoped Conventional Commit, such as `feat(core): rotate sessions`.
+6. Describe verification and any remaining risk in the pull request.
 
-- Place tests in `src/__tests__/*.test.ts`
-- Run tests: `pnpm test`
-- Run quality gate before PR: `make quality-check`
+Useful narrow gates:
 
-## Questions?
+```bash
+pnpm run build:all
+pnpm run typecheck
+pnpm run lint:all
+pnpm run test:all
+pnpm run verify:docs
+bash scripts/test-repo-authority-contract.sh
+bash scripts/test-core-dev-contract.sh
+bash scripts/test-core-release-contract.sh
+```
 
-Feel free to open an issue or start a discussion.
+Historical tests are opt-in with `pnpm run test:legacy` and are not evidence for the current Core-first authority.
 
+## Repository boundaries
+
+- Core control-plane work belongs in `services/core-api` and its Prisma history.
+- Object-transfer and storage-worker work belongs in `services/storage`.
+- Email delivery stays behind the private adapter in `services/email-provider`.
+- The active frontend is `frontend/cruip-landing`.
+- Production changes must preserve `infrastructure/alicloud/docker-compose.core.yml`, `infrastructure/alicloud/deploy.sh`, `infrastructure/alicloud/rollback.sh`, and `scripts/smoke-core-e2e.sh` as the release authority.
+
+The archived split control plane is **SOFT-RETIRED**. Its 14-day observation window ends after 2026-07-26; do not base new code, schema changes, or deployment instructions on it.
+
+## Security and conduct
+
+Never commit secrets, credentials, database dumps, or generated artifacts. Report vulnerabilities according to `SECURITY.md`, and follow `CODE_OF_CONDUCT.md` in all project spaces.

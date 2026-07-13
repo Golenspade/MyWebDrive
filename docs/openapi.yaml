@@ -1,367 +1,1211 @@
 openapi: 3.0.3
 info:
-  title: MyWebDrive API (Node, SoR-aligned)
-  version: 0.1.0
+  title: MyWebDrive Public API
+  version: 1.0.0
   description: |
-    Minimal OpenAPI reflecting current Node services and SoR boundaries.
-    - Auth: identity/credentials/roles
-    - User: profile and quotas (no email/password/role)
+    Public Core-first contract served through the same-origin Nginx listener.
+    Core owns identity, files, upload intents, quota, sharing, publications, and
+    dashboards. Storage accepts only short-lived grants issued by Core.
+
+    Private callbacks under `/api/v1/internal/*` and operational endpoints
+    `/metrics`, `/live`, `/ready`, and `/version` are intentionally excluded.
+  license:
+    name: MIT
+    url: https://opensource.org/license/mit
+x-private-operational-paths:
+  - /api/v1/internal/*
+  - /metrics
+  - /live
+  - /ready
+  - /version
 servers:
-  - url: http://localhost:9080
-    description: Local API Gateway (Node)
+  - url: http://127.0.0.1:8080
+    description: Core-first local development listener
 tags:
-  - name: auth
-  - name: users
-  - name: storage
-  - name: sharing
-  - name: metadata
+  - name: Identity
+    description: Email one-time-code identity and browser session operations.
+  - name: Files
+    description: Logical file and immutable version queries.
+  - name: Uploads
+    description: Quota-reserved upload intents and storage grants.
+  - name: Sharing
+    description: Revocable file shares and private download tickets.
+  - name: Publications
+    description: Public catalogue entries and download tickets.
+  - name: Dashboard
+    description: Administrator business analytics and system health.
+  - name: Storage
+    description: Grant-authorized object transfer operations.
 paths:
-  /api/v1/auth/register:
+  /api/v1/auth/email/request:
     post:
-      tags: [auth]
-      summary: Register new user (Auth SoR)
+      operationId: requestEmailOtp
+      tags: [Identity]
+      summary: Request an email one-time code
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [name, email, password]
-              properties:
-                name: { type: string, maxLength: 100 }
-                email: { type: string, format: email }
-                password: { type: string, minLength: 8 }
+              $ref: '#/components/schemas/EmailOtpRequest'
       responses:
-        '201':
-          description: Created
+        '202':
+          description: Challenge accepted for delivery.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AuthUserPublic'
-        '409': { description: Email already exists }
-  /api/v1/auth/login:
+                $ref: '#/components/schemas/EmailOtpChallenge'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/auth/email/verify:
     post:
-      tags: [auth]
-      summary: Login and obtain access/refresh tokens
+      operationId: verifyEmailOtp
+      tags: [Identity]
+      summary: Verify an email one-time code
+      description: Creates or resolves the user, returns a 15-minute access token, and sets the rotating `mwd_refresh` HttpOnly cookie for the `/api/v1/auth` path.
+      security: []
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              type: object
-              required: [email, password]
-              properties:
-                email: { type: string, format: email }
-                password: { type: string }
+              $ref: '#/components/schemas/EmailOtpVerification'
       responses:
         '200':
-          description: OK
+          description: Verification succeeded and the refresh cookie was set.
+          headers:
+            Set-Cookie:
+              description: HttpOnly `mwd_refresh` cookie with SameSite=Lax; Secure is enabled in production.
+              schema: { type: string }
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/Tokens'
-        '401': { description: Invalid credentials }
+                $ref: '#/components/schemas/VerifiedIdentity'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/auth/refresh:
     post:
-      tags: [auth]
-      summary: Get a new access token from a refresh token
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [refreshToken]
-              properties:
-                refreshToken: { type: string }
+      operationId: refreshSession
+      tags: [Identity]
+      summary: Rotate the browser refresh session
+      description: Reads and rotates the HttpOnly `mwd_refresh` cookie. The refresh token is never accepted in the request body.
+      security:
+        - refreshCookie: []
       responses:
         '200':
-          description: OK
+          description: Session rotated and a new refresh cookie was set.
+          headers:
+            Set-Cookie:
+              description: Rotated HttpOnly `mwd_refresh` cookie.
+              schema: { type: string }
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  accessToken: { type: string }
-        '401': { description: Invalid refresh token }
+                $ref: '#/components/schemas/AccessToken'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/auth/logout:
     post:
-      tags: [auth]
-      summary: Invalidate a refresh token
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [refreshToken]
-              properties:
-                refreshToken: { type: string }
+      operationId: logout
+      tags: [Identity]
+      summary: Revoke and clear the browser refresh session
+      description: Revokes the refresh session when the cookie is present and always clears the cookie.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/OptionalRefreshCookie'
       responses:
-        '204': { description: No Content }
+        '204':
+          description: Session cleared.
+          headers:
+            Set-Cookie:
+              description: Expired `mwd_refresh` cookie.
+              schema: { type: string }
 
-  /api/v1/users/me:
+  /api/v1/auth/me:
     get:
-      tags: [users]
-      summary: Get current user's profile and quota (User SoR)
-      security: [{ bearerAuth: [] }]
+      operationId: getCurrentIdentity
+      tags: [Identity]
+      summary: Return the current user identity
+      security:
+        - accessToken: []
       responses:
         '200':
-          description: OK
+          description: Current identity.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UserProfile'
-        '401': { description: Unauthorized }
-    patch:
-      tags: [users]
-      summary: Update current user's profile (name only)
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name: { type: string, minLength: 2, maxLength: 100 }
-      responses:
-        '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/UserProfile'
-        '401': { description: Unauthorized }
+                $ref: '#/components/schemas/UserIdentity'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
 
-  /api/v1/storage/uploads:
+  /api/v1/files:
+    get:
+      operationId: listFiles
+      tags: [Files]
+      summary: List the current user's live files
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/ParentId'
+        - $ref: '#/components/parameters/FileLimit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of files ordered newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/{fileId}/versions:
+    get:
+      operationId: listFileVersions
+      tags: [Files]
+      summary: List immutable versions of a file
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/VersionLimit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of versions ordered newest first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FileVersionPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/users/{userId}/files:
+    get:
+      operationId: listUserFilesAsAdmin
+      tags: [Files]
+      summary: List a user's live files as an administrator
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
+        - $ref: '#/components/parameters/FileLimit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of the user's files.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FilePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/upload-intents:
     post:
-      tags: [storage]
-      summary: Create an upload session
-      security: [{ bearerAuth: [] }]
+      operationId: createUploadIntent
+      tags: [Uploads]
+      summary: Reserve quota and create a new-file upload intent
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewFileUploadIntent'
+      responses:
+        '200':
+          description: Existing idempotent intent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadIntentGrant'
+        '201':
+          description: Intent created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadIntentGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/{fileId}/upload-intents:
+    post:
+      operationId: createReplacementUploadIntent
+      tags: [Uploads]
+      summary: Reserve quota and create a new-version upload intent
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplacementUploadIntent'
+      responses:
+        '200':
+          description: Existing idempotent intent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadIntentGrant'
+        '201':
+          description: Intent created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UploadIntentGrant'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/upload-intents/{id}/cancel:
+    post:
+      operationId: cancelUploadIntent
+      tags: [Uploads]
+      summary: Cancel an active upload intent
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/UploadIntentId'
+      responses:
+        '204':
+          description: Intent cancelled and its quota reservation released.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/quota:
+    get:
+      operationId: getQuota
+      tags: [Uploads]
+      summary: Return the current user's quota balance
+      security:
+        - accessToken: []
+      responses:
+        '200':
+          description: Quota balance. Byte counts are decimal strings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaBalance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/users/{userId}/quota:
+    patch:
+      operationId: updateUserQuota
+      tags: [Uploads]
+      summary: Set a user's quota limit as an administrator
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/UserId'
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [fileName, fileSize]
+              additionalProperties: false
+              required: [limitBytes]
               properties:
-                fileName: { type: string }
-                fileSize: { type: integer, format: int64 }
-                chunkSize: { type: integer, format: int32, description: Optional preferred chunk size }
-                mimeType: { type: string, nullable: true }
+                limitBytes:
+                  $ref: '#/components/schemas/NonnegativeByteString'
+      responses:
+        '200':
+          description: Updated quota balance.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaBalance'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/{fileId}/shares:
+    post:
+      operationId: createShare
+      tags: [Sharing]
+      summary: Create a revocable share
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShare'
       responses:
         '201':
-          description: Created
+          description: Share created. The plaintext token is returned only here.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  uploadId: { type: string }
-                  expiresAt: { type: string, format: date-time }
-        '401': { description: Unauthorized }
-  /api/v1/storage/uploads/{uploadId}:
-    parameters:
-      - in: path
-        name: uploadId
-        required: true
-        schema: { type: string }
+                $ref: '#/components/schemas/CreatedShare'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     get:
-      tags: [storage]
-      summary: Get upload session status
-      security: [{ bearerAuth: [] }]
+      operationId: listShares
+      tags: [Sharing]
+      summary: List shares for an owned file
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
       responses:
         '200':
-          description: OK
+          description: Shares without plaintext tokens or password material.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/UploadSession'
-        '404': { description: Not Found }
-    patch:
-      tags: [storage]
-      summary: Upload a chunk (multipart form)
-      security: [{ bearerAuth: [] }]
-      requestBody:
-        required: true
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              required: [chunkIndex, chunk]
-              properties:
-                chunkIndex: { type: integer, format: int32 }
-                chunk: { type: string, format: binary }
-      responses:
-        '204': { description: No Content }
-        '404': { description: Not Found }
-  /api/v1/storage/uploads/{uploadId}/finalize:
+                $ref: '#/components/schemas/SharePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/shares/{shareId}/revoke:
     post:
-      tags: [storage]
-      summary: Finalize upload and create file version
-      security: [{ bearerAuth: [] }]
+      operationId: revokeShare
+      tags: [Sharing]
+      summary: Revoke an owned share
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/ShareId'
+      responses:
+        '204':
+          description: Share revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/{fileId}/download-ticket:
+    post:
+      operationId: createPrivateDownloadTicket
+      tags: [Sharing]
+      summary: Create a private download ticket
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      responses:
+        '200':
+          description: Short-lived Storage download grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadTicket'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/shares/{token}/download-ticket:
+    post:
+      operationId: createShareDownloadTicket
+      tags: [Sharing]
+      summary: Create a download ticket from a share token
+      description: A protected share accepts its password in the JSON body. Unavailable, expired, exhausted, and invalid-password shares all return 404.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/ShareToken'
       requestBody:
         required: false
         content:
           application/json:
             schema:
               type: object
+              additionalProperties: false
               properties:
-                expectedMd5: { type: string, nullable: true }
+                password: { type: string, minLength: 1, maxLength: 1024 }
       responses:
         '200':
-          description: OK
+          description: Short-lived Storage download grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadTicket'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/files/{fileId}/publication:
+    put:
+      operationId: putPublication
+      tags: [Publications]
+      summary: Create or replace a file publication
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/FileId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [slug, status]
+              properties:
+                slug:
+                  type: string
+                  pattern: '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'
+                status:
+                  type: string
+                  enum: [draft, published, disabled]
+      responses:
+        '200':
+          description: Publication state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Publication'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/publications:
+    get:
+      operationId: listPublications
+      tags: [Publications]
+      summary: List published files
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/FileLimit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Page of current publications.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PublicationPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/publications/{slug}/download-ticket:
+    post:
+      operationId: createPublicationDownloadTicket
+      tags: [Publications]
+      summary: Create a download ticket for a publication
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/PublicationSlug'
+      responses:
+        '200':
+          description: Short-lived Storage download grant.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DownloadTicket'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/dashboard/business:
+    get:
+      operationId: getBusinessDashboard
+      tags: [Dashboard]
+      summary: Return administrator business analytics
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/DashboardRange'
+      responses:
+        '200':
+          description: Business facts and analytics coverage.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BusinessDashboard'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/dashboard/system:
+    get:
+      operationId: getSystemDashboard
+      tags: [Dashboard]
+      summary: Return administrator system health
+      security:
+        - accessToken: []
+      parameters:
+        - $ref: '#/components/parameters/DashboardRange'
+      responses:
+        '200':
+          description: Available or partially available system health.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemHealth'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: All system-health sources are unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SystemHealth'
+
+  /api/v1/storage/uploads/{objectKey}/parts/{partNumber}:
+    put:
+      operationId: uploadStoragePart
+      tags: [Storage]
+      summary: Upload one object part with an upload grant
+      security:
+        - storageGrant: []
+      parameters:
+        - $ref: '#/components/parameters/ObjectKey'
+        - $ref: '#/components/parameters/PartNumber'
+        - name: Content-Length
+          in: header
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '204':
+          description: Part committed.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '411':
+          description: Content-Length is required.
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/storage/uploads/{objectKey}/complete:
+    post:
+      operationId: completeStorageUpload
+      tags: [Storage]
+      summary: Freeze uploaded parts and enqueue finalization
+      security:
+        - storageGrant: []
+      parameters:
+        - $ref: '#/components/parameters/ObjectKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [parts]
+              properties:
+                parts: { type: integer, minimum: 1, maximum: 100000 }
+      responses:
+        '202':
+          description: Finalization was enqueued or was already queued.
           content:
             application/json:
               schema:
                 type: object
+                required: [enqueued]
                 properties:
-                  fileId: { type: string }
-        '409': { description: Incomplete upload }
-  /api/v1/storage/files/{fileId}:
-    get:
-      tags: [storage]
-      summary: Download file content (requires auth or inter-service auth)
-      parameters:
-        - in: path
-          name: fileId
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: OK (binary)
-          content:
-            application/octet-stream:
-              schema:
-                type: string
-                format: binary
-        '404': { description: Not Found }
+                  enqueued: { type: boolean }
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
-  /api/v1/files/{fileId}/shares:
-    post:
-      tags: [sharing]
-      summary: Create a share for a file (authenticated)
-      security: [{ bearerAuth: [] }]
-      parameters:
-        - in: path
-          name: fileId
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                password: { type: string, nullable: true }
-                expiresAt: { type: string, format: date-time, nullable: true }
-                maxDownloads: { type: integer, format: int32, nullable: true }
-      responses:
-        '201':
-          description: Created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SharePublic'
-  /api/v1/shares/{shareToken}:
+  /api/v1/storage/objects/{objectKey}:
     get:
-      tags: [sharing]
-      summary: Get public share info
+      operationId: downloadStorageObject
+      tags: [Storage]
+      summary: Download an object with a single-use download grant
+      security:
+        - storageGrant: []
       parameters:
-        - in: path
-          name: shareToken
-          required: true
-          schema: { type: string }
+        - $ref: '#/components/parameters/ObjectKey'
       responses:
         '200':
-          description: OK
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SharePublic'
-        '404': { description: Not Found }
-  /api/v1/shares/{shareToken}/access:
-    post:
-      tags: [sharing]
-      summary: Validate share password and obtain short-lived access (if protected)
-      parameters:
-        - in: path
-          name: shareToken
-          required: true
-          schema: { type: string }
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                password: { type: string }
-      responses:
-        '200': { description: OK }
-        '403': { description: Forbidden / invalid password }
-  /api/v1/shares/{shareToken}/download:
-    get:
-      tags: [sharing]
-      summary: Download via sharing (may require x-share-access-token)
-      parameters:
-        - in: path
-          name: shareToken
-          required: true
-          schema: { type: string }
-      responses:
-        '200':
-          description: OK (binary)
+          description: Object bytes. Content-Length equals the grant's expected byte count.
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
-        '403': { description: Forbidden }
-        '404': { description: Not Found }
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 
 components:
   securitySchemes:
-    bearerAuth:
+    accessToken:
       type: http
       scheme: bearer
-      bearerFormat: JWT
+      bearerFormat: Core access token
+      description: Fifteen-minute Core access token returned by OTP verification or refresh.
+    refreshCookie:
+      type: apiKey
+      in: cookie
+      name: mwd_refresh
+      description: Rotating HttpOnly browser refresh cookie scoped to `/api/v1/auth`.
+    storageGrant:
+      type: http
+      scheme: bearer
+      bearerFormat: Storage grant
+      description: Short-lived Core-issued grant bound to an object and transfer purpose.
+
+  parameters:
+    OptionalRefreshCookie:
+      name: mwd_refresh
+      in: cookie
+      required: false
+      schema: { type: string }
+    FileId:
+      name: fileId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UserId:
+      name: userId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    UploadIntentId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ShareId:
+      name: shareId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ShareToken:
+      name: token
+      in: path
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
+    PublicationSlug:
+      name: slug
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$'
+    ObjectKey:
+      name: objectKey
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    PartNumber:
+      name: partNumber
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1, maximum: 100000 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9._:-]+$' }
+    ParentId:
+      name: parentId
+      in: query
+      required: false
+      description: Omit for all files, use `null` for root files, or supply a folder UUID.
+      schema: { type: string }
+    FileLimit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    VersionLimit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema: { type: string }
+    DashboardRange:
+      name: range
+      in: query
+      required: true
+      schema: { type: string, enum: [today, 7d, 30d] }
+
+  responses:
+    BadRequest:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Authentication or grant validation failed.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Forbidden:
+      description: Administrator access is required.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Resource is absent or unavailable to the caller.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Request conflicts with current state.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    PayloadTooLarge:
+      description: Quota or byte limit exceeded.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    TooManyRequests:
+      description: Request rate or verification-attempt limit exceeded.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ServiceUnavailable:
+      description: A required service or dependency is unavailable.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+
   schemas:
-    Tokens:
+    Error:
       type: object
+      required: [error]
+      properties:
+        error: { type: string }
+    UserIdentity:
+      type: object
+      required: [id, email, role]
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string, format: email }
+        role: { type: string }
+    EmailOtpRequest:
+      type: object
+      additionalProperties: false
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+    EmailOtpChallenge:
+      type: object
+      required: [challengeId, expiresInSeconds, resendAfterSeconds]
+      properties:
+        challengeId: { type: string, format: uuid }
+        expiresInSeconds: { type: integer, enum: [600] }
+        resendAfterSeconds: { type: integer, enum: [60] }
+    EmailOtpVerification:
+      type: object
+      additionalProperties: false
+      required: [challengeId, email, code]
+      properties:
+        challengeId: { type: string, format: uuid }
+        email: { type: string, format: email }
+        code: { type: string, pattern: '^\d{6}$' }
+    AccessToken:
+      type: object
+      required: [accessToken, expiresInSeconds]
       properties:
         accessToken: { type: string }
-        refreshToken: { type: string }
-    AuthUserPublic:
+        expiresInSeconds: { type: integer, enum: [900] }
+    VerifiedIdentity:
+      allOf:
+        - $ref: '#/components/schemas/AccessToken'
+        - type: object
+          required: [user]
+          properties:
+            user: { $ref: '#/components/schemas/UserIdentity' }
+    PositiveByteString:
+      type: string
+      pattern: '^[1-9]\d*$'
+      description: Positive byte count encoded as a decimal string.
+    NonnegativeByteString:
+      type: string
+      pattern: '^(0|[1-9]\d*)$'
+      description: Nonnegative byte count encoded as a decimal string.
+    FileVersion:
       type: object
+      required: [id, fileId, version, sizeBytes, mimeType, sha256, createdAt]
       properties:
-        id: { type: string }
+        id: { type: string, format: uuid }
+        fileId: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        sizeBytes: { $ref: '#/components/schemas/PositiveByteString' }
+        mimeType: { type: string }
+        sha256: { type: string }
+        createdAt: { type: string, format: date-time }
+    File:
+      type: object
+      required: [id, ownerId, parentId, name, type, createdAt, updatedAt, currentVersion]
+      properties:
+        id: { type: string, format: uuid }
+        ownerId: { type: string, format: uuid }
+        parentId: { type: string, format: uuid, nullable: true }
         name: { type: string }
-        email: { type: string, format: email }
-    UserProfile:
+        type: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        currentVersion:
+          type: object
+          allOf:
+            - $ref: '#/components/schemas/CurrentFileVersion'
+          nullable: true
+    FilePage:
       type: object
+      required: [items, nextCursor]
       properties:
-        id: { type: string }
-        name: { type: string }
-        storageQuota: { type: integer, format: int64 }
-        storageUsed: { type: integer, format: int64 }
-    UploadSession:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/File' }
+        nextCursor: { type: string, nullable: true }
+    FileVersionPage:
       type: object
+      required: [items, nextCursor]
       properties:
-        id: { type: string }
-        fileName: { type: string }
-        fileSize: { type: integer, format: int64 }
-        chunkSize: { type: integer, format: int32, nullable: true }
-        uploadedChunks: { type: array, items: { type: integer, format: int32 } }
-        status: { type: string, enum: [uploading, finalized] }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/FileVersion' }
+        nextCursor: { type: string, nullable: true }
+    CurrentFileVersion:
+      type: object
+      required: [id, version, sizeBytes, mimeType, sha256, createdAt]
+      properties:
+        id: { type: string, format: uuid }
+        version: { type: integer, minimum: 1 }
+        sizeBytes: { $ref: '#/components/schemas/PositiveByteString' }
+        mimeType: { type: string }
+        sha256: { type: string }
+        createdAt: { type: string, format: date-time }
+    NewFileUploadIntent:
+      type: object
+      additionalProperties: false
+      required: [fileName, sizeBytes, mimeType]
+      properties:
+        fileName: { type: string, minLength: 1, maxLength: 255 }
+        sizeBytes: { $ref: '#/components/schemas/PositiveByteString' }
+        mimeType: { type: string, minLength: 1, maxLength: 255 }
+        parentId: { type: string, format: uuid, nullable: true }
+    ReplacementUploadIntent:
+      type: object
+      additionalProperties: false
+      required: [sizeBytes, mimeType]
+      properties:
+        sizeBytes: { $ref: '#/components/schemas/PositiveByteString' }
+        mimeType: { type: string, minLength: 1, maxLength: 255 }
+    UploadIntentGrant:
+      type: object
+      required: [id, objectKey, uploadGrant, expiresAt]
+      properties:
+        id: { type: string, format: uuid }
+        objectKey: { type: string }
+        uploadGrant: { type: string }
         expiresAt: { type: string, format: date-time }
-    SharePublic:
+    QuotaBalance:
       type: object
+      required: [limitBytes, reservedBytes, committedBytes, availableBytes]
       properties:
-        id: { type: string }
-        token: { type: string }
-        fileId: { type: string }
-        requiresPassword: { type: boolean }
+        limitBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+        reservedBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+        committedBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+        availableBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+    CreateShare:
+      type: object
+      additionalProperties: false
+      properties:
+        password: { type: string, minLength: 1, maxLength: 1024 }
+        expiresAt: { type: string, format: date-time }
+        maxDownloads: { type: integer, minimum: 1, maximum: 2147483647 }
+    CreatedShare:
+      type: object
+      required: [token, expiresAt, maxDownloads]
+      properties:
+        token: { type: string, pattern: '^[A-Za-z0-9_-]{43}$' }
         expiresAt: { type: string, format: date-time, nullable: true }
-
+        maxDownloads: { type: integer, nullable: true }
+    Share:
+      type: object
+      required: [id, fileId, expiresAt, maxDownloads, downloadCount, isActive, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        fileId: { type: string, format: uuid }
+        expiresAt: { type: string, format: date-time, nullable: true }
+        maxDownloads: { type: integer, nullable: true }
+        downloadCount: { type: integer, minimum: 0 }
+        isActive: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    SharePage:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Share' }
+    DownloadTicket:
+      type: object
+      required: [objectKey, downloadGrant, expiresInSeconds, fileName, mimeType]
+      properties:
+        objectKey: { type: string }
+        downloadGrant: { type: string }
+        expiresInSeconds: { type: integer, enum: [60] }
+        fileName: { type: string }
+        mimeType: { type: string }
+    Publication:
+      type: object
+      required: [id, fileId, slug, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        fileId: { type: string, format: uuid }
+        slug: { type: string }
+        status: { type: string, enum: [draft, published, disabled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    PublicationSummary:
+      allOf:
+        - $ref: '#/components/schemas/Publication'
+        - type: object
+          required: [fileName, mimeType, sizeBytes, status]
+          properties:
+            fileName: { type: string }
+            mimeType: { type: string }
+            sizeBytes: { $ref: '#/components/schemas/PositiveByteString' }
+            status: { type: string, enum: [published] }
+    PublicationPage:
+      type: object
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/PublicationSummary' }
+        nextCursor: { type: string, nullable: true }
+    DashboardRange:
+      type: object
+      required: [kind, timezone]
+      properties:
+        kind: { type: string, enum: [today, 7d, 30d] }
+        timezone: { type: string, enum: [Asia/Shanghai] }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+    CountBytesPoint:
+      type: object
+      required: [date, count, bytes]
+      properties:
+        date: { type: string, format: date }
+        count: { type: string, nullable: true }
+        bytes: { type: string, nullable: true }
+    CountPoint:
+      type: object
+      required: [date, count]
+      properties:
+        date: { type: string, format: date }
+        count: { type: string, nullable: true }
+    BusinessDashboard:
+      type: object
+      required: [range, generatedAt, coverage, totals, activity, freshness]
+      properties:
+        range:
+          allOf:
+            - $ref: '#/components/schemas/DashboardRange'
+          required: [kind, timezone, start, end]
+        generatedAt: { type: string, format: date-time }
+        coverage:
+          type: object
+          required: [uploadsFrom, downloadsFrom, complete]
+          properties:
+            uploadsFrom: { type: string, format: date-time, nullable: true }
+            downloadsFrom: { type: string, format: date-time, nullable: true }
+            complete: { type: boolean }
+        totals:
+          type: object
+          required: [totalUsers, liveFiles, committedStorageBytes]
+          properties:
+            totalUsers: { type: string }
+            liveFiles: { type: string }
+            committedStorageBytes: { type: string }
+        activity:
+          type: object
+          required: [uploads, downloads, activeUsers]
+          properties:
+            uploads: { $ref: '#/components/schemas/CountBytesActivity' }
+            downloads: { $ref: '#/components/schemas/CountBytesActivity' }
+            activeUsers:
+              type: object
+              required: [count, series]
+              properties:
+                count: { type: string, nullable: true }
+                series:
+                  type: array
+                  items: { $ref: '#/components/schemas/CountPoint' }
+        freshness:
+          type: object
+          required: [readModelUpdatedAt, lagSeconds]
+          properties:
+            readModelUpdatedAt: { type: string, format: date-time, nullable: true }
+            lagSeconds: { type: integer, minimum: 0, nullable: true }
+    CountBytesActivity:
+      type: object
+      required: [count, bytes, series]
+      properties:
+        count: { type: string, nullable: true }
+        bytes: { type: string, nullable: true }
+        series:
+          type: array
+          items: { $ref: '#/components/schemas/CountBytesPoint' }
+    SystemHealth:
+      type: object
+      required: [range, generatedAt, availability, traffic, pipeline, services]
+      properties:
+        range: { $ref: '#/components/schemas/DashboardRange' }
+        generatedAt: { type: string, format: date-time }
+        availability: { type: string, enum: [available, partial, unavailable] }
+        traffic:
+          type: object
+          required: [requestsCount, errorsCount, errorRate, p95Ms, p99Ms]
+          properties:
+            requestsCount: { type: string, nullable: true }
+            errorsCount: { type: string, nullable: true }
+            errorRate: { type: number, minimum: 0, nullable: true }
+            p95Ms: { type: number, minimum: 0, nullable: true }
+            p99Ms: { type: number, minimum: 0, nullable: true }
+        pipeline:
+          type: object
+          required: [outboxPending, oldestOutboxAgeSeconds, analyticsLagSeconds, downloadTelemetry]
+          properties:
+            outboxPending: { type: string, nullable: true }
+            oldestOutboxAgeSeconds: { type: integer, minimum: 0, nullable: true }
+            analyticsLagSeconds: { type: integer, minimum: 0, nullable: true }
+            downloadTelemetry: { type: string, enum: [healthy, degraded, unknown] }
+        services:
+          type: array
+          items:
+            type: object
+            required: [name, up]
+            properties:
+              name: { type: string, enum: [core-api, storage-api, storage-worker] }
+              up: { type: boolean, nullable: true }

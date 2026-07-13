@@ -1,3 +1,5 @@
+> **Superseded:** This design targets the retired client/server contract. Use [`../openapi.yaml`](../openapi.yaml) and [`../manage-services.md`](../manage-services.md) for current authority.
+
 # 前后端连接设计文档
 
 > **分支**: `设计后端链接版本`

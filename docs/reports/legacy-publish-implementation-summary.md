@@ -1,3 +1,5 @@
+> **Historical report:** This records the former publication implementation and is not current architecture or API authority. See [`../openapi.yaml`](../openapi.yaml).
+
 # 发布管理系统实施总结
 
 ## 实施概览
@@ -347,4 +349,3 @@ curl https://your-domain.com/api/v1/catalog
 - ✅ 详细的文档和快速开始指南
 
 系统已准备好进行测试和部署。建议按照验收测试部分的步骤进行完整验证。
-

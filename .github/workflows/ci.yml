@@ -124,6 +124,7 @@ jobs:
         run: |
           pnpm -C packages/observability test
           pnpm run test:all
+          pnpm run verify:docs
           bash scripts/test-repo-authority-contract.sh
           bash scripts/test-core-dev-contract.sh
 

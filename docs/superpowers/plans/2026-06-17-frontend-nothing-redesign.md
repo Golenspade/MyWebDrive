@@ -1,3 +1,5 @@
+> **Historical plan:** Preserve this design handoff as planning history; route and API examples are not current authority. See [`../../openapi.yaml`](../../openapi.yaml).
+
 # MyWebDrive Frontend Nothing UI Redesign Plan
 
 > **Version:** 1.0

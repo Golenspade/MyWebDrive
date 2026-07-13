@@ -1,3 +1,5 @@
+> **Superseded:** Pre-Core production guide preserved for history. The current authority is [`../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md`](../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md).
+
 # MyWebDrive 生产环境部署指南
 
 ## 版本信息
@@ -430,4 +432,3 @@ docker compose -f docker-compose.production.yml logs -f
 ---
 
 **部署完成后，请访问 http://localhost:3100 验证系统是否正常运行！**
-

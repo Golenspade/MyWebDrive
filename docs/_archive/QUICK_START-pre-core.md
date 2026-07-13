@@ -1,3 +1,5 @@
+> **Superseded:** Pre-Core deployment guide preserved for history. Use [`../manage-services.md`](../manage-services.md) locally and [`../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md`](../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md) for production.
+
 # ⚡ 快速开始 - 3分钟部署到阿里云
 
 ## 最新状态（2026-01-13）
@@ -117,4 +119,3 @@ docker-compose -f docker-compose.node.yml logs -f [服务名]
 ---
 
 **需要帮助？** 查看 [DEPLOY_GUIDE.md](DEPLOY_GUIDE.md) 获取详细说明
-

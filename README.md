@@ -1,132 +1,86 @@
 # MyWebDrive
 
-MyWebDrive 是一个 Node.js、TypeScript 与 Next.js 构建的云存储平台。当前仓库
-采用 Core-first 架构：统一控制平面负责身份、用户、元数据、分享、配额与管理
-能力，Storage 负责对象传输，私有 Email Provider 负责邮件投递。
+MyWebDrive 是一个 Node.js、TypeScript 与 Next.js 构建的文件存储和分发平台。当前仓库采用 Core-first 架构：Core 负责身份、文件、上传意图、配额、分享、发布和 Dashboard；Storage 负责对象传输与后台存储工作；Web 通过同源 Nginx 入口访问公开 API。
 
-## 当前仓库权威（2026-07-13）
+## 当前权威（2026-07-13）
 
 - 控制平面：`services/core-api`
-- 存储 API/Worker：`services/storage`
-- 私有邮件适配器：`services/email-provider`
+- 存储 API 与 Worker：`services/storage`
+- 私有邮件投递适配器：`services/email-provider`
 - 主前端：`frontend/cruip-landing`
+- 控制平面 schema 与 migrations：`services/core-api/prisma`
+- 本地编排：`infrastructure/alicloud/docker-compose.core.yml` + `infrastructure/docker-compose.core-dev.yml`
 - 生产编排：`infrastructure/alicloud/docker-compose.core.yml`
-- 部署/回滚：`infrastructure/alicloud/deploy.sh`、`rollback.sh`
+- 生产部署与回滚：`infrastructure/alicloud/deploy.sh`、`infrastructure/alicloud/rollback.sh`
 
-旧的拆分式 Auth/User/Metadata/Sharing/Gateway 运行时已经
-**SOFT-RETIRED**。这些历史源码不属于默认构建、测试、迁移或部署路径；不要
-根据目录仍然存在就启动旧栈。
+曾经的拆分式控制平面已 **SOFT-RETIRED**，其归档副本仅用于限时观察，不属于默认构建、测试、迁移、开发或发布路径。
 
-## 主要能力
+## 本地开发
 
-- 邮箱验证码登录、session/refresh 轮换与角色管理
-- 文件夹、文件版本、配额、分享链接和公开下载
-- 分片上传、后台合并、对象存储与下载授权
-- 管理员业务/运营指标与 Prometheus 可观测性
-- Next.js 同源 Web/API 访问与 Core-first Nginx 路由
-- 不可变镜像、迁移先行、健康检查和 manifest 驱动回滚
-
-## 环境要求
-
-- Node.js 20+
-- Corepack 与 pnpm 9.7.0
-- Docker Engine 与 Docker Compose v2（端到端 smoke 必需）
-
-## 快速验证
-
-严格按 lockfile 安装依赖：
+要求 Node.js 20+、Corepack、Docker Engine，以及 Docker Compose 2.24.4+。首次准备并启动完整 Core-first 栈：
 
 ```bash
-corepack pnpm install --frozen-lockfile
+./manage-services.sh setup
+./manage-services.sh start
 ```
 
-运行默认权威的构建、类型、lint、测试和发布契约：
+应用入口为 <http://127.0.0.1:8080>，Compose project 固定为 `mywebdrive-core-dev`。完整命令说明见 [`docs/manage-services.md`](docs/manage-services.md)：
+
+```text
+setup
+start
+stop
+status
+logs [service]
+config
+smoke
+quality
+reset --confirm
+legacy:<command>
+```
+
+`reset` 只在显式提供 `--confirm` 时删除本地容器和卷。`legacy:<command>` 不是开发入口，只允许在 14 天软退役观察期内检查归档行为。
+
+## 验证矩阵
 
 ```bash
+pnpm run build:all       # 权威 workspace 构建
+pnpm run typecheck       # TypeScript project references
+pnpm run lint:all        # 各活跃 package 的 lint
+pnpm run test:all        # 活跃 package、生成物合同
+pnpm run test:docs       # 文档权威 verifier 测试
+pnpm run verify:docs     # verifier + OpenAPI lint
 ./manage-services.sh quality
-```
-
-运行隔离式 Core-first 容器 smoke：
-
-```bash
 ./manage-services.sh smoke
 ```
 
-Smoke 会构建本地镜像并使用临时 Compose 项目和卷，完成认证、配额、上传、
-分享、管理指标、健康检查与路由验证后清理资源。
+`quality` 是无需启动容器的完整 fail-closed 质量门；`smoke` 使用 `scripts/smoke-core-e2e.sh` 构建隔离容器、临时卷并在结束时清理。历史测试只能显式运行 `pnpm run test:legacy`，不代表当前权威。
 
-`manage-services.sh` 目前只是兼容性防护入口。可用命令如下：
+## API 与术语
 
-```bash
-./manage-services.sh help
-```
+- 公共 HTTP 合同：[`docs/openapi.yaml`](docs/openapi.yaml)
+- 项目术语：[`CONTEXT.md`](CONTEXT.md)
+- Dashboard 语义：[`docs/context/dashboard-analytics.md`](docs/context/dashboard-analytics.md)
 
-本地多服务启动尚未形成新的 Core-first 合同，因此没有默认启动命令。任何旧
-生命周期命令都会输出 `SOFT-RETIRED` 并以退出码 `64` 停止，不会启动旧服务。
+公开 API 包括邮箱一次性验证码、Session 刷新、文件与版本、上传意图与配额、分享、发布、Dashboard，以及 grant 授权的 Storage 传输。`/api/v1/internal/*`、`/metrics`、`/live`、`/ready` 和 `/version` 是私有或运维接口，不属于公共 OpenAPI。
 
-## 开发质量门
+## 生产发布
 
-需要缩小验证范围时可以直接运行：
+生产只接受 CI 已发布的不可变镜像。按 [`infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md`](infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md) 准备环境，并使用：
 
 ```bash
-pnpm run build:all
-pnpm run typecheck
-pnpm run lint:all
-pnpm run test:all
-bash scripts/test-repo-authority-contract.sh
-bash scripts/test-core-release-contract.sh
-bash scripts/test-core-cutover-contract.sh
-bash scripts/test-generated-artifacts-contract.sh
+bash infrastructure/alicloud/deploy.sh "sha-<40-lowercase-hex>"
+bash infrastructure/alicloud/rollback.sh "sha-<40-lowercase-hex>"
 ```
 
-历史测试只能显式运行 `pnpm run test:legacy`，其结果不代表当前发布权威。
+发布合同由 `infrastructure/alicloud/docker-compose.core.yml` 和 `scripts/smoke-core-e2e.sh` 支撑。不要绕过 migration、发布锁、健康/版本校验或 manifest 选择；不要通过删除持久卷回滚。
 
-## 项目结构
+## 14 天软退役窗口
 
-```text
-services/
-  core-api/         # 统一控制平面、Core Prisma schema 与 analytics worker
-  storage/          # Storage API 与后台 worker
-  email-provider/   # Compose 私网内邮件适配器
-packages/
-  common/           # 共享类型与配置工具
-  observability/    # 日志、HTTP 观测与指标
-frontend/
-  cruip-landing/    # Next.js 主前端
-infrastructure/
-  alicloud/         # Core-first Compose、Nginx、部署与回滚
-scripts/            # fail-closed 合同与隔离 smoke
-docs/runbooks/      # 切换与回滚操作手册
-```
-
-## 数据与运行边界
-
-- `services/core-api/prisma` 是控制平面唯一权威 schema/migration 历史。
-- Production migration 由部署脚本在 Core 启动前执行。
-- Storage 通过专用 grant/callback secret 与 Core 协作，不共享数据库所有权。
-- Email Provider 不公开主机端口，生产云权限使用批准的 ECS role 与 IMDSv2。
-- 浏览器只使用同源 `/api/v1/...`；不得恢复旧 Gateway base URL 或前端 rewrite。
-- Prisma client、原生 engine、`dist`、`.next` 与 `.tsbuildinfo` 均为生成物，
-  不得提交。
-
-## 生产部署
-
-生产发布使用已经由 CI 推送的不可变镜像，标签格式必须为
-`sha-<40 lowercase hex>`。部署前先阅读：
-
-- [阿里云 Core-first 部署指南](infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md)
-- [Core 切换与回滚 runbook](docs/runbooks/core-cutover-and-rollback.md)
-
-发布脚本会验证 Compose、执行对象存储初始化和 Core migration、等待依赖健康、
-验证版本，并原子记录镜像摘要与历史 manifest。回滚只能选择已有 manifest 的
-版本；不要绕过发布锁、健康检查或通过删除持久卷恢复部署。
+归档运行时位于 `archive/legacy-split-control-plane-2026-07-13`。观察窗口从 2026-07-13 到 2026-07-26（含）共 14 个日历日；期间只能用 `./manage-services.sh legacy:<command>` 做只读或对照观察，不得承载新开发、迁移、部署或生产写入。自 2026-07-27 起应移除兼容入口和归档运行时，除非另有明确审批与到期日。
 
 ## 安全与贡献
 
-- 不得提交 `.env`、密钥、token、数据库备份或生成产物。
-- 对外日志不得记录 URL/query、Authorization、cookie 或分享 token。
-- 保持改动聚焦，遵循 `AGENTS.md` 的 TypeScript、测试和 Git 约定。
-- Authority、release、migration 与 lifecycle 行为必须先添加失败合同/测试，再
-  修改实现。
+不得提交 `.env`、凭据、token、数据库备份或生成产物。贡献前阅读 [`AGENTS.md`](AGENTS.md)、[`CONTRIBUTING.md`](CONTRIBUTING.md) 与 [`SECURITY.md`](SECURITY.md)，并运行 `./manage-services.sh quality`。
 
-本项目采用 MIT License，详见 [LICENSE](LICENSE)。
+本项目采用 MIT License，详见 [`LICENSE`](LICENSE)。

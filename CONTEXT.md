@@ -1,45 +1,85 @@
-# Dashboard Analytics Context
+# MyWebDrive
 
-This context defines the product language used by the administrator-facing analytics and system-health experience. The Dashboard reports facts owned elsewhere; it is never the source of truth for user, file, quota, or object state.
+MyWebDrive is a file-storage and distribution product whose language separates logical content, physical transfer authority, public distribution, business facts, and runtime health.
 
 ## Language
 
-**Admin Dashboard**:
-The authenticated administrator view that presents Business Analytics and System Health as independent data domains.
-_Avoid_: Backend Dashboard, Overview API
+**Core**:
+The product authority for identity, files, quota, sharing, publication, and analytics facts.
+_Avoid_: Gateway, split control plane
 
-**Core Read Model**:
-The query-oriented representation of Core business facts used by the Admin Dashboard.
-_Avoid_: Head Model, Dashboard database
+**Identity**:
+A person recognized by a verified email address and assigned a product role.
+_Avoid_: Account record, credential
 
-**Analytics Worker**:
-The background projector that idempotently converts domain events into the Core Read Model.
-_Avoid_: Analyst Worker, statistics cron
+**Session**:
+A revocable, renewable relationship that lets an Identity obtain short-lived access.
+_Avoid_: Login token, permanent token
 
-**Business Analytics**:
-Durable measurements of users, logical files, committed storage, uploads, and successful downloads.
-_Avoid_: System metrics, telemetry
+**File**:
+A logical, user-owned item whose content may evolve through File Versions.
+_Avoid_: Object, blob
 
-**System Health**:
-Runtime measurements of service traffic, errors, latency, readiness, and pipeline lag.
-_Avoid_: Business Analytics
+**Folder**:
+A logical File container used to organize other Files without owning object bytes.
+_Avoid_: Directory object, bucket
+
+**File Version**:
+An immutable committed content revision of a File.
+_Avoid_: Upload, current blob
+
+**Object**:
+The physical bytes retained for a File Version.
+_Avoid_: File, File Version
+
+**Upload Intent**:
+A time-bounded reservation to create a File or add a File Version of a declared size and media type.
+_Avoid_: Upload session, chunk session
+
+**Storage Grant**:
+A short-lived authority scoped to one Object and one transfer purpose.
+_Avoid_: Access token, download URL
+
+**Download Ticket**:
+A short-lived package that identifies downloadable content and carries its Storage Grant.
+_Avoid_: Share link, direct URL
+
+**Download Attempt**:
+A tracked opportunity to transfer one File Version for a specific distribution purpose.
+_Avoid_: Download, ticket issuance
 
 **Successful Download**:
-A complete object-byte response finished by Storage. Issuing or consuming a download ticket is not a Successful Download.
-_Avoid_: Download request, ticket issuance
+A Download Attempt whose complete expected Object bytes reached the recipient.
+_Avoid_: Ticket issuance, download request
+
+**Share**:
+A revocable capability that lets a token holder request a Download Ticket for one File, optionally subject to expiry, password, or count limits.
+_Avoid_: Publication, public file
+
+**Publication**:
+A named catalogue entry that makes one File discoverable and eligible for public Download Tickets while published.
+_Avoid_: Share, release artifact
+
+**Quota**:
+The per-Identity byte budget divided into reserved, committed, and available capacity.
+_Avoid_: Disk size, physical storage
 
 **Committed Storage Bytes**:
-Bytes that Core has committed against user quota after successful file-version finalization.
-_Avoid_: Storage total, physical usage
+Bytes charged to Quota for committed File Versions.
+_Avoid_: Physical Object Bytes, total disk usage
 
 **Physical Object Bytes**:
-Bytes physically retained by object storage, including historical versions and temporarily unreconciled objects.
-_Avoid_: Committed Storage Bytes
+Bytes retained as Objects, including historical or temporarily unreconciled content.
+_Avoid_: Committed Storage Bytes, Quota usage
 
-**Coverage Start**:
-The earliest instant from which a metric is known to be complete under the current collection contract.
-_Avoid_: Launch date, first record
+**Business Analytics**:
+Durable product measurements derived from Identity, File, Upload Intent, Quota, and Successful Download facts.
+_Avoid_: System Health, telemetry
 
-**Dashboard Range**:
-A range that starts at local midnight in `Asia/Shanghai` and ends at the response generation instant; `7d` includes today plus the six preceding calendar dates, and `30d` includes today plus the preceding twenty-nine.
-_Avoid_: Last N times 24 hours
+**Analytics Coverage**:
+The known time boundary and completeness state for a Business Analytics measurement.
+_Avoid_: Launch date, data freshness
+
+**System Health**:
+Current evidence about service availability, traffic, latency, errors, and processing lag.
+_Avoid_: Business Analytics, product totals

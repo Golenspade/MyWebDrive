@@ -1,3 +1,5 @@
+> **Historical plan:** This proposal targets the former catalogue implementation and is not current API authority. See [`../../openapi.yaml`](../../openapi.yaml).
+
 # 下载目录（方案 A）设计与使用说明
 
 本方案在不引入新表的前提下，基于 Metadata 服务现有 File + FileTag 实体，通过 `catalog:*` 约定标签实现“项目/版本/资产”的聚合目录，并支持“灰度开关”。
@@ -78,4 +80,3 @@
 - 支持全局 ENV 开关（例如 `CATALOG_INCLUDE_PRIVATE=true` 时可返回 `public=false`）
 - 丰富项目层（`catalog:kind=project`）元信息：`license`、`repo` 等
 - 可选生成 SHA256 等校验信息
-

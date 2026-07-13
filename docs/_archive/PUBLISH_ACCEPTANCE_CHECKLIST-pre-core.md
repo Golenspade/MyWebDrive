@@ -1,3 +1,5 @@
+> **Superseded:** This acceptance checklist targets retired APIs. The current public contract is [`../openapi.yaml`](../openapi.yaml).
+
 # 发布管理系统验收清单
 
 本文档提供完整的验收测试清单，用于验证发布管理系统的所有功能。
@@ -419,4 +421,3 @@ wait
 - 开发者: ________________  日期: ________
 - 测试者: ________________  日期: ________
 - 审核者: ________________  日期: ________
-

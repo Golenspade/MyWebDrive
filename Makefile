@@ -1,19 +1,15 @@
 # MyWebDrive 项目构建与运维（Node 版）
 
-.PHONY: help build clean test lint quality-check alicloud-deploy
+.PHONY: help build test lint quality-check alicloud-deploy
 
 # 默认目标
 help:
 	@echo "可用的命令:"
 	@echo "  build         - 构建 Core-first 权威工作区"
 	@echo "  test          - Core、Storage 与主前端测试"
-	@echo "  docker-build  - 基于 Node 版 compose 进行构建"
-	@echo "  docker-up     - 启动 Node 版 compose"
-	@echo "  docker-down   - 停止 Node 版 compose"
-	@echo "  format        - 前端/Node 代码格式化"
 	@echo "  lint          - 前端/Node 代码检查"
-	@echo "  quality-check - 构建+测试+lint"
-	@echo "  alicloud-deploy - 使用 Node 版 compose 部署"
+	@echo "  quality-check - Core-first 完整 fail-closed 质量门"
+	@echo "  alicloud-deploy - 使用 Core-first 生产发布脚本"
 
 # Node 构建
 build:
@@ -33,6 +29,7 @@ lint:
 
 quality-check:
 	@echo "🚦 质量检查套件..."
+	pnpm run verify:docs
 	pnpm run build:all
 	pnpm run typecheck
 	pnpm run lint:all
@@ -45,7 +42,7 @@ quality-check:
 	bash scripts/test-core-cutover-contract.sh
 	@echo "✅ 质量检查完成"
 
-# 阿里云部署（Node 版 compose）
+# 阿里云 Core-first 部署
 alicloud-deploy:
 	@test -n "$(IMAGE_TAG)" || (echo "IMAGE_TAG is required" >&2; exit 1)
 	cd infrastructure/alicloud && ./deploy.sh "$(IMAGE_TAG)"

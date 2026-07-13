@@ -1,3 +1,5 @@
+> **Superseded:** This test guide targets retired invitation and upload APIs. Use [`../openapi.yaml`](../openapi.yaml) and `scripts/smoke-core-e2e.sh` for the current contract.
+
 # 邀请码 + 配额 + 上传/下载 E2E 测试脚本
 
 ## 最新状态（2026-01-13）
@@ -46,4 +48,3 @@ bash scripts/test_invite_quota_flow.sh
 ## 注意
 - 如需“注册即默认小配额”，可在启动时设置 `USER_DEFAULT_QUOTA_BYTES=1048576` 后再 `./manage-services.sh restart`。
 - 前端通知页已对“字节数”进行 KB/MB/GB 自动单位转换（超过 5 位数自动升级单位），与其它页面一致。
-

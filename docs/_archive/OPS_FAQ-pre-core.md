@@ -1,3 +1,5 @@
+> **Superseded:** This FAQ mixes retired and transitional operations. Use [`../manage-services.md`](../manage-services.md) and [`../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md`](../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md).
+
 # 运维 FAQ（Node 版）
 
 ## 最新状态（2026-01-13）

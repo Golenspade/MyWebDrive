@@ -1,3 +1,5 @@
+> **Superseded:** Pre-Core deployment guide preserved for history. Use [`../manage-services.md`](../manage-services.md) locally and [`../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md`](../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md) for production.
+
 # 🚀 一键部署到阿里云服务器指南
 
 本指南将帮助你直接从本地电脑一键部署到阿里云服务器。
@@ -338,4 +340,3 @@ jobs:
 4. 联系技术支持
 
 祝部署顺利！🎉
-

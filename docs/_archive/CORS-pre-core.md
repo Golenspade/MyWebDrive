@@ -1,3 +1,5 @@
+> **Superseded:** This guide describes the retired cross-origin topology. Current development is same-origin; see [`../manage-services.md`](../manage-services.md).
+
 # CORS / 跨域配置统一说明
 
 本项目在开发阶段使用 `frontend/cruip-landing`（Next.js，端口 3100）与 API 网关（Node，端口 9080）。为保证前端与后端在本地联调时顺畅，CORS 策略按以下方式统一：

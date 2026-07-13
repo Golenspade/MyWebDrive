@@ -1,3 +1,5 @@
+> **Superseded:** This quickstart targets retired APIs and commands. Use [`../openapi.yaml`](../openapi.yaml) and [`../manage-services.md`](../manage-services.md).
+
 # 发布管理快速开始
 
 本指南将帮助您在 5 分钟内完成第一次软件发布。
@@ -263,4 +265,3 @@ curl http://localhost:9080/api/v1/catalog | jq
 - 提交 Issue: https://github.com/Golenspade/MyWebDrive/issues
 - 查看文档: `/docs`
 - 联系管理员
-

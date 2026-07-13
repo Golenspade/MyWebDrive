@@ -11,8 +11,8 @@ Keep changes minimal, follow existing patterns, and prefer commands documented h
   **SOFT-RETIRED** and excluded from default build, test, and deployment paths.
 - Production authority is `infrastructure/alicloud/docker-compose.core.yml`
   with `infrastructure/alicloud/deploy.sh` and `rollback.sh`.
-- Local multi-service startup is intentionally unavailable until its Core-first
-  contract is implemented. Do not revive a retired launcher as a workaround.
+- Local multi-service startup is available only through the contracted
+  Core-first `manage-services.sh` interface and project `mywebdrive-core-dev`.
 
 ## Repo Layout
 
@@ -33,8 +33,10 @@ Keep changes minimal, follow existing patterns, and prefer commands documented h
 
 ## Setup / Install
 
-- Install workspace deps: `corepack pnpm install --frozen-lockfile`
-- List the supported compatibility surface: `./manage-services.sh help`
+- Prepare protected local state and install deps: `./manage-services.sh setup`
+- Start the Core-first stack: `./manage-services.sh start`
+- Site: `http://127.0.0.1:8080`
+- Full command contract: `docs/manage-services.md`
 
 ## Build / Typecheck
 
@@ -42,6 +44,7 @@ Keep changes minimal, follow existing patterns, and prefer commands documented h
 - Build the authoritative workspace: `pnpm run build:all`
 - Typecheck authoritative project references: `pnpm run typecheck`
 - Verify tracked generated artifacts: `pnpm run verify:generated`
+- Verify source, OpenAPI, and active docs authority: `pnpm run verify:docs`
 
 Notes:
 
@@ -50,11 +53,16 @@ Notes:
 
 ## Runtime and Smoke Testing
 
-- `./manage-services.sh` is a compatibility shim, not a lifecycle manager.
+- `./manage-services.sh` is the contracted Core-first local lifecycle manager.
+- Supported commands are exactly `setup`, `start`, `stop`, `status`,
+  `logs [service]`, `config`, `smoke`, `quality`, `reset --confirm`, and
+  `legacy:<command>`.
 - `./manage-services.sh smoke` runs the isolated Core-first Docker smoke test;
   it builds images, creates disposable volumes, and cleans them afterward.
-- Any former lifecycle/default command must warn `SOFT-RETIRED`, exit `64`,
-  and must never start the split-service stack.
+- Any unrecognized former command must warn `SOFT-RETIRED`, exit `64`, and must
+  never start an archived stack.
+- `legacy:<command>` is observation-only from 2026-07-13 through 2026-07-26;
+  remove the escape hatch on or after 2026-07-27 unless a new expiry is approved.
 
 ## Database (Prisma)
 
@@ -68,6 +76,8 @@ Notes:
 - Repository authority contract: `bash scripts/test-repo-authority-contract.sh`
 - Core release contracts: `bash scripts/test-core-release-contract.sh`
 - Full container smoke: `./manage-services.sh smoke`
+- Documentation authority tests: `pnpm run test:docs`
+- Documentation and OpenAPI gate: `pnpm run verify:docs`
 - Retired tests are opt-in only through `pnpm run test:legacy`.
 
 ## Lint / Format

@@ -1,3 +1,5 @@
+> **Superseded:** This guide describes the retired split control plane. Current repository authority is documented in [`../manage-services.md`](../manage-services.md).
+
 # Developer Guide: System of Record (SoR) and Prisma Client Standardization
 
 This document explains the architectural decisions and practical steps that were applied in this repo to:
@@ -101,4 +103,3 @@ Init steps (per service):
 - [ ] Initialize PostgreSQL via service-specific `*_DATABASE_URL` and run `prisma generate` + `db:push` (or `migrate deploy`)
 - [ ] `pnpm -C services/<name> build` passes
 - [ ] Add an entry to CHANGELOG
-
