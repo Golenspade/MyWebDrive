@@ -357,9 +357,71 @@ permissions=$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE")
 links=$(stat -f '%l' "$ENV_FILE" 2>/dev/null || stat -c '%h' "$ENV_FILE")
 owner=$(stat -f '%u' "$ENV_FILE" 2>/dev/null || stat -c '%u' "$ENV_FILE")
 [[ "$permissions" == 600 && "$links" == 1 && "$owner" == "$(id -u)" ]] || fail 'local env metadata is not secure'
-grep -Fx 'tool=corepack' "$COMMAND_STUB_LOG" >/dev/null || fail 'setup did not invoke corepack'
-grep -Fx "cwd=$ROOT_DIR" "$COMMAND_STUB_LOG" >/dev/null || fail 'setup did not run from the fixture repository root'
+setup_invocation=$(awk '
+  $0 == "tool=corepack" { capture = 1 }
+  capture { print }
+  capture && $0 == "end" { exit }
+' "$COMMAND_STUB_LOG")
+expected_setup_invocation=$(printf '%s\n' \
+  'tool=corepack' \
+  'arg[0]=pnpm' \
+  'arg[1]=install' \
+  'arg[2]=--frozen-lockfile' \
+  "cwd=$ROOT_DIR" \
+  'end')
+[[ "$setup_invocation" == "$expected_setup_invocation" ]] || fail 'setup did not preserve the exact frozen-install argv and repository cwd'
 assert_secret_output_safe "$setup_output" 'setup output'
+
+# A concurrent publisher briefly leaves the winning env with two links until it
+# removes its temp name. Readers must wait for that bounded window to close.
+transient_temp="$ROOT_DIR/.state/.core-dev.env.transient"
+transient_publisher_marker="$FIXTURES/transient-publisher-cleaned"
+ln "$ENV_FILE" "$transient_temp"
+(
+  sleep 0.1
+  rm -- "$transient_temp"
+  touch "$transient_publisher_marker"
+) &
+transient_cleanup_pid=$!
+set +e
+PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" config >/dev/null 2>&1
+transient_window_status=$?
+set -e
+wait "$transient_cleanup_pid"
+[[ $transient_window_status -eq 0 ]] || fail 'a transient two-link publication window was not accepted'
+[[ ! -e "$transient_temp" ]] || fail 'the transient publication temp link was not cleaned up'
+[[ -f "$transient_publisher_marker" ]] || fail 'the reader removed an active publisher temp instead of waiting'
+
+# A process killed after publication can leave its temp name behind. Once the
+# retry window expires, a same-inode generated temp in the private state
+# directory is safe to unlink and must not force manual state repair.
+crash_temp="$ROOT_DIR/.state/.core-dev.env.crash-left"
+ln "$ENV_FILE" "$crash_temp"
+set +e
+PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" config >/dev/null 2>&1
+crash_recovery_status=$?
+set -e
+[[ $crash_recovery_status -eq 0 ]] || fail 'a crash-left same-inode publication temp was not recovered'
+[[ ! -e "$crash_temp" ]] || fail 'crash recovery did not remove the same-inode temp name'
+[[ -f "$ENV_FILE" ]] || fail 'crash recovery removed the stable local env'
+
+# A link outside the private state directory cannot be explained or repaired by
+# the manager. It must remain untouched while validation fails closed. An
+# unrelated temp-shaped file inside state must also remain untouched.
+external_link="$FIXTURES/external-core-dev.env"
+unrelated_temp="$ROOT_DIR/.state/.core-dev.env.unrelated"
+ln "$ENV_FILE" "$external_link"
+printf 'unrelated-temp-sentinel\n' >"$unrelated_temp"
+unrelated_checksum=$(cksum "$unrelated_temp")
+set +e
+external_link_output=$(PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" config 2>&1)
+external_link_status=$?
+set -e
+[[ $external_link_status -eq 64 ]] || fail 'an unexplained external hard link must exit 64'
+assert_contains "$external_link_output" 'exactly one hard link' 'external hard-link output'
+[[ -f "$external_link" && "$external_link" -ef "$ENV_FILE" ]] || fail 'external hard-link validation removed or replaced the outside link'
+[[ $(cksum "$unrelated_temp") == "$unrelated_checksum" ]] || fail 'external hard-link recovery touched an unrelated state file'
+rm -f "$external_link" "$unrelated_temp"
 
 secret_values=''
 for key in \

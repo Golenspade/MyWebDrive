@@ -94,6 +94,27 @@ path_link_count() {
   stat -f '%l' "$1" 2>/dev/null || stat -c '%h' "$1"
 }
 
+recover_local_env_temp_links() {
+  local candidate links
+  for candidate in "$STATE_DIR"/.core-dev.env.*; do
+    [[ -e "$candidate" && ! -L "$candidate" && -f "$candidate" ]] || continue
+    [[ "$candidate" -ef "$ENV_FILE" ]] || continue
+    rm -f -- "$candidate" || return 1
+  done
+  links=$(path_link_count "$ENV_FILE") || return 1
+  [[ "$links" == 1 ]]
+}
+
+wait_for_single_local_env_link() {
+  local attempt links
+  for attempt in 1 2 3 4 5; do
+    links=$(path_link_count "$ENV_FILE") || return 1
+    [[ "$links" == 1 ]] && return 0
+    sleep 0.05
+  done
+  recover_local_env_temp_links
+}
+
 ensure_state_dir() {
   local owner
   if [[ -L "$STATE_DIR" ]]; then
@@ -112,7 +133,7 @@ ensure_state_dir() {
 }
 
 validate_local_env() {
-  local key owner links
+  local key owner
   if [[ -L "$ENV_FILE" ]]; then
     usage_error "Local environment must not be a symbolic link: $ENV_FILE"
   fi
@@ -120,8 +141,7 @@ validate_local_env() {
   [[ -f "$ENV_FILE" ]] || usage_error "Local environment is not a regular file: $ENV_FILE"
   owner=$(path_owner "$ENV_FILE") || usage_error "Could not inspect local environment ownership: $ENV_FILE"
   [[ "$owner" == "$(id -u)" ]] || usage_error "Local environment is not owned by the current user: $ENV_FILE"
-  links=$(path_link_count "$ENV_FILE") || usage_error "Could not inspect local environment link count: $ENV_FILE"
-  [[ "$links" == 1 ]] || usage_error "Local environment must have exactly one hard link: $ENV_FILE"
+  wait_for_single_local_env_link || usage_error "Local environment must have exactly one hard link: $ENV_FILE"
   chmod 600 "$ENV_FILE"
   [[ -s "$ENV_FILE" ]] || usage_error "Local environment is incomplete: $ENV_FILE"
   for key in \
