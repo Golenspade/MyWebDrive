@@ -5,7 +5,7 @@
 # 默认目标
 help:
 	@echo "可用的命令:"
-	@echo "  build         - pnpm 递归构建 (packages/services/apps)"
+	@echo "  build         - 构建 Core-first 权威工作区"
 	@echo "  test          - Core、Storage 与主前端测试"
 	@echo "  docker-build  - 基于 Node 版 compose 进行构建"
 	@echo "  docker-up     - 启动 Node 版 compose"
@@ -37,6 +37,7 @@ quality-check:
 	pnpm run typecheck
 	pnpm run lint:all
 	pnpm run test:all
+	pnpm run verify:generated
 	bash scripts/verify-core-release-contract.sh infrastructure/alicloud/docker-compose.core.yml
 	bash scripts/test-core-release-contract.sh
 	bash scripts/test-core-cutover-contract.sh

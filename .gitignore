@@ -17,24 +17,30 @@ yarn-error.log*
 pnpm-debug.log*
 
 # Build outputs / caches
-**/.tsbuildinfo
+**/*.tsbuildinfo
 .ruff_cache/
 .pnpm-store/
-packages/*/dist/
-services/*/dist/
-apps/*/dist/
+**/dist/
 
 # Framework outputs
-apps/*/.next/
-apps/*/out/
-frontend/cruip-landing/.next/
-frontend/cruip-landing/out/
+**/.next/
+**/out/
 
 # Prisma generated clients and dev DBs
 services/*/prisma/client/
+services/*/prisma/generated/
+**/.prisma/client/
+**/generated/prisma/
+**/prisma/**/*query_engine*
+**/prisma/**/*schema-engine*
+**/prisma/**/*migration-engine*
 services/*/prisma/*.db
 services/*/prisma/services/
 services/data/
+
+# Runtime process metadata and non-pnpm frontend locks
+**/*.pid
+frontend/**/package-lock.json
 
 # Coverage
 coverage/
@@ -46,7 +52,6 @@ coverage/
 .claude/
 .vscode/
 .tmp_*.mjs
-"infrastructure/
 
 
 

@@ -14,7 +14,6 @@ Keep changes minimal, follow existing patterns, and prefer commands documented h
 - `packages/*` — shared libraries (`@mywebdrive/common`, `@mywebdrive/observability`).
 - `services/*/prisma` — Prisma schema and generated client in each service.
 - `frontend/cruip-landing` — primary Next.js landing/app.
-- `apps/web` — smaller Next.js demo app.
 - `infrastructure/` — docker compose, deploy scripts.
 
 ## Prereqs
@@ -41,7 +40,6 @@ Notes:
 - Start backend stack: `./manage-services.sh start-backend`
 - Start frontend (landing): `./manage-services.sh start-frontend`
 - Start frontend (prod mode): `./manage-services.sh start-frontend-prod`
-- Start Next demo: `./manage-services.sh start-next`
 - Status dashboard (ports + health): `./manage-services.sh status`
 
 Per-service dev (watch mode):
@@ -92,7 +90,6 @@ This repo does not currently have a single unified root lint/format command.
 
 Frontend:
 - Landing lint: `pnpm -C frontend/cruip-landing lint` (Next lint)
-- Demo lint: `pnpm -C apps/web lint` (Next lint)
 - Make wrapper (frontend lint): `make lint`
 
 Formatting:

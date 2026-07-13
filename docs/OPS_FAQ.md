@@ -54,9 +54,7 @@
 - 指标无数据：
   - 确认抓取目标端口；手动 `curl :/metrics`
   - 确认请求命中服务（直方图与计数器为请求后增长）
-- 端到端回归（Next 4000 + Gateway 9080）：
-  - 使用 `./manage-services.sh start-gateway-node` 与 `./manage-services.sh start-next`
-  - 运行脚本时设置 `GATEWAY_PORT=9080`
+- 旧 Next 4000 + Gateway 9080 回归流程已软退役，不再提供活跃开发入口。
 - 日志过多/过少：
   - 调整 `LOG_LEVEL`（`debug`/`info`/`warn`/`error`）
 - 请求链路难以排查：

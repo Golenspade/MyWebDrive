@@ -279,9 +279,7 @@ Verify metrics: `curl http://localhost:7081/metrics | head`
 ### Frontend Architecture
 
 The frontend uses a modern React + Next.js 15 stack with Zustand for state management.
-There are two Next.js apps:
-- `frontend/cruip-landing`: main marketing/docs/admin frontend, originally derived from the Cruip Simple Light template but heavily customized, with all third-party promotions removed and only attribution kept in README.
-- `apps/web`: an experimental site that now shares the same Next 15 / React 19 stack and is intended for future templateization work (do not reintroduce external branding or promotions here).
+`frontend/cruip-landing` is the sole active marketing/docs/admin frontend. It was originally derived from the Cruip Simple Light template but is heavily customized, with all third-party promotions removed and only attribution kept in README.
 
 Key patterns:
 

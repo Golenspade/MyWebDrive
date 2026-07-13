@@ -8,6 +8,7 @@ ROLLBACK_SCRIPT=${RELEASE_CONTRACT_ROLLBACK_SCRIPT:-"$ROOT_DIR/infrastructure/al
 CI_FILE=${RELEASE_CONTRACT_CI_FILE:-"$ROOT_DIR/.github/workflows/ci.yml"}
 PACKAGE_FILE=${RELEASE_CONTRACT_PACKAGE_FILE:-"$ROOT_DIR/package.json"}
 MAKEFILE=${RELEASE_CONTRACT_MAKEFILE:-"$ROOT_DIR/Makefile"}
+LEGACY_TEST_SCRIPT="$ROOT_DIR/scripts/run-legacy-tests.sh"
 
 fail() {
   printf 'release contract violation: %s\n' "$*" >&2
@@ -28,7 +29,7 @@ reject_pattern() {
   if grep -Eiq -- "$pattern" "$file"; then fail "$message"; fi
 }
 
-for file in "$COMPOSE_FILE" "$DEPLOY_SCRIPT" "$ROLLBACK_SCRIPT" "$CI_FILE" "$PACKAGE_FILE" "$MAKEFILE" "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/email-provider/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/nginx.conf" "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/prometheus/prometheus.yml"; do
+for file in "$COMPOSE_FILE" "$DEPLOY_SCRIPT" "$ROLLBACK_SCRIPT" "$CI_FILE" "$PACKAGE_FILE" "$MAKEFILE" "$LEGACY_TEST_SCRIPT" "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/email-provider/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile" "$ROOT_DIR/frontend/cruip-landing/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/nginx/nginx.conf" "$ROOT_DIR/infrastructure/alicloud/prometheus/Dockerfile" "$ROOT_DIR/infrastructure/alicloud/prometheus/prometheus.yml"; do
   require_file "$file"
 done
 
@@ -166,11 +167,24 @@ for mount in '/tmp:uid=101,gid=101,mode=1777' '/var/cache/nginx:uid=101,gid=101,
   require_pattern "--tmpfs[[:space:]]+$mount" "$CI_FILE" "CI Nginx syntax smoke must provide a writable $mount tmpfs"
 done
 
-require_pattern '"build:all":[[:space:]]*"pnpm --filter '\''\./packages/\*'\'' --filter '\''\./services/\*'\'' --filter '\''\./apps/\*'\'' --filter '\''\./frontend/\*'\'' run build"' "$PACKAGE_FILE" 'build:all selectors are not exact'
-require_pattern '"test:all":[[:space:]]*"pnpm --if-present --filter '\''\./services/\*'\'' --filter '\''\./apps/\*'\'' --filter '\''\./frontend/\*'\'' run test"' "$PACKAGE_FILE" 'test:all selectors are not exact'
-require_pattern '"lint:all":[[:space:]]*"pnpm --if-present --filter '\''\./services/\*'\'' --filter '\''\./apps/\*'\'' --filter '\''\./frontend/\*'\'' run lint"' "$PACKAGE_FILE" 'lint:all selectors are not exact'
+script_value() {
+  node -e 'const pkg = require(process.argv[1]); process.stdout.write(pkg.scripts[process.argv[2]] || "")' "$PACKAGE_FILE" "$1"
+}
+
+authority_filters="--filter './packages/common' --filter './packages/observability' --filter './services/core-api' --filter './services/email-provider' --filter './services/storage' --filter './frontend/cruip-landing'"
+[[ "$(script_value build)" == 'pnpm run build:all' ]] || fail 'build must delegate to the Core-first build'
+[[ "$(script_value build:all)" == "pnpm $authority_filters run build" ]] || fail 'build:all selectors are not exact'
+[[ "$(script_value typecheck)" == "pnpm $authority_filters exec tsc -b --pretty false" ]] || fail 'typecheck selectors are not exact'
+[[ "$(script_value lint:all)" == "pnpm --if-present $authority_filters run lint" ]] || fail 'lint:all selectors are not exact'
+[[ "$(script_value test:all)" == "pnpm --if-present $authority_filters run test && pnpm run test:generated && pnpm run verify:generated" ]] || fail 'test:all selectors are not exact'
+[[ "$(script_value test:legacy)" == 'bash scripts/run-legacy-tests.sh' ]] || fail 'test:legacy must remain explicit'
+[[ "$(script_value verify:generated)" == 'bash scripts/verify-no-generated-artifacts.sh' ]] || fail 'generated artifact verifier is not exposed'
+require_pattern 'SOFT-RETIRED' "$LEGACY_TEST_SCRIPT" 'legacy test warning is missing'
+for legacy in auth user metadata sharing api-gateway-node; do
+  require_pattern "--filter '\./services/$legacy'" "$LEGACY_TEST_SCRIPT" "legacy test discovery is missing $legacy"
+done
 reject_pattern '\|\|[[:space:]]*true' "$MAKEFILE" 'Makefile must fail closed'
-for pattern in 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'verify-core-release-contract\.sh'; do require_pattern "$pattern" "$MAKEFILE" "Makefile quality-check is missing: $pattern"; done
+for pattern in 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'pnpm run verify:generated' 'verify-core-release-contract\.sh'; do require_pattern "$pattern" "$MAKEFILE" "Makefile quality-check is missing: $pattern"; done
 
 for dockerfile in "$ROOT_DIR/services/core-api/Dockerfile" "$ROOT_DIR/services/email-provider/Dockerfile" "$ROOT_DIR/services/storage/Dockerfile"; do
   require_pattern '^FROM .+ AS build$' "$dockerfile" "$(basename "$(dirname "$dockerfile")") Dockerfile must be multi-stage"

@@ -1,6 +1,6 @@
 # 前端页面与跳转触发点清单（frontend/cruip-landing）
 
-> 说明：本清单仅覆盖 Next.js 项目 frontend/cruip-landing。明确排除 apps/web 与 frontend（Vite）两套工程；不展开 Auth 的实现细节，仅标注其路由位置。
+> 说明：本清单仅覆盖 Next.js 项目 frontend/cruip-landing。明确排除 frontend（Vite）工程；不展开 Auth 的实现细节，仅标注其路由位置。
 
 更新时间：2025-10-01
 

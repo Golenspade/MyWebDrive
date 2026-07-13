@@ -38,7 +38,7 @@ The Nothing-inspired system from `vibe-nothing-ui-design` provides:
 
 | Boundary | In scope | Out of scope |
 |---|---|---|
-| **Codebase** | `frontend/cruip-landing` only | `apps/web`, `frontend/` (Vite root), backend microservices in `services/` |
+| **Codebase** | `frontend/cruip-landing` only | `frontend/` (Vite root), backend microservices in `services/` |
 | **Router** | App Router pages and shared layout/components | Nextra `/docs` content (MDX pages) is styled through the shared theme only |
 | **Theme** | Light/dark toggle for marketing and auth pages | Backend admin tools outside this repo |
 | **Tokens** | New Nothing token layer mapped into Tailwind v4 CSS variables | Replacing Tailwind with another framework |
