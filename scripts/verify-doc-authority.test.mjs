@@ -291,6 +291,66 @@ test('rejects a Core router factory imported from the wrong module', async (t) =
   assert.match(result.stderr, /cannot resolve Core router factory binding createIdentityRouter from \.\/identity\/router\.js/)
 })
 
+test('rejects a router factory returning a fresh receiver', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/identity/router.ts', (source) =>
+    source.replace('  return router\n}', '  return express.Router()\n}'),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /factory createIdentityRouter must directly return its bound router/)
+})
+
+test('rejects the Core app factory returning a fresh receiver', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/app.ts', (source) =>
+    source.replace('  return app\n}', '  return express()\n}'),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /factory createCoreApp must directly return its bound app/)
+})
+
+test('rejects the Storage API router factory returning a fresh receiver', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/storage/src/api.ts', (source) =>
+    source.replace('  return router\n}', '  return express.Router()\n}'),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /factory createStorageApi must directly return its bound router/)
+})
+
+test('rejects a dead helper standing in for the Storage runtime binding', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/storage/src/index.ts', (source) =>
+    `${source.replace('const app = createStorageApiApp({', 'const app = createStorageApiAppRenamed({')}\nfunction deadStorageBinding() {\n  return createStorageApiApp({ router: createStorageApi({} as never) })\n}\n`,
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Storage API runtime binding must be direct in the api command branch/)
+})
+
+test('rejects a dead helper standing in for the Storage API router mount', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/storage/src/server.ts', (source) =>
+    `${source.replace('  app.use(input.router)\n', '  app.use(input.otherRouter)\n')}\nfunction deadStorageRouterMount(app: express.Express, input: { router: express.Router }) {\n  app.use(input.router)\n}\n`,
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /Storage API router mount must be direct in createStorageApiApp/)
+})
+
 test('rejects retired register and password-login claims in active docs', async (t) => {
   const root = await fixture()
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -506,6 +566,65 @@ test('requires the persistent Storage parser runtime contract test', async (t) =
   const result = runVerifier(root)
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /persistent Storage completion parser runtime contract is missing/)
+})
+
+test('rejects a weakened Storage parser test without an oversized send and response assertions', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(
+    root,
+    'services/storage/src/__tests__/completion-parser-contract.test.ts',
+    (source) => source
+      .replace('    const response = await request(app)', '    await request(app)')
+      .replace("\n      .send({ padding: 'x'.repeat(2048) })", '')
+      .replace('expect(response.status).toBe(413)', 'expect(413).toBe(413)')
+      .replace(
+        "expect(response.headers['content-type']).toBe('text/html; charset=utf-8')",
+        "expect('text/html; charset=utf-8').toBe('text/html; charset=utf-8')",
+      )
+      .replace(
+        'expect(response.text).toMatch(/^<!DOCTYPE html>/)',
+        "expect('<!DOCTYPE html>').toMatch(/^<!DOCTYPE html>/)",
+      ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /persistent Storage completion parser runtime contract has weakened request or assertions/)
+})
+
+test('rejects Storage parser assertions against an unrelated response object', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(
+    root,
+    'services/storage/src/__tests__/completion-parser-contract.test.ts',
+    (source) => source
+      .replace(
+        '    expect(response.status).toBe(413)',
+        "    const otherResponse = { status: 413, headers: { 'content-type': 'text/html; charset=utf-8' }, text: '<!DOCTYPE html>' }\n\n    expect(otherResponse.status).toBe(413)",
+      )
+      .replace("expect(response.headers['content-type'])", "expect(otherResponse.headers['content-type'])")
+      .replace('expect(response.text)', 'expect(otherResponse.text)'),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /persistent Storage completion parser runtime contract has weakened request or assertions/)
+})
+
+test('rejects the Storage parser contract when app factories come from the wrong module', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(
+    root,
+    'services/storage/src/__tests__/completion-parser-contract.test.ts',
+    (source) => source.replace("from '../server.js'", "from '../not-server.js'"),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /persistent Storage completion parser runtime contract has unresolved imports/)
 })
 
 test('rejects stale Nextra 3 claims in the active frontend README', async (t) => {

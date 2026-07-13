@@ -170,6 +170,7 @@ const classifiedNonPublicRoutes = [
     source: 'services/storage/src/server.ts',
     factory: 'baseApp',
     receiver: 'app',
+    returnShape: 'app-provider',
     mountPrefix: '',
     visibility: 'operational',
     routes: [['get', '/metrics']],
@@ -191,11 +192,13 @@ const classifiedCoreMounts = [
       group.mountPrefix,
       group.mountFactory,
       sourceImportPath(group.mountSource, group.source),
+      group.source,
     ]),
   [
     '/api/v1',
     'createDownloadAttemptCallbackRouter',
     './analytics/download-attempt.js',
+    'services/core-api/src/analytics/download-attempt.ts',
   ],
 ]
 
@@ -272,41 +275,89 @@ function expressionCall(statement) {
 }
 
 function hasDirectReceiverBinding(factory, receiver) {
+  const bindings = []
   for (const statement of factory.body.statements) {
     if (!ts.isVariableStatement(statement)) continue
     for (const declaration of statement.declarationList.declarations) {
       if (ts.isIdentifier(declaration.name) && declaration.name.text === receiver) {
-        const initializer = declaration.initializer
-        if (!ts.isCallExpression(initializer)) continue
-        if (receiver === 'router') {
-          if (
-            ts.isPropertyAccessExpression(initializer.expression) &&
-            initializer.expression.getText(factory.getSourceFile()) === 'express.Router'
-          ) return true
-        } else if (callName(initializer.expression) === 'express') {
-          return true
-        }
+        bindings.push(declaration.initializer)
       }
       if (receiver === 'app' && ts.isObjectBindingPattern(declaration.name)) {
         const bindsApp = declaration.name.elements.some(
           (element) => ts.isIdentifier(element.name) && element.name.text === 'app',
         )
-        if (
-          bindsApp &&
-          ts.isCallExpression(declaration.initializer) &&
-          callName(declaration.initializer.expression) === 'baseApp'
-        ) return true
+        if (bindsApp) bindings.push(declaration.initializer)
       }
     }
   }
-  return false
+  if (bindings.length !== 1 || !bindings[0] || !ts.isCallExpression(bindings[0])) return false
+  if (receiver === 'router') {
+    return (
+      ts.isPropertyAccessExpression(bindings[0].expression) &&
+      bindings[0].expression.getText(factory.getSourceFile()) === 'express.Router'
+    )
+  }
+  return (
+    callName(bindings[0].expression) === 'express' ||
+    callName(bindings[0].expression) === 'baseApp'
+  )
 }
 
-function directRouteRegistrations(factory, receiver, failures) {
+function factoryOwnedReturns(factory) {
+  const returns = []
+  const visit = (node) => {
+    if (node !== factory.body && ts.isFunctionLike(node)) return
+    if (ts.isReturnStatement(node)) returns.push(node)
+    ts.forEachChild(node, visit)
+  }
+  visit(factory.body)
+  return returns
+}
+
+function factoryOwnedCalls(factory) {
+  const calls = []
+  const visit = (node) => {
+    if (node !== factory.body && ts.isFunctionLike(node)) return
+    if (ts.isCallExpression(node)) calls.push(node)
+    ts.forEachChild(node, visit)
+  }
+  visit(factory.body)
+  return calls
+}
+
+function hasDirectReceiverReturn(factory, receiver, returnShape, failures) {
+  const returns = factoryOwnedReturns(factory)
+  const returned = returns[0]
+  let valid = returns.length === 1 && returned.parent === factory.body
+  if (returnShape === 'app-provider') {
+    valid = valid && ts.isObjectLiteralExpression(returned.expression)
+    if (valid) {
+      const appProperties = returned.expression.properties.filter((property) => (
+        (ts.isShorthandPropertyAssignment(property) && property.name.text === receiver) ||
+        (
+          ts.isPropertyAssignment(property) &&
+          property.name.getText(factory.getSourceFile()) === receiver &&
+          ts.isIdentifier(property.initializer) &&
+          property.initializer.text === receiver
+        )
+      ))
+      valid = appProperties.length === 1
+    }
+  } else {
+    valid = valid && ts.isIdentifier(returned.expression) && returned.expression.text === receiver
+  }
+  if (!valid) {
+    failures.push(`factory ${factory.name.text} must directly return its bound ${receiver}`)
+  }
+  return valid
+}
+
+function directRouteRegistrations(factory, receiver, returnShape, failures) {
   if (!hasDirectReceiverBinding(factory, receiver)) {
     failures.push(`source authority has unsupported ${receiver} binding in ${factory.name.text}`)
-    return { routes: [], accepted: new Set() }
+    return { routes: [], accepted: new Set(), verifiedReceiver: false }
   }
+  const verifiedReceiver = hasDirectReceiverReturn(factory, receiver, returnShape, failures)
   const routes = []
   const accepted = new Set()
   for (const statement of factory.body.statements) {
@@ -319,7 +370,7 @@ function directRouteRegistrations(factory, receiver, failures) {
     routes.push([method, call.arguments[0].text, call])
     accepted.add(call)
   }
-  return { routes, accepted }
+  return { routes, accepted, verifiedReceiver }
 }
 
 function enclosingFunctionName(node) {
@@ -460,6 +511,7 @@ function verifySourceRoutes(failures, sources) {
     })),
     ...classifiedNonPublicRoutes,
   ]
+  const verifiedFactories = new Set()
   const bySource = new Map()
   for (const descriptor of descriptors) {
     const factories = bySource.get(descriptor.source) ?? new Map()
@@ -480,10 +532,12 @@ function verifySourceRoutes(failures, sources) {
     const receiverNames = new Set()
     for (const [factoryName, sourceDescriptors] of factoryDescriptors) {
       const receiver = sourceDescriptors[0].receiver
+      const returnShape = sourceDescriptors[0].returnShape ?? 'receiver'
       receiverNames.add(receiver)
       const factory = findNamedFunction(parsed, factoryName, failures)
       if (!factory) continue
-      const inspected = directRouteRegistrations(factory, receiver, failures)
+      const inspected = directRouteRegistrations(factory, receiver, returnShape, failures)
+      if (inspected.verifiedReceiver) verifiedFactories.add(`${relative}:${factoryName}`)
       for (const call of inspected.accepted) accepted.add(call)
       const actual = new Map()
       for (const [method, routerPath] of inspected.routes) {
@@ -517,6 +571,7 @@ function verifySourceRoutes(failures, sources) {
   if (appSource !== null && appSource !== undefined) {
     verifyCoreMounts(
       parseTypeScript('services/core-api/src/app.ts', appSource, failures),
+      verifiedFactories,
       failures,
     )
   }
@@ -551,7 +606,7 @@ function hasDefaultExpressBinding(parsed) {
   ))
 }
 
-function verifyCoreMounts(parsed, failures) {
+function verifyCoreMounts(parsed, verifiedFactories, failures) {
   const factory = findNamedFunction(parsed, 'createCoreApp', failures)
   if (!factory) return
   if (!hasDirectReceiverBinding(factory, 'app')) {
@@ -560,12 +615,13 @@ function verifyCoreMounts(parsed, failures) {
   }
   const recognizedFactories = new Set(classifiedCoreMounts.map(([, name]) => name))
   const imports = importedBindings(parsed)
-  for (const [, name, moduleSpecifier] of classifiedCoreMounts) {
+  for (const [, name, moduleSpecifier, source] of classifiedCoreMounts) {
     const binding = imports.get(name)
     if (
       !binding ||
       binding.importedName !== name ||
-      binding.moduleSpecifier !== moduleSpecifier
+      binding.moduleSpecifier !== moduleSpecifier ||
+      !verifiedFactories.has(`${source}:${name}`)
     ) {
       failures.push(`source authority cannot resolve Core router factory binding ${name} from ${moduleSpecifier}`)
     }
@@ -597,7 +653,8 @@ function verifyCoreMounts(parsed, failures) {
       !recognizedFactories.has(routerFactory) ||
       !binding ||
       binding.importedName !== routerFactory ||
-      binding.moduleSpecifier !== authority?.[2]
+      binding.moduleSpecifier !== authority?.[2] ||
+      !verifiedFactories.has(`${authority?.[3]}:${routerFactory}`)
     ) {
       failures.push(`unsupported indirect Core mount factory ${routerFactory ?? router.getText(parsed)} in createCoreApp`)
       rejected.add(call)
@@ -643,36 +700,90 @@ function verifyStorageBinding(sources, failures) {
   const indexSource = sources.get('services/storage/src/index.ts')
   if (indexSource !== null && indexSource !== undefined) {
     const parsed = parseTypeScript('services/storage/src/index.ts', indexSource, failures)
+    const imports = importedBindings(parsed)
+    const apiBinding = imports.get('createStorageApi')
+    const appBinding = imports.get('createStorageApiApp')
+    const importsValid = (
+      apiBinding?.importedName === 'createStorageApi' &&
+      apiBinding.moduleSpecifier === './api.js' &&
+      appBinding?.importedName === 'createStorageApiApp' &&
+      appBinding.moduleSpecifier === './server.js'
+    )
+    const main = findNamedFunction(parsed, 'main', failures)
     let bindingFound = false
-    walk(parsed, (node) => {
-      if (!ts.isCallExpression(node) || callName(node.expression) !== 'createStorageApiApp') return
-      const object = node.arguments[0]
-      if (!ts.isObjectLiteralExpression(object)) return
-      const router = object.properties.find(
-        (property) => ts.isPropertyAssignment(property) && property.name.getText(parsed) === 'router',
-      )
-      if (
-        router &&
-        ts.isPropertyAssignment(router) &&
-        ts.isCallExpression(router.initializer) &&
-        callName(router.initializer.expression) === 'createStorageApi'
-      ) {
-        bindingFound = true
+    if (main && importsValid) {
+      const apiBranches = main.body.statements.filter((statement) => (
+        ts.isIfStatement(statement) &&
+        ts.isBinaryExpression(statement.expression) &&
+        statement.expression.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken &&
+        ts.isIdentifier(statement.expression.left) &&
+        statement.expression.left.text === 'command' &&
+        isStringLiteral(statement.expression.right) &&
+        statement.expression.right.text === 'api' &&
+        ts.isBlock(statement.thenStatement)
+      ))
+      if (apiBranches.length === 1) {
+        const appDeclarations = []
+        for (const statement of apiBranches[0].thenStatement.statements) {
+          if (!ts.isVariableStatement(statement)) continue
+          for (const declaration of statement.declarationList.declarations) {
+            if (ts.isIdentifier(declaration.name) && declaration.name.text === 'app') {
+              appDeclarations.push(declaration)
+            }
+          }
+        }
+        if (appDeclarations.length === 1) {
+          const initializer = appDeclarations[0].initializer
+          const object = initializer && ts.isCallExpression(initializer) &&
+            callName(initializer.expression) === 'createStorageApiApp'
+            ? initializer.arguments[0]
+            : null
+          const router = object && ts.isObjectLiteralExpression(object)
+            ? object.properties.filter((property) => (
+                ts.isPropertyAssignment(property) && property.name.getText(parsed) === 'router'
+              ))
+            : []
+          bindingFound = (
+            router.length === 1 &&
+            ts.isPropertyAssignment(router[0]) &&
+            ts.isCallExpression(router[0].initializer) &&
+            callName(router[0].initializer.expression) === 'createStorageApi'
+          )
+        }
       }
-    })
-    if (!bindingFound) failures.push('source authority is missing mount / -> storage router')
+    }
+    if (!bindingFound) {
+      failures.push('Storage API runtime binding must be direct in the api command branch')
+    }
   }
 
   const serverSource = sources.get('services/storage/src/server.ts')
   if (serverSource !== null && serverSource !== undefined) {
     const parsed = parseTypeScript('services/storage/src/server.ts', serverSource, failures)
+    const factory = findNamedFunction(parsed, 'createStorageApiApp', failures)
     let routerUseFound = false
-    walk(parsed, (node) => {
-      if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return
-      if (node.expression.getText(parsed) !== 'app.use') return
-      if (node.arguments[0]?.getText(parsed) === 'input.router') routerUseFound = true
-    })
-    if (!routerUseFound) failures.push('source authority is missing app.use(input.router) storage binding')
+    if (factory) {
+      const routerUses = factoryOwnedCalls(factory).filter((call) => (
+        ts.isPropertyAccessExpression(call.expression) &&
+        call.expression.getText(parsed) === 'app.use' &&
+        call.arguments.length === 1 &&
+        call.arguments[0].getText(parsed) === 'input.router'
+      ))
+      routerUseFound = (
+        routerUses.length === 1 &&
+        ts.isExpressionStatement(routerUses[0].parent) &&
+        routerUses[0].parent.parent === factory.body
+      )
+      if (!hasDirectReceiverBinding(factory, 'app')) {
+        failures.push('source authority has unsupported app binding in createStorageApiApp')
+        routerUseFound = false
+      } else {
+        hasDirectReceiverReturn(factory, 'app', 'receiver', failures)
+      }
+    }
+    if (!routerUseFound) {
+      failures.push('Storage API router mount must be direct in createStorageApiApp')
+    }
   }
 }
 
@@ -681,30 +792,42 @@ function verifyStorageCompletionParser(sources, failures) {
   if (apiSource === null || apiSource === undefined) return
   const parsed = parseTypeScript('services/storage/src/api.ts', apiSource, failures)
   let parserContractFound = false
-  walk(parsed, (node) => {
-    if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return
-    if (node.expression.getText(parsed) !== 'router.post') return
-    if (!isStringLiteral(node.arguments[0])) return
-    if (node.arguments[0].text !== '/api/v1/storage/uploads/:objectKey/complete') return
+  const apiFactory = findNamedFunction(parsed, 'createStorageApi', failures)
+  const completionCalls = apiFactory
+    ? apiFactory.body.statements.map(expressionCall).filter((node) => (
+        node &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.getText(parsed) === 'router.post' &&
+        isStringLiteral(node.arguments[0]) &&
+        node.arguments[0].text === '/api/v1/storage/uploads/:objectKey/complete'
+      ))
+    : []
+  if (completionCalls.length === 1) {
+    const node = completionCalls[0]
     const parser = node.arguments[1]
     if (
+      !parser ||
       !ts.isCallExpression(parser) ||
       !ts.isPropertyAccessExpression(parser.expression) ||
       parser.expression.getText(parsed) !== 'express.json'
-    ) return
-    const options = parser.arguments[0]
-    if (!ts.isObjectLiteralExpression(options)) return
-    const properties = new Map(
-      options.properties
-        .filter(ts.isPropertyAssignment)
-        .map((property) => [property.name.getText(parsed), property.initializer]),
-    )
-    const limit = properties.get('limit')
-    const strict = properties.get('strict')
-    if (isStringLiteral(limit) && limit.text === '1kb' && strict?.kind === ts.SyntaxKind.TrueKeyword) {
-      parserContractFound = node.arguments.length >= 3
+    ) {
+      parserContractFound = false
+    } else {
+      const options = parser.arguments[0]
+      if (options && ts.isObjectLiteralExpression(options)) {
+        const properties = new Map(
+          options.properties
+            .filter(ts.isPropertyAssignment)
+            .map((property) => [property.name.getText(parsed), property.initializer]),
+        )
+        const limit = properties.get('limit')
+        const strict = properties.get('strict')
+        if (isStringLiteral(limit) && limit.text === '1kb' && strict?.kind === ts.SyntaxKind.TrueKeyword) {
+          parserContractFound = node.arguments.length >= 3
+        }
+      }
     }
-  })
+  }
   if (!parserContractFound) {
     failures.push('storage completion source must retain route-scoped express.json 1kb strict parser')
   }
@@ -712,22 +835,25 @@ function verifyStorageCompletionParser(sources, failures) {
   const serverSource = sources.get('services/storage/src/server.ts')
   if (serverSource === null || serverSource === undefined) return
   const server = parseTypeScript('services/storage/src/server.ts', serverSource, failures)
-  let routerUseEnd = -1
+  const appFactory = findNamedFunction(server, 'createStorageApiApp', failures)
+  let routerUseIndex = -1
   const trailingErrorMiddleware = []
-  walk(server, (node) => {
-    if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return
-    if (node.expression.getText(server) !== 'app.use') return
-    if (node.arguments[0]?.getText(server) === 'input.router') routerUseEnd = node.end
+  for (const [index, statement] of (appFactory?.body.statements ?? []).entries()) {
+    const node = expressionCall(statement)
+    if (!node || !ts.isPropertyAccessExpression(node.expression)) continue
+    if (node.expression.getText(server) !== 'app.use') continue
+    if (node.arguments[0]?.getText(server) === 'input.router') routerUseIndex = index
     const handler = node.arguments.at(-1)
     if (
       handler &&
-      node.pos > routerUseEnd &&
+      routerUseIndex >= 0 &&
+      index > routerUseIndex &&
       (ts.isArrowFunction(handler) || ts.isFunctionExpression(handler)) &&
       handler.parameters.length === 4
     ) {
       trailingErrorMiddleware.push(node)
     }
-  })
+  }
   if (trailingErrorMiddleware.length > 0) {
     failures.push('storage completion parser errors no longer flow to the default Express final handler')
   }
@@ -1150,6 +1276,106 @@ function completionSchema(document, apiPath) {
   return document.paths?.[apiPath]?.post?.requestBody?.content?.['application/json']?.schema
 }
 
+function hasDefaultImport(parsed, localName, moduleSpecifier) {
+  return parsed.statements.some((statement) => (
+    ts.isImportDeclaration(statement) &&
+    isStringLiteral(statement.moduleSpecifier) &&
+    statement.moduleSpecifier.text === moduleSpecifier &&
+    statement.importClause?.name?.text === localName
+  ))
+}
+
+function directNamedDeclarations(block, name) {
+  const declarations = []
+  for (const statement of block.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.name.text === name) {
+        declarations.push(declaration)
+      }
+    }
+  }
+  return declarations
+}
+
+function requestChainContract(expression, appName, parsed) {
+  if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression)) return false
+  if (expression.expression.name.text !== 'send' || expression.arguments.length !== 1) return false
+  const payload = expression.arguments[0]
+  if (!ts.isObjectLiteralExpression(payload)) return false
+  const padding = payload.properties.filter((property) => (
+    ts.isPropertyAssignment(property) && property.name.getText(parsed) === 'padding'
+  ))
+  if (padding.length !== 1 || !ts.isPropertyAssignment(padding[0])) return false
+  const repeated = padding[0].initializer
+  if (
+    !ts.isCallExpression(repeated) ||
+    !ts.isPropertyAccessExpression(repeated.expression) ||
+    repeated.expression.name.text !== 'repeat' ||
+    !isStringLiteral(repeated.expression.expression) ||
+    repeated.arguments.length !== 1 ||
+    !ts.isNumericLiteral(repeated.arguments[0])
+  ) return false
+  const repeatCount = Number.parseInt(repeated.arguments[0].text, 10)
+  if (!Number.isFinite(repeatCount) || repeatCount < 0) return false
+  const escapedUnit = JSON.stringify(repeated.expression.expression.text).slice(1, -1)
+  const payloadBytes = Buffer.byteLength('{"padding":""}', 'utf8') +
+    Buffer.byteLength(escapedUnit, 'utf8') * repeatCount
+  if (payloadBytes <= 1024) return false
+
+  const setCall = expression.expression.expression
+  if (
+    !ts.isCallExpression(setCall) ||
+    !ts.isPropertyAccessExpression(setCall.expression) ||
+    setCall.expression.name.text !== 'set' ||
+    setCall.arguments.length !== 2 ||
+    !isStringLiteral(setCall.arguments[0]) ||
+    setCall.arguments[0].text !== 'Content-Type' ||
+    !isStringLiteral(setCall.arguments[1]) ||
+    setCall.arguments[1].text !== 'application/json'
+  ) return false
+  const postCall = setCall.expression.expression
+  if (
+    !ts.isCallExpression(postCall) ||
+    !ts.isPropertyAccessExpression(postCall.expression) ||
+    postCall.expression.name.text !== 'post' ||
+    postCall.arguments.length !== 1 ||
+    !isStringLiteral(postCall.arguments[0]) ||
+    postCall.arguments[0].text !== '/api/v1/storage/uploads/object-key/complete'
+  ) return false
+  const requestCall = postCall.expression.expression
+  return (
+    ts.isCallExpression(requestCall) &&
+    callName(requestCall.expression) === 'request' &&
+    requestCall.arguments.length === 1 &&
+    ts.isIdentifier(requestCall.arguments[0]) &&
+    requestCall.arguments[0].text === appName
+  )
+}
+
+function responseAssertion(statement, responseName) {
+  const outer = expressionCall(statement)
+  if (!outer || !ts.isPropertyAccessExpression(outer.expression)) return null
+  const expectCall = outer.expression.expression
+  if (!ts.isCallExpression(expectCall) || callName(expectCall.expression) !== 'expect') return null
+  if (expectCall.arguments.length !== 1) return null
+  return {
+    method: outer.expression.name.text,
+    subject: expectCall.arguments[0],
+    expected: outer.arguments,
+    responseName,
+  }
+}
+
+function isResponseProperty(node, responseName, property) {
+  return (
+    ts.isPropertyAccessExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === responseName &&
+    node.name.text === property
+  )
+}
+
 async function verifyStorageRuntimeContract(root, failures) {
   const relative = 'services/storage/src/__tests__/completion-parser-contract.test.ts'
   let source
@@ -1160,67 +1386,122 @@ async function verifyStorageRuntimeContract(root, failures) {
     return
   }
   const parsed = parseTypeScript(relative, source, failures)
-  let contractBody = null
-  walk(parsed, (node) => {
-    if (
-      ts.isCallExpression(node) &&
-      callName(node.expression) === 'test' &&
-      isStringLiteral(node.arguments[0]) &&
-      node.arguments[0].text === 'preserves Express default HTML for oversized completion JSON' &&
-      (ts.isArrowFunction(node.arguments[1]) || ts.isFunctionExpression(node.arguments[1]))
-    ) {
-      contractBody = node.arguments[1].body
-    }
-  })
+  const imports = importedBindings(parsed)
+  const requiredImports = [
+    ['describe', 'describe', 'vitest'],
+    ['expect', 'expect', 'vitest'],
+    ['test', 'test', 'vitest'],
+    ['createStorageApi', 'createStorageApi', '../api.js'],
+    ['createStorageApiApp', 'createStorageApiApp', '../server.js'],
+  ]
+  const importsValid = (
+    hasDefaultImport(parsed, 'request', 'supertest') &&
+    requiredImports.every(([local, importedName, moduleSpecifier]) => {
+      const binding = imports.get(local)
+      return binding?.importedName === importedName && binding.moduleSpecifier === moduleSpecifier
+    })
+  )
+  if (!importsValid) {
+    failures.push('persistent Storage completion parser runtime contract has unresolved imports')
+    return
+  }
+
+  const describeCalls = parsed.statements.map(expressionCall).filter((call) => (
+    call &&
+    callName(call.expression) === 'describe' &&
+    isStringLiteral(call.arguments[0]) &&
+    call.arguments[0].text === 'storage completion parser contract' &&
+    call.arguments[1] &&
+    (ts.isArrowFunction(call.arguments[1]) || ts.isFunctionExpression(call.arguments[1])) &&
+    ts.isBlock(call.arguments[1].body)
+  ))
+  const describeBody = describeCalls.length === 1 ? describeCalls[0].arguments[1].body : null
+  const testCalls = describeBody
+    ? describeBody.statements.map(expressionCall).filter((call) => (
+        call &&
+        callName(call.expression) === 'test' &&
+        isStringLiteral(call.arguments[0]) &&
+        call.arguments[0].text === 'preserves Express default HTML for oversized completion JSON' &&
+        call.arguments[1] &&
+        (ts.isArrowFunction(call.arguments[1]) || ts.isFunctionExpression(call.arguments[1])) &&
+        call.arguments[1].modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword) &&
+        ts.isBlock(call.arguments[1].body)
+      ))
+    : []
+  const contractBody = testCalls.length === 1 ? testCalls[0].arguments[1].body : null
   if (!contractBody) {
     failures.push('persistent Storage completion parser runtime contract is missing')
     return
   }
+
+  const appDeclarations = directNamedDeclarations(contractBody, 'app')
   let actualApp = false
-  let oversizedPost = false
-  let statusAssertion = false
-  let mediaAssertion = false
-  let htmlAssertion = false
-  walk(contractBody, (node) => {
-    if (!ts.isCallExpression(node)) return
-    if (callName(node.expression) === 'createStorageApiApp') {
-      const object = node.arguments[0]
-      if (ts.isObjectLiteralExpression(object)) {
-        const router = object.properties.find(
-          (property) => ts.isPropertyAssignment(property) && property.name.getText(parsed) === 'router',
-        )
-        actualApp = Boolean(
-          router &&
-          ts.isPropertyAssignment(router) &&
-          ts.isCallExpression(router.initializer) &&
-          callName(router.initializer.expression) === 'createStorageApi',
-        )
+  if (appDeclarations.length === 1) {
+    const initializer = appDeclarations[0].initializer
+    const object = initializer && ts.isCallExpression(initializer) &&
+      callName(initializer.expression) === 'createStorageApiApp'
+      ? initializer.arguments[0]
+      : null
+    const routers = object && ts.isObjectLiteralExpression(object)
+      ? object.properties.filter((property) => (
+          ts.isPropertyAssignment(property) && property.name.getText(parsed) === 'router'
+        ))
+      : []
+    actualApp = (
+      routers.length === 1 &&
+      ts.isPropertyAssignment(routers[0]) &&
+      ts.isCallExpression(routers[0].initializer) &&
+      callName(routers[0].initializer.expression) === 'createStorageApi'
+    )
+  }
+
+  const capturedResponses = []
+  for (const statement of contractBody.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (
+        ts.isIdentifier(declaration.name) &&
+        declaration.initializer &&
+        ts.isAwaitExpression(declaration.initializer) &&
+        requestChainContract(declaration.initializer.expression, 'app', parsed)
+      ) {
+        capturedResponses.push(declaration.name.text)
       }
     }
-    if (ts.isPropertyAccessExpression(node.expression)) {
-      const method = node.expression.name.text
-      if (
-        method === 'post' &&
-        isStringLiteral(node.arguments[0]) &&
-        node.arguments[0].text === '/api/v1/storage/uploads/object-key/complete'
-      ) oversizedPost = true
-      if (method === 'toBe' && ts.isNumericLiteral(node.arguments[0]) && node.arguments[0].text === '413') {
-        statusAssertion = true
-      }
-      if (
-        method === 'toBe' &&
-        isStringLiteral(node.arguments[0]) &&
-        node.arguments[0].text === 'text/html; charset=utf-8'
-      ) mediaAssertion = true
-      if (
-        method === 'toMatch' &&
-        ts.isRegularExpressionLiteral(node.arguments[0]) &&
-        node.arguments[0].text === '/^<!DOCTYPE html>/'
-      ) htmlAssertion = true
-    }
-  })
-  if (!actualApp || !oversizedPost || !statusAssertion || !mediaAssertion || !htmlAssertion) {
-    failures.push('persistent Storage completion parser runtime contract is missing')
+  }
+  const responseName = capturedResponses.length === 1 ? capturedResponses[0] : null
+  const assertions = responseName
+    ? contractBody.statements
+        .map((statement) => responseAssertion(statement, responseName))
+        .filter(Boolean)
+    : []
+  const statusAssertion = assertions.filter(({ method, subject, expected }) => (
+    method === 'toBe' &&
+    isResponseProperty(subject, responseName, 'status') &&
+    expected.length === 1 &&
+    ts.isNumericLiteral(expected[0]) &&
+    expected[0].text === '413'
+  )).length === 1
+  const mediaAssertion = assertions.filter(({ method, subject, expected }) => (
+    method === 'toBe' &&
+    ts.isElementAccessExpression(subject) &&
+    isResponseProperty(subject.expression, responseName, 'headers') &&
+    subject.argumentExpression &&
+    isStringLiteral(subject.argumentExpression) &&
+    subject.argumentExpression.text === 'content-type' &&
+    expected.length === 1 &&
+    isStringLiteral(expected[0]) &&
+    expected[0].text === 'text/html; charset=utf-8'
+  )).length === 1
+  const htmlAssertion = assertions.filter(({ method, subject, expected }) => (
+    method === 'toMatch' &&
+    isResponseProperty(subject, responseName, 'text') &&
+    expected.length === 1 &&
+    ts.isRegularExpressionLiteral(expected[0]) &&
+    expected[0].text === '/^<!DOCTYPE html>/'
+  )).length === 1
+  if (!actualApp || !responseName || !statusAssertion || !mediaAssertion || !htmlAssertion) {
+    failures.push('persistent Storage completion parser runtime contract has weakened request or assertions')
   }
 }
 
