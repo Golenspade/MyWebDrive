@@ -307,11 +307,10 @@ test('rejects vendor and case variants of mask style properties', () => {
   )
 })
 
-test('handles shorthand CSS style keys without matching unrelated mask prefixes', () => {
+test('handles shorthand mask keys without matching unrelated mask prefixes', () => {
   const forbidden = `
     const WebkitMaskImage = 'none'
-    const WebkitBoxShadow = 'none'
-    export const styles = { WebkitMaskImage, WebkitBoxShadow }
+    export const styles = { WebkitMaskImage }
   `
   const allowed = `
     const maskingEnabled = true
@@ -319,8 +318,49 @@ test('handles shorthand CSS style keys without matching unrelated mask prefixes'
     export const Example = () => <Widget maskingEnabled maskVersion={2} />
   `
 
-  assert.deepEqual(rulesFor(componentPath, forbidden), ['mask', 'positive-shadow'])
+  assert.deepEqual(rulesFor(componentPath, forbidden), ['mask'])
   assert.deepEqual(rulesFor(componentPath, allowed), [])
+})
+
+test('allows shorthand shadows bound to statically flat local const values', () => {
+  const source = `
+    const boxShadow = 'none'
+    const WebkitBoxShadow = \`none\`
+    const MozBoxShadow = \`\${\`none\`}\`
+    export const styles = { boxShadow, WebkitBoxShadow, MozBoxShadow }
+  `
+
+  assert.deepEqual(rulesFor(componentPath, source), [])
+})
+
+test('fails closed for shorthand shadows without a statically flat local const', () => {
+  const positive = `
+    const boxShadow = '0 1px black'
+    export const styles = { boxShadow }
+  `
+  const unknownInitializer = `
+    const WebkitBoxShadow = getShadow()
+    export const styles = { WebkitBoxShadow }
+  `
+  const unknownBinding = 'export const styles = { boxShadow }'
+  const mutableBinding = `
+    let boxShadow = 'none'
+    export const styles = { boxShadow }
+  `
+  const nonlocalBinding = `
+    const boxShadow = 'none'
+    export function styles() { return { boxShadow } }
+  `
+
+  for (const source of [
+    positive,
+    unknownInitializer,
+    unknownBinding,
+    mutableBinding,
+    nonlocalBinding,
+  ]) {
+    assert.deepEqual(rulesFor(componentPath, source), ['positive-shadow'])
+  }
 })
 
 test('rejects legacy brand tokens in CSS selectors', () => {

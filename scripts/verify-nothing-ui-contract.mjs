@@ -487,6 +487,91 @@ function staticStringValue(expression) {
   return null
 }
 
+function bindingNameContains(bindingName, name) {
+  if (ts.isIdentifier(bindingName)) return bindingName.text === name
+  return bindingName.elements.some((element) => (
+    ts.isOmittedExpression(element) ? false : bindingNameContains(element.name, name)
+  ))
+}
+
+function scopeStatements(node) {
+  if (ts.isSourceFile(node) || ts.isBlock(node)) return node.statements
+  if (ts.isCaseBlock(node)) return node.clauses.flatMap((clause) => [...clause.statements])
+  return null
+}
+
+function variableBindingInScope(scope, name, useOffset, sourceFile) {
+  const statements = scopeStatements(scope)
+  if (!statements) return { found: false, initializer: null }
+
+  const matches = []
+  for (const statement of statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (bindingNameContains(declaration.name, name)) {
+        matches.push({ declaration, declarationList: statement.declarationList })
+      }
+    }
+  }
+
+  if (matches.length === 0) return { found: false, initializer: null }
+  if (matches.length !== 1) return { found: true, initializer: null }
+
+  const [{ declaration, declarationList }] = matches
+  const isConst = (declarationList.flags & ts.NodeFlags.Const) !== 0
+  if (
+    !isConst ||
+    !ts.isIdentifier(declaration.name) ||
+    !declaration.initializer ||
+    declaration.getStart(sourceFile) >= useOffset
+  ) {
+    return { found: true, initializer: null }
+  }
+
+  return { found: true, initializer: declaration.initializer }
+}
+
+function ancestorVariableListBinds(node, name) {
+  const declarationList = ts.isForStatement(node)
+    ? node.initializer
+    : ts.isForInStatement(node) || ts.isForOfStatement(node)
+      ? node.initializer
+      : null
+
+  return Boolean(
+    declarationList &&
+    ts.isVariableDeclarationList(declarationList) &&
+    declarationList.declarations.some((declaration) => bindingNameContains(declaration.name, name)),
+  )
+}
+
+function localConstStringValue(identifier, sourceFile) {
+  const name = identifier.text
+  const useOffset = identifier.getStart(sourceFile)
+  let ancestor = identifier.parent
+
+  while (ancestor) {
+    const binding = variableBindingInScope(ancestor, name, useOffset, sourceFile)
+    if (binding.found) {
+      return binding.initializer ? staticStringValue(binding.initializer) : null
+    }
+
+    if (
+      (ts.isCatchClause(ancestor) && ancestor.variableDeclaration &&
+        bindingNameContains(ancestor.variableDeclaration.name, name)) ||
+      ancestorVariableListBinds(ancestor, name)
+    ) {
+      return null
+    }
+
+    if (ts.isFunctionLike(ancestor) || ts.isClassLike(ancestor)) return null
+    if (ts.isSourceFile(ancestor)) return null
+    ancestor = ancestor.parent
+  }
+
+  return null
+}
+
 function scanScript({ relativePath, source }) {
   const sourceFile = ts.createSourceFile(
     relativePath,
@@ -574,7 +659,11 @@ function scanScript({ relativePath, source }) {
       const normalizedName = normalizeStyleProperty(name)
       const location = lineAndColumn(source, node.getStart(sourceFile))
 
-      if (SHADOW_PROPERTIES.has(normalizedName)) {
+      const shorthandValue = localConstStringValue(node.name, sourceFile)
+      if (
+        SHADOW_PROPERTIES.has(normalizedName) &&
+        (shorthandValue === null || !isFlatShadowValue(shorthandValue))
+      ) {
         findings.push(
           violation(relativePath, 'positive-shadow', `Unverified shorthand ${name} value`, location),
         )
