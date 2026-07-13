@@ -28,7 +28,8 @@ Keep changes minimal, follow existing patterns, and prefer commands documented h
 
 - Node: `>= 20` (repo uses `corepack` + `pnpm@9.7.0`).
 - Package manager: `pnpm` via `corepack`.
-- Docker with Compose v2 is required for the isolated end-to-end smoke test.
+- Docker with Compose `>= 2.24.4` is required; the development overlay uses
+  the Compose `!override` merge tag.
 
 ## Setup / Install
 
