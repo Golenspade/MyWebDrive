@@ -17,6 +17,15 @@ const scriptPath = fileURLToPath(new URL('./verify-nothing-ui-contract.mjs', imp
 const tokenPath = 'frontend/cruip-landing/app/css/nothing-tokens.css'
 const basePath = 'frontend/cruip-landing/app/css/nothing-base.css'
 const componentPath = 'frontend/cruip-landing/components/example.tsx'
+const dotFieldValue = 'radial-gradient(rgba(255, 255, 255, 0.42) 1.3px, transparent 1.7px)'
+const exactDotFieldCss = `
+body::before {
+  background-image: ${dotFieldValue};
+}
+.appwrap::before {
+  background-image: ${dotFieldValue};
+}
+`
 
 const expectedLegacyBrandTokens = [
   'brand-primary',
@@ -60,6 +69,7 @@ async function withFixture(run) {
       path.join(repoRoot, tokenPath),
       ':root { --nothing-display: #fff; }',
     )
+    await writeFile(path.join(repoRoot, basePath), exactDotFieldCss)
     return await run(repoRoot)
   } finally {
     await rm(repoRoot, { recursive: true, force: true })
@@ -107,16 +117,73 @@ test('does not treat CSS URL fragments or JSX anchors as raw hex colors', () => 
 })
 
 test('allows only the exact Nothing dot-field gradient declarations', () => {
-  const source = `
-    body::before {
-      background-image: radial-gradient(rgba(255, 255, 255, 0.42) 1.3px, transparent 1.7px);
-    }
-    .appwrap::before {
-      background-image: radial-gradient(rgba(255, 255, 255, 0.42) 1.3px, transparent 1.7px);
-    }
-  `
+  assert.deepEqual(rulesFor(basePath, exactDotFieldCss), [])
+})
 
-  assert.deepEqual(rulesFor(basePath, source), [])
+test('project scan requires exactly one declaration for each dot-field selector', async (t) => {
+  await t.test('accepts the exact top-level pair', async () => {
+    await withFixture(async (repoRoot) => {
+      assert.deepEqual(await scanUiContract({ repoRoot }), [])
+    })
+  })
+
+  await t.test('rejects a missing selector', async () => {
+    await withFixture(async (repoRoot) => {
+      await writeFile(
+        path.join(repoRoot, basePath),
+        `body::before { background-image: ${dotFieldValue}; }`,
+      )
+
+      const rules = (await scanUiContract({ repoRoot })).map(({ rule }) => rule)
+      assert.ok(rules.includes('dot-field-contract'))
+    })
+  })
+
+  await t.test('rejects duplicate exact declarations', async () => {
+    await withFixture(async (repoRoot) => {
+      await writeFile(
+        path.join(repoRoot, basePath),
+        `${exactDotFieldCss}\nbody::before { background-image: ${dotFieldValue}; }`,
+      )
+
+      const violations = await scanUiContract({ repoRoot })
+      assert.ok(violations.some(({ rule }) => rule === 'dot-field-contract'))
+    })
+  })
+
+  await t.test('rejects combined selectors and extra selector declarations', async () => {
+    await withFixture(async (repoRoot) => {
+      await writeFile(
+        path.join(repoRoot, basePath),
+        `
+          body::before, .appwrap::before { background-image: ${dotFieldValue}; }
+          .other::before { background-image: ${dotFieldValue}; }
+        `,
+      )
+
+      const rules = (await scanUiContract({ repoRoot })).map(({ rule }) => rule)
+      assert.equal(rules.filter((rule) => rule === 'dot-field-contract').length, 2)
+      assert.ok(rules.includes('gradient'))
+    })
+  })
+
+  await t.test('rejects nested and important lookalikes', async () => {
+    await withFixture(async (repoRoot) => {
+      await writeFile(
+        path.join(repoRoot, basePath),
+        `
+          @media (min-width: 1px) {
+            body::before { background-image: ${dotFieldValue}; }
+          }
+          .appwrap::before { background-image: ${dotFieldValue} !important; }
+        `,
+      )
+
+      const rules = (await scanUiContract({ repoRoot })).map(({ rule }) => rule)
+      assert.equal(rules.filter((rule) => rule === 'dot-field-contract').length, 2)
+      assert.ok(rules.includes('gradient'))
+    })
+  })
 })
 
 test('rejects another gradient and mask even inside nothing-base.css', () => {
@@ -143,6 +210,99 @@ test('rejects Tailwind gradient and mask utilities', () => {
   const rules = rulesFor(componentPath, source)
   assert.equal(rules.filter((rule) => rule === 'gradient').length, 3)
   assert.ok(rules.includes('mask'))
+})
+
+test('rejects Tailwind drop shadows', () => {
+  const source = `
+    export const Example = () => (
+      <div className="drop-shadow-md drop-shadow-[0_2px_2px_rgb(0_0_0/.2)]" />
+    )
+  `
+
+  assert.equal(rulesFor(componentPath, source).filter((rule) => rule === 'positive-shadow').length, 2)
+})
+
+test('allows flat Tailwind shadow controls and rejects positive arbitrary shadows', () => {
+  const allowed = `
+    export const Example = () => <div className="drop-shadow-none shadow-none [box-shadow:none] hover:[box-shadow:_none] [text-shadow:none]" />
+  `
+  const forbidden = `
+    export const Example = () => <div className="[box-shadow:0_2px_4px_rgb(0_0_0/.2)] [text-shadow:0_1px_1px_rgb(0_0_0/.2)]" />
+  `
+
+  assert.deepEqual(rulesFor(componentPath, allowed), [])
+  assert.deepEqual(rulesFor(componentPath, forbidden), ['positive-shadow', 'positive-shadow'])
+})
+
+test('rejects CSS filter drop-shadow and positive text-shadow values', () => {
+  const css = `
+    .allowed { box-shadow: none; text-shadow: none; filter: none; }
+    .raised { filter: drop-shadow(0 2px 2px rgb(0 0 0 / .2)); text-shadow: 0 1px 1px rgb(0 0 0 / .2); }
+  `
+
+  assert.deepEqual(
+    rulesFor('frontend/cruip-landing/app/example.css', css),
+    ['positive-shadow', 'positive-shadow'],
+  )
+})
+
+test('rejects forbidden declarations in styled and css tagged templates', () => {
+  const source = `
+    const allowed = styled.div\`border-color: \${line}; color: var(--nothing-primary);\`
+    const raised = styled.div\`box-shadow: \${depth}; mask-image: \${maskValue}; background: \${paint};\`
+    const filtered = css\`text-shadow: 0 1px 1px rgb(0 0 0 / .2); filter: drop-shadow(0 2px 2px black);\`
+    const dynamicFilter = css\`filter: \${filterValue};\`
+  `
+
+  const rules = rulesFor(componentPath, source)
+  assert.equal(rules.filter((rule) => rule === 'positive-shadow').length, 4)
+  assert.equal(rules.filter((rule) => rule === 'mask').length, 1)
+  assert.equal(rules.filter((rule) => rule === 'gradient').length, 1)
+})
+
+test('rejects vendor and case variants of mask style properties', () => {
+  const source = `
+    export const styles = {
+      WebkitMaskImage: 'none',
+      MozMaskImage: 'none',
+      maskImage: 'none',
+      mask: 'none',
+      MASKIMAGE: 'none',
+    }
+  `
+  const css = '.masked { -webkit-mask-image: none; -moz-mask-image: none; MASK: none; }'
+
+  assert.equal(rulesFor(componentPath, source).filter((rule) => rule === 'mask').length, 5)
+  assert.equal(
+    rulesFor('frontend/cruip-landing/app/example.css', css).filter((rule) => rule === 'mask').length,
+    3,
+  )
+})
+
+test('rejects legacy brand tokens in CSS selectors', () => {
+  const css = `
+    .brand-primary-500, [data-tone='brand-accent-50'] { color: var(--nothing-primary); }
+  `
+
+  assert.equal(
+    rulesFor('frontend/cruip-landing/app/example.css', css).filter(
+      (rule) => rule === 'legacy-brand-token',
+    ).length,
+    2,
+  )
+})
+
+test('rejects recognizable dynamic Tailwind forbidden fragments', () => {
+  const source = `
+    export const Forbidden = () => <div className={\`bg-\${kind}-to-r shadow-\${size} drop-shadow-\${depth} mask-\${mode} text-brand-\${tone}\`} />
+    export const Allowed = () => <div className={\`grid-cols-\${columns} text-\${size}\`} />
+  `
+
+  const rules = rulesFor(componentPath, source)
+  assert.equal(rules.filter((rule) => rule === 'gradient').length, 1)
+  assert.equal(rules.filter((rule) => rule === 'positive-shadow').length, 2)
+  assert.equal(rules.filter((rule) => rule === 'mask').length, 1)
+  assert.equal(rules.filter((rule) => rule === 'legacy-brand-token').length, 1)
 })
 
 test('rejects SVG gradient and mask elements', () => {

@@ -88,7 +88,7 @@
   --nothing-success: #7BE38A;
   --nothing-warning: #F2C94C;
   --nothing-error: #FF5247;
-  --nothing-focus: rgb(59 130 246 / .55);
+  --nothing-focus: var(--nothing-display);
   --nothing-glass: rgba(16, 16, 16, .9);
   --nothing-glass-brd: rgba(255, 255, 255, .09);
 
