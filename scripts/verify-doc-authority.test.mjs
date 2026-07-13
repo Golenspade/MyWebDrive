@@ -291,6 +291,51 @@ test('rejects a Core router factory imported from the wrong module', async (t) =
   assert.match(result.stderr, /cannot resolve Core router factory binding createIdentityRouter from \.\/identity\/router\.js/)
 })
 
+test('ignores a type-only namespace that cannot shadow a runtime import', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/app.ts', (source) =>
+    source.replace(
+      "export type { EmailSender, SendOtpInput } from './identity/email-sender.js'",
+      "namespace createIdentityRouter { export type Marker = never }\n\nexport type { EmailSender, SendOtpInput } from './identity/email-sender.js'",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.equal(result.status, 0, result.stderr)
+  assert.match(result.stdout, /documentation authority: ok/)
+})
+
+test('rejects a local binding that shadows an imported Core router factory', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/app.ts', (source) =>
+    source.replace(
+      'export function createCoreApp(deps: CoreDependencies): express.Express {\n',
+      'export function createCoreApp(deps: CoreDependencies): express.Express {\n  const createIdentityRouter = () => express.Router()\n',
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /runtime import binding createIdentityRouter from \.\/identity\/router\.js is shadowed/)
+})
+
+test('rejects a parameter that shadows an imported Core router factory', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/core-api/src/app.ts', (source) =>
+    source.replace(
+      'export function createCoreApp(deps: CoreDependencies): express.Express {',
+      'export function createCoreApp(deps: CoreDependencies, createIdentityRouter = () => express.Router()): express.Express {',
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /runtime import binding createIdentityRouter from \.\/identity\/router\.js is shadowed/)
+})
+
 test('rejects a router factory returning a fresh receiver', async (t) => {
   const root = await fixture()
   t.after(() => rm(root, { recursive: true, force: true }))
@@ -337,6 +382,24 @@ test('rejects a dead helper standing in for the Storage runtime binding', async 
   const result = runVerifier(root)
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /Storage API runtime binding must be direct in the api command branch/)
+})
+
+test('rejects destructured shadows in the Storage API runtime binding chain', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(root, 'services/storage/src/index.ts', (source) =>
+    source.replace(
+      "  if (command === 'api') {\n",
+      "  if (command === 'api') {\n    const { createApiRuntime, connectRuntimeRedis, createStorageApi, createStorageApiApp } = {} as never\n",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /runtime import binding createApiRuntime from \.\/runtime\.js is shadowed/)
+  assert.match(result.stderr, /runtime import binding connectRuntimeRedis from \.\/runtime\.js is shadowed/)
+  assert.match(result.stderr, /runtime import binding createStorageApi from \.\/api\.js is shadowed/)
+  assert.match(result.stderr, /runtime import binding createStorageApiApp from \.\/server\.js is shadowed/)
 })
 
 test('rejects a dead helper standing in for the Storage API router mount', async (t) => {
@@ -625,6 +688,25 @@ test('rejects the Storage parser contract when app factories come from the wrong
   const result = runVerifier(root)
   assert.notEqual(result.status, 0)
   assert.match(result.stderr, /persistent Storage completion parser runtime contract has unresolved imports/)
+})
+
+test('rejects local bindings that shadow imported Storage parser test authorities', async (t) => {
+  const root = await fixture()
+  t.after(() => rm(root, { recursive: true, force: true }))
+  await mutateRequired(
+    root,
+    'services/storage/src/__tests__/completion-parser-contract.test.ts',
+    (source) => source.replace(
+      "  test('preserves Express default HTML for oversized completion JSON', async () => {\n",
+      "  test('preserves Express default HTML for oversized completion JSON', async () => {\n    const request = () => ({})\n    const createStorageApi = () => ({})\n    const createStorageApiApp = () => ({})\n",
+    ),
+  )
+
+  const result = runVerifier(root)
+  assert.notEqual(result.status, 0)
+  assert.match(result.stderr, /runtime import binding request from supertest is shadowed/)
+  assert.match(result.stderr, /runtime import binding createStorageApi from \.\.\/api\.js is shadowed/)
+  assert.match(result.stderr, /runtime import binding createStorageApiApp from \.\.\/server\.js is shadowed/)
 })
 
 test('rejects stale Nextra 3 claims in the active frontend README', async (t) => {

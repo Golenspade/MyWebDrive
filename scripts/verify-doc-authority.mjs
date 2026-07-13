@@ -274,7 +274,7 @@ function expressionCall(statement) {
     : null
 }
 
-function hasDirectReceiverBinding(factory, receiver) {
+function hasDirectReceiverBinding(factory, receiver, failures) {
   const bindings = []
   for (const statement of factory.body.statements) {
     if (!ts.isVariableStatement(statement)) continue
@@ -294,13 +294,19 @@ function hasDirectReceiverBinding(factory, receiver) {
   if (receiver === 'router') {
     return (
       ts.isPropertyAccessExpression(bindings[0].expression) &&
-      bindings[0].expression.getText(factory.getSourceFile()) === 'express.Router'
+      bindings[0].expression.getText(factory.getSourceFile()) === 'express.Router' &&
+      runtimeImportBindingResolves(
+        bindings[0].expression.expression,
+        'default',
+        'express',
+        failures,
+      )
     )
   }
-  return (
-    callName(bindings[0].expression) === 'express' ||
-    callName(bindings[0].expression) === 'baseApp'
-  )
+  if (callName(bindings[0].expression) === 'express') {
+    return runtimeImportBindingResolves(bindings[0].expression, 'default', 'express', failures)
+  }
+  return callName(bindings[0].expression) === 'baseApp'
 }
 
 function factoryOwnedReturns(factory) {
@@ -353,7 +359,7 @@ function hasDirectReceiverReturn(factory, receiver, returnShape, failures) {
 }
 
 function directRouteRegistrations(factory, receiver, returnShape, failures) {
-  if (!hasDirectReceiverBinding(factory, receiver)) {
+  if (!hasDirectReceiverBinding(factory, receiver, failures)) {
     failures.push(`source authority has unsupported ${receiver} binding in ${factory.name.text}`)
     return { routes: [], accepted: new Set(), verifiedReceiver: false }
   }
@@ -579,13 +585,224 @@ function verifySourceRoutes(failures, sources) {
   verifyStorageBinding(sources, failures)
 }
 
+function hasModifier(node, kind) {
+  return Boolean(node.modifiers?.some((modifier) => modifier.kind === kind))
+}
+
+function isAmbientDeclaration(node) {
+  let current = node
+  while (current && !ts.isSourceFile(current)) {
+    if (hasModifier(current, ts.SyntaxKind.DeclareKeyword)) return true
+    current = current.parent
+  }
+  return Boolean(current?.isDeclarationFile)
+}
+
+function bindingIdentifiers(name) {
+  if (ts.isIdentifier(name)) return [name]
+  if (ts.isObjectBindingPattern(name) || ts.isArrayBindingPattern(name)) {
+    return name.elements.flatMap((element) => (
+      ts.isBindingElement(element) ? bindingIdentifiers(element.name) : []
+    ))
+  }
+  return []
+}
+
+function namespaceHasRuntimeValue(namespace) {
+  if (isAmbientDeclaration(namespace) || !namespace.body) return false
+  if (ts.isModuleDeclaration(namespace.body)) {
+    return namespaceHasRuntimeValue(namespace.body)
+  }
+  if (!ts.isModuleBlock(namespace.body)) return false
+  return namespace.body.statements.some((statement) => {
+    if (isAmbientDeclaration(statement)) return false
+    if (ts.isInterfaceDeclaration(statement) || ts.isTypeAliasDeclaration(statement)) return false
+    if (ts.isModuleDeclaration(statement)) return namespaceHasRuntimeValue(statement)
+    if (ts.isFunctionDeclaration(statement)) return Boolean(statement.body)
+    if (ts.isImportDeclaration(statement)) {
+      if (statement.importClause?.isTypeOnly) return false
+      const named = statement.importClause?.namedBindings
+      return !named || !ts.isNamedImports(named) || named.elements.some((element) => !element.isTypeOnly)
+    }
+    if (ts.isExportDeclaration(statement)) {
+      if (statement.isTypeOnly) return false
+      return !statement.exportClause ||
+        !ts.isNamedExports(statement.exportClause) ||
+        statement.exportClause.elements.some((element) => !element.isTypeOnly)
+    }
+    return true
+  })
+}
+
+function nearestScope(node, predicate) {
+  let current = node.parent
+  while (current) {
+    if (predicate(current)) return current
+    current = current.parent
+  }
+  return null
+}
+
+function nearestLexicalScope(node) {
+  return nearestScope(node, (candidate) => (
+    ts.isBlock(candidate) ||
+    ts.isSourceFile(candidate) ||
+    ts.isCaseBlock(candidate) ||
+    ts.isForStatement(candidate) ||
+    ts.isForInStatement(candidate) ||
+    ts.isForOfStatement(candidate)
+  ))
+}
+
+function nearestFunctionScope(node) {
+  return nearestScope(node, (candidate) => ts.isFunctionLike(candidate) || ts.isSourceFile(candidate))
+}
+
+function nodeWithin(node, scope) {
+  let current = node
+  while (current) {
+    if (current === scope) return true
+    current = current.parent
+  }
+  return false
+}
+
+function runtimeImports(parsed, localName) {
+  const imports = []
+  for (const statement of parsed.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue
+    const moduleSpecifier = isStringLiteral(statement.moduleSpecifier)
+      ? statement.moduleSpecifier.text
+      : null
+    if (statement.importClause?.name?.text === localName) {
+      imports.push({
+        binding: statement.importClause.name,
+        importedName: 'default',
+        moduleSpecifier,
+        scope: parsed,
+      })
+    }
+    const named = statement.importClause?.namedBindings
+    if (named && ts.isNamedImports(named)) {
+      for (const element of named.elements) {
+        if (element.isTypeOnly || element.name.text !== localName) continue
+        imports.push({
+          binding: element.name,
+          importedName: element.propertyName?.text ?? element.name.text,
+          moduleSpecifier,
+          scope: parsed,
+        })
+      }
+    }
+    if (named && ts.isNamespaceImport(named) && named.name.text === localName) {
+      imports.push({
+        binding: named.name,
+        importedName: '*',
+        moduleSpecifier,
+        scope: parsed,
+      })
+    }
+  }
+  return imports
+}
+
+function runtimeValueBindings(parsed, localName) {
+  const bindings = [...runtimeImports(parsed, localName)]
+  const addBinding = (name, scope) => {
+    if (!scope) return
+    for (const identifier of bindingIdentifiers(name)) {
+      if (identifier.text === localName) bindings.push({ binding: identifier, scope })
+    }
+  }
+  walk(parsed, (node) => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      !ts.isCatchClause(node.parent) &&
+      !isAmbientDeclaration(node)
+    ) {
+      const list = node.parent
+      const blockScoped = ts.isVariableDeclarationList(list) &&
+        (list.flags & ts.NodeFlags.BlockScoped) !== 0
+      addBinding(node.name, blockScoped ? nearestLexicalScope(node) : nearestFunctionScope(node))
+      return
+    }
+    if (ts.isParameter(node)) {
+      addBinding(node.name, node.parent)
+      return
+    }
+    if (ts.isCatchClause(node) && node.variableDeclaration) {
+      addBinding(node.variableDeclaration.name, node)
+      return
+    }
+    if (
+      ts.isFunctionDeclaration(node) &&
+      node.body &&
+      node.name &&
+      !isAmbientDeclaration(node)
+    ) {
+      addBinding(node.name, nearestLexicalScope(node))
+      return
+    }
+    if (ts.isFunctionExpression(node) && node.name) {
+      addBinding(node.name, node)
+      return
+    }
+    if (
+      (ts.isClassDeclaration(node) || ts.isEnumDeclaration(node)) &&
+      node.name &&
+      !isAmbientDeclaration(node)
+    ) {
+      addBinding(node.name, nearestLexicalScope(node))
+      return
+    }
+    if (ts.isClassExpression(node) && node.name) {
+      addBinding(node.name, node)
+      return
+    }
+    if (
+      ts.isModuleDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      namespaceHasRuntimeValue(node)
+    ) {
+      addBinding(node.name, nearestLexicalScope(node))
+    }
+  })
+  return bindings
+}
+
+function pushFailureOnce(failures, message) {
+  if (!failures.includes(message)) failures.push(message)
+}
+
+function runtimeImportBindingResolves(identifier, importedName, moduleSpecifier, failures) {
+  if (!ts.isIdentifier(identifier)) return false
+  const parsed = identifier.getSourceFile()
+  const imports = runtimeImports(parsed, identifier.text)
+  const expected = imports.filter((binding) => (
+    binding.importedName === importedName && binding.moduleSpecifier === moduleSpecifier
+  ))
+  if (expected.length !== 1) return false
+  const shadowed = runtimeValueBindings(parsed, identifier.text).some((binding) => (
+    binding.binding !== expected[0].binding && nodeWithin(identifier, binding.scope)
+  ))
+  if (shadowed) {
+    pushFailureOnce(
+      failures,
+      `runtime import binding ${identifier.text} from ${moduleSpecifier} is shadowed`,
+    )
+    return false
+  }
+  return true
+}
+
 function importedBindings(parsed) {
   const bindings = new Map()
   for (const statement of parsed.statements) {
-    if (!ts.isImportDeclaration(statement)) continue
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue
     const named = statement.importClause?.namedBindings
     if (!named || !ts.isNamedImports(named)) continue
     for (const element of named.elements) {
+      if (element.isTypeOnly) continue
       bindings.set(element.name.text, {
         importedName: element.propertyName?.text ?? element.name.text,
         moduleSpecifier: isStringLiteral(statement.moduleSpecifier)
@@ -609,7 +826,7 @@ function hasDefaultExpressBinding(parsed) {
 function verifyCoreMounts(parsed, verifiedFactories, failures) {
   const factory = findNamedFunction(parsed, 'createCoreApp', failures)
   if (!factory) return
-  if (!hasDirectReceiverBinding(factory, 'app')) {
+  if (!hasDirectReceiverBinding(factory, 'app', failures)) {
     failures.push('source authority has unsupported app binding in createCoreApp')
     return
   }
@@ -648,12 +865,19 @@ function verifyCoreMounts(parsed, verifiedFactories, failures) {
     const routerFactory = ts.isCallExpression(router) ? callName(router.expression) : null
     const binding = routerFactory ? imports.get(routerFactory) : null
     const authority = classifiedCoreMounts.find(([, name]) => name === routerFactory)
+    const lexicalBinding = (
+      ts.isCallExpression(router) &&
+      routerFactory &&
+      authority &&
+      runtimeImportBindingResolves(router.expression, routerFactory, authority[2], failures)
+    )
     if (
       !routerFactory ||
       !recognizedFactories.has(routerFactory) ||
       !binding ||
       binding.importedName !== routerFactory ||
       binding.moduleSpecifier !== authority?.[2] ||
+      !lexicalBinding ||
       !verifiedFactories.has(`${authority?.[3]}:${routerFactory}`)
     ) {
       failures.push(`unsupported indirect Core mount factory ${routerFactory ?? router.getText(parsed)} in createCoreApp`)
@@ -701,14 +925,16 @@ function verifyStorageBinding(sources, failures) {
   if (indexSource !== null && indexSource !== undefined) {
     const parsed = parseTypeScript('services/storage/src/index.ts', indexSource, failures)
     const imports = importedBindings(parsed)
-    const apiBinding = imports.get('createStorageApi')
-    const appBinding = imports.get('createStorageApiApp')
-    const importsValid = (
-      apiBinding?.importedName === 'createStorageApi' &&
-      apiBinding.moduleSpecifier === './api.js' &&
-      appBinding?.importedName === 'createStorageApiApp' &&
-      appBinding.moduleSpecifier === './server.js'
-    )
+    const storageImportAuthorities = [
+      ['createApiRuntime', './runtime.js'],
+      ['connectRuntimeRedis', './runtime.js'],
+      ['createStorageApi', './api.js'],
+      ['createStorageApiApp', './server.js'],
+    ]
+    const importsValid = storageImportAuthorities.every(([name, moduleSpecifier]) => {
+      const binding = imports.get(name)
+      return binding?.importedName === name && binding.moduleSpecifier === moduleSpecifier
+    })
     const main = findNamedFunction(parsed, 'main', failures)
     let bindingFound = false
     if (main && importsValid) {
@@ -723,32 +949,91 @@ function verifyStorageBinding(sources, failures) {
         ts.isBlock(statement.thenStatement)
       ))
       if (apiBranches.length === 1) {
+        const branch = apiBranches[0].thenStatement
+        const runtimeDeclarations = []
         const appDeclarations = []
-        for (const statement of apiBranches[0].thenStatement.statements) {
+        const connectCalls = []
+        for (const statement of branch.statements) {
           if (!ts.isVariableStatement(statement)) continue
           for (const declaration of statement.declarationList.declarations) {
+            if (ts.isIdentifier(declaration.name) && declaration.name.text === 'runtime') {
+              runtimeDeclarations.push(declaration)
+            }
             if (ts.isIdentifier(declaration.name) && declaration.name.text === 'app') {
               appDeclarations.push(declaration)
             }
           }
         }
-        if (appDeclarations.length === 1) {
+        for (const statement of branch.statements) {
+          if (
+            ts.isExpressionStatement(statement) &&
+            ts.isAwaitExpression(statement.expression) &&
+            ts.isCallExpression(statement.expression.expression) &&
+            callName(statement.expression.expression.expression) === 'connectRuntimeRedis'
+          ) {
+            connectCalls.push(statement.expression.expression)
+          }
+        }
+        if (
+          runtimeDeclarations.length === 1 &&
+          appDeclarations.length === 1 &&
+          connectCalls.length === 1
+        ) {
+          const runtimeInitializer = runtimeDeclarations[0].initializer
           const initializer = appDeclarations[0].initializer
-          const object = initializer && ts.isCallExpression(initializer) &&
+          const appCall = initializer && ts.isCallExpression(initializer) &&
             callName(initializer.expression) === 'createStorageApiApp'
-            ? initializer.arguments[0]
+            ? initializer
             : null
+          const object = appCall?.arguments[0]
           const router = object && ts.isObjectLiteralExpression(object)
             ? object.properties.filter((property) => (
                 ts.isPropertyAssignment(property) && property.name.getText(parsed) === 'router'
               ))
             : []
-          bindingFound = (
-            router.length === 1 &&
+          const routerCall = router.length === 1 &&
             ts.isPropertyAssignment(router[0]) &&
             ts.isCallExpression(router[0].initializer) &&
             callName(router[0].initializer.expression) === 'createStorageApi'
+            ? router[0].initializer
+            : null
+          const structureValid = (
+            runtimeInitializer &&
+            ts.isCallExpression(runtimeInitializer) &&
+            callName(runtimeInitializer.expression) === 'createApiRuntime' &&
+            appCall &&
+            router.length === 1 &&
+            routerCall
           )
+          if (structureValid) {
+            const resolved = [
+              runtimeImportBindingResolves(
+                runtimeInitializer.expression,
+                'createApiRuntime',
+                './runtime.js',
+                failures,
+              ),
+              runtimeImportBindingResolves(
+                connectCalls[0].expression,
+                'connectRuntimeRedis',
+                './runtime.js',
+                failures,
+              ),
+              runtimeImportBindingResolves(
+                appCall.expression,
+                'createStorageApiApp',
+                './server.js',
+                failures,
+              ),
+              runtimeImportBindingResolves(
+                routerCall.expression,
+                'createStorageApi',
+                './api.js',
+                failures,
+              ),
+            ]
+            bindingFound = resolved.every(Boolean)
+          }
         }
       }
     }
@@ -774,7 +1059,7 @@ function verifyStorageBinding(sources, failures) {
         ts.isExpressionStatement(routerUses[0].parent) &&
         routerUses[0].parent.parent === factory.body
       )
-      if (!hasDirectReceiverBinding(factory, 'app')) {
+      if (!hasDirectReceiverBinding(factory, 'app', failures)) {
         failures.push('source authority has unsupported app binding in createStorageApiApp')
         routerUseFound = false
       } else {
@@ -809,7 +1094,13 @@ function verifyStorageCompletionParser(sources, failures) {
       !parser ||
       !ts.isCallExpression(parser) ||
       !ts.isPropertyAccessExpression(parser.expression) ||
-      parser.expression.getText(parsed) !== 'express.json'
+      parser.expression.getText(parsed) !== 'express.json' ||
+      !runtimeImportBindingResolves(
+        parser.expression.expression,
+        'default',
+        'express',
+        failures,
+      )
     ) {
       parserContractFound = false
     } else {
@@ -1298,7 +1589,7 @@ function directNamedDeclarations(block, name) {
   return declarations
 }
 
-function requestChainContract(expression, appName, parsed) {
+function requestChainContract(expression, appName, parsed, failures) {
   if (!ts.isCallExpression(expression) || !ts.isPropertyAccessExpression(expression.expression)) return false
   if (expression.expression.name.text !== 'send' || expression.arguments.length !== 1) return false
   const payload = expression.arguments[0]
@@ -1349,16 +1640,18 @@ function requestChainContract(expression, appName, parsed) {
     callName(requestCall.expression) === 'request' &&
     requestCall.arguments.length === 1 &&
     ts.isIdentifier(requestCall.arguments[0]) &&
-    requestCall.arguments[0].text === appName
+    requestCall.arguments[0].text === appName &&
+    runtimeImportBindingResolves(requestCall.expression, 'default', 'supertest', failures)
   )
 }
 
-function responseAssertion(statement, responseName) {
+function responseAssertion(statement, responseName, failures) {
   const outer = expressionCall(statement)
   if (!outer || !ts.isPropertyAccessExpression(outer.expression)) return null
   const expectCall = outer.expression.expression
   if (!ts.isCallExpression(expectCall) || callName(expectCall.expression) !== 'expect') return null
   if (expectCall.arguments.length !== 1) return null
+  if (!runtimeImportBindingResolves(expectCall.expression, 'expect', 'vitest', failures)) return null
   return {
     method: outer.expression.name.text,
     subject: expectCall.arguments[0],
@@ -1413,7 +1706,8 @@ async function verifyStorageRuntimeContract(root, failures) {
     call.arguments[0].text === 'storage completion parser contract' &&
     call.arguments[1] &&
     (ts.isArrowFunction(call.arguments[1]) || ts.isFunctionExpression(call.arguments[1])) &&
-    ts.isBlock(call.arguments[1].body)
+    ts.isBlock(call.arguments[1].body) &&
+    runtimeImportBindingResolves(call.expression, 'describe', 'vitest', failures)
   ))
   const describeBody = describeCalls.length === 1 ? describeCalls[0].arguments[1].body : null
   const testCalls = describeBody
@@ -1425,7 +1719,8 @@ async function verifyStorageRuntimeContract(root, failures) {
         call.arguments[1] &&
         (ts.isArrowFunction(call.arguments[1]) || ts.isFunctionExpression(call.arguments[1])) &&
         call.arguments[1].modifiers?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword) &&
-        ts.isBlock(call.arguments[1].body)
+        ts.isBlock(call.arguments[1].body) &&
+        runtimeImportBindingResolves(call.expression, 'test', 'vitest', failures)
       ))
     : []
   const contractBody = testCalls.length === 1 ? testCalls[0].arguments[1].body : null
@@ -1438,20 +1733,40 @@ async function verifyStorageRuntimeContract(root, failures) {
   let actualApp = false
   if (appDeclarations.length === 1) {
     const initializer = appDeclarations[0].initializer
-    const object = initializer && ts.isCallExpression(initializer) &&
+    const appCall = initializer && ts.isCallExpression(initializer) &&
       callName(initializer.expression) === 'createStorageApiApp'
-      ? initializer.arguments[0]
+      ? initializer
       : null
+    const object = appCall?.arguments[0]
     const routers = object && ts.isObjectLiteralExpression(object)
       ? object.properties.filter((property) => (
           ts.isPropertyAssignment(property) && property.name.getText(parsed) === 'router'
         ))
       : []
-    actualApp = (
-      routers.length === 1 &&
+    const routerCall = routers.length === 1 &&
       ts.isPropertyAssignment(routers[0]) &&
       ts.isCallExpression(routers[0].initializer) &&
       callName(routers[0].initializer.expression) === 'createStorageApi'
+      ? routers[0].initializer
+      : null
+    if (appCall && routerCall) {
+      const appBinding = runtimeImportBindingResolves(
+        appCall.expression,
+        'createStorageApiApp',
+        '../server.js',
+        failures,
+      )
+      const routerBinding = runtimeImportBindingResolves(
+        routerCall.expression,
+        'createStorageApi',
+        '../api.js',
+        failures,
+      )
+      actualApp = appBinding && routerBinding
+    }
+    actualApp = actualApp && (
+      routers.length === 1 &&
+      ts.isPropertyAssignment(routers[0])
     )
   }
 
@@ -1463,7 +1778,7 @@ async function verifyStorageRuntimeContract(root, failures) {
         ts.isIdentifier(declaration.name) &&
         declaration.initializer &&
         ts.isAwaitExpression(declaration.initializer) &&
-        requestChainContract(declaration.initializer.expression, 'app', parsed)
+        requestChainContract(declaration.initializer.expression, 'app', parsed, failures)
       ) {
         capturedResponses.push(declaration.name.text)
       }
@@ -1472,7 +1787,7 @@ async function verifyStorageRuntimeContract(root, failures) {
   const responseName = capturedResponses.length === 1 ? capturedResponses[0] : null
   const assertions = responseName
     ? contractBody.statements
-        .map((statement) => responseAssertion(statement, responseName))
+        .map((statement) => responseAssertion(statement, responseName, failures))
         .filter(Boolean)
     : []
   const statusAssertion = assertions.filter(({ method, subject, expected }) => (
