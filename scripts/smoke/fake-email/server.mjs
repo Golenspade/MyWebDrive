@@ -1,6 +1,9 @@
 import { createServer } from 'node:http'
 
 let lastMessage = null
+const configuredPort = Number.parseInt(process.env.EMAIL_PROVIDER_PORT ?? '8025', 10)
+const port = Number.isFinite(configuredPort) && configuredPort > 0 && configuredPort <= 65535 ? configuredPort : 8025
+const providerToken = process.env.EMAIL_PROVIDER_TOKEN ?? 'smoke-email-token'
 
 const server = createServer((request, response) => {
   if (request.method === 'GET' && request.url === '/healthz') {
@@ -29,7 +32,7 @@ const server = createServer((request, response) => {
     try {
       const body = JSON.parse(Buffer.concat(chunks).toString('utf8'))
       if (
-        request.headers.authorization !== 'Bearer smoke-email-token' ||
+        request.headers.authorization !== `Bearer ${providerToken}` ||
         typeof body.to !== 'string' ||
         !/^\d{6}$/.test(body.code) ||
         body.ttlSeconds !== 600 ||
@@ -46,4 +49,4 @@ const server = createServer((request, response) => {
   })
 })
 
-server.listen(8025, '0.0.0.0')
+server.listen(port, '0.0.0.0')

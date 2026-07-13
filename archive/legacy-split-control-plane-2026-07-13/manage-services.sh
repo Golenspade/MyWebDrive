@@ -5,6 +5,11 @@ set -e
 
 echo '[WARN] This split-control-plane manager is SOFT-RETIRED and excluded from active workflows.' >&2
 
+ARCHIVE_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+ROOT_DIR=$(cd "$ARCHIVE_DIR/../.." && pwd)
+LEGACY_DB_COMPOSE="$ARCHIVE_DIR/infrastructure/docker-compose.db.yml"
+cd "$ROOT_DIR"
+
 # --- 彩色输出 ---
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; BLUE='\033[0;34m'; NC='\033[0m'
 log_info(){ echo -e "${GREEN}[INFO]${NC} $1"; }
@@ -215,8 +220,8 @@ start_next(){
 # --- Postgres DB via docker-compose ---
 db_start(){
   log_service "Starting Postgres (docker-compose)"
-  if [ -f infrastructure/docker-compose.db.yml ]; then
-    docker compose -f infrastructure/docker-compose.db.yml up -d
+  if [ -f "$LEGACY_DB_COMPOSE" ]; then
+    docker compose -f "$LEGACY_DB_COMPOSE" up -d
     log_info "Postgres started (port 5432)"
   else
     log_error "infrastructure/docker-compose.db.yml not found"
@@ -226,8 +231,8 @@ db_start(){
 
 db_stop(){
   log_service "Stopping Postgres"
-  if [ -f infrastructure/docker-compose.db.yml ]; then
-    docker compose -f infrastructure/docker-compose.db.yml down
+  if [ -f "$LEGACY_DB_COMPOSE" ]; then
+    docker compose -f "$LEGACY_DB_COMPOSE" down
     log_info "Postgres stopped"
   else
     log_error "infrastructure/docker-compose.db.yml not found"
@@ -237,9 +242,9 @@ db_stop(){
 
 db_reset(){
   log_service "Resetting Postgres volume (DANGEROUS: drops data)"
-  if [ -f infrastructure/docker-compose.db.yml ]; then
-    docker compose -f infrastructure/docker-compose.db.yml down -v
-    docker compose -f infrastructure/docker-compose.db.yml up -d
+  if [ -f "$LEGACY_DB_COMPOSE" ]; then
+    docker compose -f "$LEGACY_DB_COMPOSE" down -v
+    docker compose -f "$LEGACY_DB_COMPOSE" up -d
     log_info "Postgres reset complete"
   else
     log_error "infrastructure/docker-compose.db.yml not found"

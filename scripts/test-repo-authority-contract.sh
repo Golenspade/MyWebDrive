@@ -39,9 +39,9 @@ reject_pattern() {
 }
 
 if [[ ! -f "$MANAGER" ]]; then
-  record_failure 'manage-services.sh compatibility shim is missing'
+  record_failure 'manage-services.sh Core-first manager is missing'
 elif [[ ! -x "$MANAGER" ]]; then
-  record_failure 'manage-services.sh compatibility shim is not executable'
+  record_failure 'manage-services.sh Core-first manager is not executable'
 else
   help_output=$("$MANAGER" help 2>&1) || record_failure 'manage-services.sh help must succeed'
   if [[ ${help_output:-} != *quality* || ${help_output:-} != *smoke* ]]; then
@@ -77,7 +77,7 @@ STUB
     record_failure 'manage-services.sh smoke must forward exactly to the Core smoke'
   fi
 
-  for retired_command in setup start start-backend start-frontend start-frontend-prod db:start status; do
+  for retired_command in start-backend start-frontend start-frontend-prod start-next db:start restart; do
     set +e
     retired_output=$("$MANAGER" "$retired_command" 2>&1)
     retired_status=$?
@@ -95,7 +95,7 @@ STUB
   reject_pattern "$MANAGER" 'services/(auth|user|metadata|sharing|api-gateway-node)|docker-compose\.(production|node|images|alicloud)\.yml' 'manage-services.sh'
 fi
 
-retired_command_pattern='\./manage-services\.sh (setup|install|build|db:[^[:space:]`]+|start([^[:space:]`]*)?|stop([^[:space:]`]*)?|restart([^[:space:]`]*)?|status|env:[^[:space:]`]+)'
+retired_command_pattern='\./manage-services\.sh (install|build|db:[^[:space:]`]+|restart|start-(backend|frontend|frontend-prod|next)|stop-(backend|frontend)|env:[^[:space:]`]+)'
 retired_service_pattern='(pnpm|corepack pnpm)[^`]*(services/(auth|user|metadata|sharing|api-gateway-node)|--filter[^`]*(auth|user|metadata|sharing|api-gateway-node))'
 retired_script_pattern='(scripts/)?(start-backend-dev|start-frontend-dev|quick-deploy|deploy-to-server|build-all-node|test_guest_download|test_invitation_system|test_invitation_flow|test_publish_api)\.sh'
 retired_compose_pattern='docker-compose\.(production|node|images|alicloud)\.yml|infrastructure/alicloud/(remote-deploy|prod-diagnose|deploy-production)\.sh'

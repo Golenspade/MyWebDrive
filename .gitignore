@@ -76,6 +76,7 @@ deploy/
 
 # Local ops secrets (do not commit)
 .ops/
+.state/
 *.pem
 *.key
 frontend/_templates/tailwind-landing-page-template
