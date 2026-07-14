@@ -14,6 +14,19 @@ PROJECT_NAME=mywebdrive-core-dev
 ORIGINAL_PATH=$PATH
 FAKE_EMAIL_PID=''
 
+path_metadata() {
+  local gnu_format=$1 bsd_format=$2 path=$3 value
+  if value=$(stat -c "$gnu_format" "$path" 2>/dev/null); then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  if value=$(stat -f "$bsd_format" "$path" 2>/dev/null); then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  return 1
+}
+
 path_fingerprint() {
   local path=$1 metadata checksum=''
   if [[ -L "$path" ]]; then
@@ -24,7 +37,7 @@ path_fingerprint() {
     printf 'absent\n'
     return
   fi
-  metadata=$(stat -f '%d:%i:%u:%g:%p:%l:%m:%z' "$path" 2>/dev/null || stat -c '%d:%i:%u:%g:%f:%h:%Y:%s' "$path")
+  metadata=$(path_metadata '%d:%i:%u:%g:%f:%h:%Y:%s' '%d:%i:%u:%g:%p:%l:%m:%z' "$path") || return 1
   if [[ -f "$path" ]]; then checksum=$(cksum "$path" | awk '{ print $1 ":" $2 }'); fi
   printf 'present:%s:%s\n' "$metadata" "$checksum"
 }
@@ -302,7 +315,7 @@ wrong_state_owner_status=$?
 set -e
 [[ $wrong_state_owner_status -eq 64 ]] || fail 'a wrong-owner state directory must exit 64'
 assert_contains "$wrong_state_owner_output" 'state directory is not owned by the current user' 'wrong-owner state output'
-state_permissions=$(stat -f '%Lp' "$ROOT_DIR/.state" 2>/dev/null || stat -c '%a' "$ROOT_DIR/.state")
+state_permissions=$(path_metadata '%a' '%Lp' "$ROOT_DIR/.state")
 [[ "$state_permissions" == 755 ]] || fail 'wrong-owner state handling changed directory permissions'
 
 printf 'owner-check-sentinel\n' >"$ENV_FILE"
@@ -313,7 +326,7 @@ wrong_env_owner_status=$?
 set -e
 [[ $wrong_env_owner_status -eq 64 ]] || fail 'a wrong-owner env file must exit 64'
 assert_contains "$wrong_env_owner_output" 'environment is not owned by the current user' 'wrong-owner env output'
-env_permissions=$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE")
+env_permissions=$(path_metadata '%a' '%Lp' "$ENV_FILE")
 [[ "$env_permissions" == 644 ]] || fail 'wrong-owner env handling changed file permissions'
 rm -f "$ENV_FILE"
 
@@ -353,9 +366,9 @@ rm -rf "$ROOT_DIR/.state"
 : >"$COMMAND_STUB_LOG"
 setup_output=$(PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" setup 2>&1)
 [[ -f "$ENV_FILE" && ! -L "$ENV_FILE" ]] || fail 'setup did not create a regular local env file'
-permissions=$(stat -f '%Lp' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE")
-links=$(stat -f '%l' "$ENV_FILE" 2>/dev/null || stat -c '%h' "$ENV_FILE")
-owner=$(stat -f '%u' "$ENV_FILE" 2>/dev/null || stat -c '%u' "$ENV_FILE")
+permissions=$(path_metadata '%a' '%Lp' "$ENV_FILE")
+links=$(path_metadata '%h' '%l' "$ENV_FILE")
+owner=$(path_metadata '%u' '%u' "$ENV_FILE")
 [[ "$permissions" == 600 && "$links" == 1 && "$owner" == "$(id -u)" ]] || fail 'local env metadata is not secure'
 setup_invocation=$(awk '
   $0 == "tool=corepack" { capture = 1 }
@@ -371,6 +384,22 @@ expected_setup_invocation=$(printf '%s\n' \
   'end')
 [[ "$setup_invocation" == "$expected_setup_invocation" ]] || fail 'setup did not preserve the exact frozen-install argv and repository cwd'
 assert_secret_output_safe "$setup_output" 'setup output'
+
+set +e
+PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" config >/dev/null 2>&1
+single_link_metadata_status=$?
+set -e
+[[ $single_link_metadata_status -eq 0 ]] || fail 'a current-user state directory and single-link env must pass metadata validation'
+
+portable_second_link="$FIXTURES/portable-core-dev.env.second-link"
+ln "$ENV_FILE" "$portable_second_link"
+set +e
+portable_hardlink_output=$(PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" config 2>&1)
+portable_hardlink_status=$?
+set -e
+[[ $portable_hardlink_status -eq 64 ]] || fail 'a valid multiply-linked env file must exit 64'
+assert_contains "$portable_hardlink_output" 'exactly one hard link' 'valid hard-link env output'
+rm -f "$portable_second_link"
 
 # A concurrent publisher briefly leaves the winning env with two links until it
 # removes its temp name. Readers must wait for that bounded window to close.

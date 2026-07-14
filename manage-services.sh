@@ -87,11 +87,29 @@ random_secret() {
 }
 
 path_owner() {
-  stat -f '%u' "$1" 2>/dev/null || stat -c '%u' "$1"
+  local value
+  if value=$(stat -c '%u' "$1" 2>/dev/null); then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  if value=$(stat -f '%u' "$1" 2>/dev/null); then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  return 1
 }
 
 path_link_count() {
-  stat -f '%l' "$1" 2>/dev/null || stat -c '%h' "$1"
+  local value
+  if value=$(stat -c '%h' "$1" 2>/dev/null); then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  if value=$(stat -f '%l' "$1" 2>/dev/null); then
+    printf '%s\n' "$value"
+    return 0
+  fi
+  return 1
 }
 
 recover_local_env_temp_links() {
