@@ -17,11 +17,13 @@ test('redacts Playwright JSON structurally and preserves safe diagnostics', () =
     errors: [{ message: 'safe diagnostic: Authorization: Bearer reviewer.secret.token' }],
     accessToken: { nested: 'secret-access' },
     attachment: encoded,
+    uploadUrl: '/api/v1/storage/uploads/private%2Fupload-key/parts/7',
   }))
   const parsed = JSON.parse(output)
   assert.equal(parsed.status, 'failed')
   assert.match(parsed.errors[0].message, /safe diagnostic:/)
   assert.equal(parsed.accessToken, '<redacted>')
+  assert.equal(parsed.uploadUrl, '/api/v1/storage/uploads/<redacted>/parts/7')
   assert.doesNotMatch(output, /reviewer\.secret\.token|secret-access/)
   assert.equal(redactPlaywrightReportJson(output), output)
 })
@@ -45,15 +47,19 @@ recipient=user@real.invalid code=123456
 fixture=healthy-admin@example.test status=partial
 /api/v1/shares/private-share-token/download-ticket
 /api/v1/storage/objects/private%2Fobject-key
+/api/v1/storage/uploads/private%2Fupload-key/parts/7
+/api/v1/storage/uploads/private-complete-key/complete
 /api/v1/publications/public-release-notes/download-ticket
 smoke-email-token
 `)
-  assert.doesNotMatch(redacted, /secret|header\.payload|private\/key|private-share-token|private%2Fobject-key|123456|smoke-(?:mailbox|email-token|postgres|redis|minio)|user@real\.invalid/)
+  assert.doesNotMatch(redacted, /secret|header\.payload|private\/key|private-share-token|private%2Fobject-key|private%2Fupload-key|private-complete-key|123456|smoke-(?:mailbox|email-token|postgres|redis|minio)|user@real\.invalid/)
   assert.doesNotMatch(redacted, /postgresql:\/\/|redis:\/\//)
   assert.match(redacted, /healthy-admin@example\.test/)
   assert.match(redacted, /status=partial/)
   assert.match(redacted, /\/api\/v1\/shares\/<redacted>\/download-ticket/)
   assert.match(redacted, /\/api\/v1\/storage\/objects\/<redacted>/)
+  assert.match(redacted, /\/api\/v1\/storage\/uploads\/<redacted>\/parts\/7/)
+  assert.match(redacted, /\/api\/v1\/storage\/uploads\/<redacted>\/complete/)
   assert.match(redacted, /\/api\/v1\/publications\/public-release-notes\/download-ticket/)
   assert.equal(redactSensitiveText(redacted), redacted)
 })
@@ -116,6 +122,8 @@ test('artifact tree rejects bare email tokens and credential-bearing API path se
     'smoke-email-token',
     'POST /api/v1/shares/private-share-token/download-ticket 200',
     'GET /api/v1/storage/objects/private%2Fobject-key 200',
+    'PUT /api/v1/storage/uploads/private%2Fupload-key/parts/7 200',
+    'POST /api/v1/storage/uploads/private-complete-key/complete 200',
   ]) {
     const root = await mkdtemp(join(tmpdir(), 'mwd-artifact-route-secret-'))
     await mkdir(join(root, 'compose'), { recursive: true })
@@ -124,12 +132,18 @@ test('artifact tree rejects bare email tokens and credential-bearing API path se
   }
 })
 
-test('artifact tree rejects credential-bearing API paths hidden in base64', async () => {
-  const root = await mkdtemp(join(tmpdir(), 'mwd-artifact-route-encoded-'))
-  await mkdir(join(root, 'playwright-report'), { recursive: true })
-  const route = Buffer.from('/api/v1/shares/private-share-token/download-ticket').toString('base64url')
-  await writeFile(join(root, 'playwright-report', 'results.json'), JSON.stringify({ route }))
-  await assert.rejects(() => assertSafeArtifactTree(root), /encoded sensitive text/)
+test('artifact tree rejects credential-bearing API paths hidden in base64 and base64url', async () => {
+  const routes = [
+    Buffer.from('/api/v1/shares/private-share-token/download-ticket').toString('base64url'),
+    Buffer.from('/api/v1/storage/uploads/private%2Fupload-key/parts/7').toString('base64'),
+    Buffer.from('/api/v1/storage/uploads/private-complete-key/complete').toString('base64url'),
+  ]
+  for (const route of routes) {
+    const root = await mkdtemp(join(tmpdir(), 'mwd-artifact-route-encoded-'))
+    await mkdir(join(root, 'playwright-report'), { recursive: true })
+    await writeFile(join(root, 'playwright-report', 'results.json'), JSON.stringify({ route }))
+    await assert.rejects(() => assertSafeArtifactTree(root), /encoded sensitive text/)
+  }
 })
 
 test('artifact tree permits public publication slugs', async () => {

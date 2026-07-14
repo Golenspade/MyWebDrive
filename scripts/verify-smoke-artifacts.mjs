@@ -27,6 +27,10 @@ const sensitiveTextPatterns = [
     pattern: /(\/api\/v1\/storage\/objects\/)(?!<redacted>)[^\/\s"'?#<>]+/gi,
     preservePrefix: true,
   },
+  {
+    pattern: /(\/api\/v1\/storage\/uploads\/)(?!<redacted>)[^\/\s"'?#<>]+(?=\/(?:parts\/[0-9]+|complete)(?:[?#\s"'<>]|$))/gi,
+    preservePrefix: true,
+  },
   { pattern: /\b(?:postgres(?:ql)?|rediss?):\/\/[^\s"'<>]*@[^\s"'<>]*/gi },
   { pattern: /\bsmoke-(?:postgres|redis|minio)(?:-root)?-[A-Za-z0-9._:-]+\b/gi },
   { pattern: /\bsmoke-(?:mailbox|email-token)-[A-Za-z0-9._:-]+\b/gi },

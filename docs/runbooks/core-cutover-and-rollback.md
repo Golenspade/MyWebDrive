@@ -19,7 +19,7 @@
 ## 部署和切流
 
 1. 将现有流量保持在旧环境，完成上述快照，并在变更单记录“零用户业务数据，不迁移”决策。
-2. 新版本以 CI 通过的不可变标签执行 `IMAGE_TAG=sha-<40hex>` 后运行 `infrastructure/alicloud/deploy.sh "$IMAGE_TAG"`。部署脚本会解析六个 tag 的唯一 registry digest、拉取 digest，并把 `IMAGE_TAG`、由标签派生的 40 位 `GIT_SHA` 与六个 digest 写入新的 release manifest；随后运行 `minio-init` 和单一 `core-migrate`，最后启动应用。`--manifest` 仅用于回滚或已有记录的恢复操作所选择的既有历史 manifest（existing historical manifest），禁止为新版本手工拼装 manifest 或绕过 digest 解析。
+2. 新版本以 CI 通过的不可变标签执行 `IMAGE_TAG=sha-<40hex>` 后运行 `infrastructure/alicloud/deploy.sh "$IMAGE_TAG"`。部署脚本会解析六个 tag 的唯一 registry digest、拉取 digest，并把 `IMAGE_TAG`、由标签派生的 40 位 `GIT_SHA` 与六个 digest 写入新的 release manifest；随后运行 `minio-init` 和单一 `core-migrate`，最后启动应用。`--manifest` 仅用于回滚或已有记录的恢复操作所选择的既有历史 manifest（existing historical manifest）：该文件必须是 `${DEPLOY_STATE_DIR}/history` 的直接子文件、符合部署生成的文件名、为非 symlink 的普通文件。`current.env`、目录外/嵌套路径、symlink 和手工临时 manifest 都会在 Docker 操作前被拒绝；禁止为新版本手工拼装 manifest 或绕过 digest 解析。
 3. 检查 Core、Analytics Worker、Email Provider、Storage API、Storage Worker、Prometheus、Web、Nginx 健康状态；读取 Core `/version`，确认 `gitSha/buildId` 与 manifest 一致。
 4. 在切换 DNS/负载均衡前完成生产只读 smoke：Nginx `/healthz`、公开 publication 空态、`/api/v1/internal/*` 固定 404。
 5. 小流量切入后完成一次真实邮箱 OTP、会话刷新、小文件上传、私有下载票据和登出。在扩大流量前确认日志不包含邮箱、OTP、access/refresh/grant、Cookie 或 Authorization 值。

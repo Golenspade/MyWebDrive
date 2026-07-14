@@ -14,6 +14,7 @@ lock_owner=''
 lock_owner_tmp=''
 lock_acquired=0
 ANALYTICS_WORKER_ENABLED=1
+MANIFEST_FILENAME_TAG=''
 
 trap 'printf "deployment failed at line %s\n" "$LINENO" >&2' ERR
 
@@ -88,10 +89,25 @@ acquire_deploy_lock() {
   lock_owner_tmp=''
 }
 
+validate_manifest_provenance() {
+  local manifest=$1 history_parent manifest_parent filename
+  [[ ! -L "$manifest" ]] || { printf 'release manifest must not be a symbolic link\n' >&2; exit 65; }
+  [[ -f "$manifest" ]] || { printf 'release manifest must be a regular file: %s\n' "$manifest" >&2; exit 66; }
+  history_parent=$(cd -P -- "$STATE_DIR/history" && pwd) || { printf 'release history is unavailable\n' >&2; exit 66; }
+  manifest_parent=$(cd -P -- "$(dirname -- "$manifest")" && pwd) || { printf 'release manifest parent is unavailable\n' >&2; exit 66; }
+  [[ "$manifest_parent" == "$history_parent" ]] || { printf 'release manifest must be a direct child of deployment history\n' >&2; exit 65; }
+  filename=$(basename -- "$manifest")
+  [[ "$filename" =~ ^[0-9]{8}T[0-9]{6}Z-(sha-[0-9a-f]{40})-[0-9]+\.manifest$ ]] || {
+    printf 'release manifest filename is not deployment-generated\n' >&2
+    exit 65
+  }
+  MANIFEST_FILENAME_TAG=${BASH_REMATCH[1]}
+}
+
 parse_manifest() {
   local manifest=$1 line key value
   local seen_tag=0 seen_git_sha=0 seen_core=0 seen_email=0 seen_storage=0 seen_web=0 seen_nginx=0 seen_prometheus=0 seen_analytics_worker=0
-  [[ -f "$manifest" ]] || { printf 'release manifest not found: %s\n' "$manifest" >&2; exit 66; }
+  validate_manifest_provenance "$manifest"
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" == *=* ]] || { printf 'invalid release manifest line\n' >&2; exit 65; }
     key=${line%%=*}
@@ -144,6 +160,7 @@ parse_manifest() {
     esac
   done < "$manifest"
   (( seen_tag && seen_core && seen_email && seen_storage && seen_web && seen_nginx )) || { printf 'release manifest is incomplete\n' >&2; exit 65; }
+  [[ "$IMAGE_TAG" == "$MANIFEST_FILENAME_TAG" ]] || { printf 'release manifest IMAGE_TAG does not match its history filename\n' >&2; exit 65; }
   if (( seen_git_sha )); then
     [[ "$GIT_SHA" == "${IMAGE_TAG#sha-}" ]] || { printf 'release manifest GIT_SHA does not match IMAGE_TAG\n' >&2; exit 65; }
   else

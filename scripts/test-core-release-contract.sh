@@ -229,6 +229,49 @@ grep -Fx "WEB_IMAGE=$web_digest" "$manifest" >/dev/null
 grep -Fx "NGINX_IMAGE=$nginx_digest" "$manifest" >/dev/null
 grep -Fx "PROMETHEUS_IMAGE=$prometheus_digest" "$manifest" >/dev/null
 
+provenance_tag=sha-7777777777777777777777777777777777777777
+provenance_git_sha=${provenance_tag#sha-}
+external_manifest="$FIXTURES/valid-external.manifest"
+printf '%s\n' \
+  "IMAGE_TAG=$provenance_tag" \
+  "GIT_SHA=$provenance_git_sha" \
+  "CORE_API_IMAGE=$core_digest" \
+  "EMAIL_PROVIDER_IMAGE=$email_digest" \
+  "STORAGE_IMAGE=$storage_digest" \
+  "WEB_IMAGE=$web_digest" \
+  "NGINX_IMAGE=$nginx_digest" \
+  "PROMETHEUS_IMAGE=$prometheus_digest" > "$external_manifest"
+
+expect_manifest_provenance_failure() {
+  local label=$1 path=$2
+  : > "$FIXTURES/docker.log"
+  set +e
+  PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$state_dir" "$ROOT_DIR/infrastructure/alicloud/deploy.sh" --manifest "$path" >/dev/null 2>&1
+  code=$?
+  set -e
+  [[ $code -ne 0 && ! -s "$FIXTURES/docker.log" ]] || { printf 'untrusted manifest provenance reached Docker: %s\n' "$label" >&2; exit 1; }
+}
+
+expect_manifest_provenance_failure external "$external_manifest"
+expect_manifest_provenance_failure current-env "$state_dir/current.env"
+
+mkdir -p "$state_dir/history/nested"
+nested_manifest="$state_dir/history/nested/20260714T000000Z-$provenance_tag-7001.manifest"
+cp "$external_manifest" "$nested_manifest"
+expect_manifest_provenance_failure nested "$nested_manifest"
+
+symlink_manifest="$state_dir/history/20260714T000000Z-$provenance_tag-7002.manifest"
+ln -s "$external_manifest" "$symlink_manifest"
+expect_manifest_provenance_failure symlink "$symlink_manifest"
+
+manual_manifest="$state_dir/history/manual.manifest"
+cp "$external_manifest" "$manual_manifest"
+expect_manifest_provenance_failure manual-name "$manual_manifest"
+
+wrong_name_manifest="$state_dir/history/20260714T000000Z-sha-9999999999999999999999999999999999999999-7003.manifest"
+cp "$external_manifest" "$wrong_name_manifest"
+expect_manifest_provenance_failure filename-tag-mismatch "$wrong_name_manifest"
+
 : > "$FIXTURES/docker.log"
 PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$state_dir" "$ROOT_DIR/infrastructure/alicloud/rollback.sh" "$release_tag" >/dev/null
 grep -F "GIT_SHA=$git_sha CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest PROMETHEUS=$prometheus_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'rollback did not deploy the recorded digest manifest with exact Git identity\n' >&2; exit 1; }
@@ -271,7 +314,12 @@ identity_manifest_base=(
   "PROMETHEUS_IMAGE=$prometheus_digest"
 )
 for identity_case in invalid duplicate mismatch; do
-  identity_manifest="$FIXTURES/git-sha-$identity_case.manifest"
+  case "$identity_case" in
+    invalid) identity_suffix=8001 ;;
+    duplicate) identity_suffix=8002 ;;
+    mismatch) identity_suffix=8003 ;;
+  esac
+  identity_manifest="$state_dir/history/20260714T000000Z-$release_tag-$identity_suffix.manifest"
   case "$identity_case" in
     invalid) printf '%s\n' "${identity_manifest_base[@]}" 'GIT_SHA=not-a-sha' > "$identity_manifest" ;;
     duplicate) printf '%s\n' "${identity_manifest_base[@]}" "GIT_SHA=$git_sha" "GIT_SHA=$git_sha" > "$identity_manifest" ;;
@@ -285,7 +333,7 @@ for identity_case in invalid duplicate mismatch; do
   [[ $code -ne 0 && ! -s "$FIXTURES/docker.log" ]] || { printf 'manifest accepted %s GIT_SHA before Docker mutation\n' "$identity_case" >&2; exit 1; }
 done
 
-malicious="$FIXTURES/malicious.manifest"
+malicious="$state_dir/history/20260714T000000Z-$release_tag-9001.manifest"
 printf '%s\n' "IMAGE_TAG=$release_tag" 'CORE_API_IMAGE=$(touch /tmp/contract-pwned)' "EMAIL_PROVIDER_IMAGE=$email_digest" "STORAGE_IMAGE=$storage_digest" "WEB_IMAGE=$web_digest" "NGINX_IMAGE=$nginx_digest" "PROMETHEUS_IMAGE=$prometheus_digest" > "$malicious"
 rm -f /tmp/contract-pwned
 : > "$FIXTURES/docker.log"
