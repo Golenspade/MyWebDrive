@@ -35,6 +35,30 @@ const MAX_TEXT_ARTIFACT_BYTES = 4 * 1024 * 1024
 const MAX_DECODED_BYTES = 256 * 1024
 const MAX_DECODE_DEPTH = 3
 const encodedCandidatePattern = /(?<![A-Za-z0-9+/_-])([A-Za-z0-9+/_-]{16,}={0,2})(?![A-Za-z0-9+/_=-])/g
+const sensitiveJsonKeys = new Set([
+  'accesstoken',
+  'refreshtoken',
+  'mailboxtoken',
+  'uploadgrant',
+  'downloadgrant',
+  'objectkey',
+  'challengeid',
+  'otp',
+  'code',
+  'core_session_secret',
+  'otp_pepper',
+  'storage_grant_secret',
+  'core_callback_secret',
+  'email_provider_token',
+  'fake_email_test_token',
+  'e2e_mailbox_token',
+  'core_database_url',
+  'redis_url',
+  'postgres_password',
+  'redis_password',
+  'minio_secret_key',
+  'minio_root_password',
+])
 
 function decodeCandidate(candidate) {
   if (candidate.length > MAX_DECODED_BYTES * 2) return null
@@ -80,6 +104,28 @@ export function redactSensitiveText(input) {
     email.toLowerCase().endsWith('@example.test') ? email : '<redacted-email>'
   ))
   return redactEncodedSensitiveText(output)
+}
+
+function redactJsonValue(value, key = '') {
+  if (sensitiveJsonKeys.has(key.toLowerCase())) return '<redacted>'
+  if (typeof value === 'string') return redactSensitiveText(value)
+  if (Array.isArray(value)) return value.map((entry) => redactJsonValue(entry))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => (
+      [entryKey, redactJsonValue(entryValue, entryKey)]
+    )))
+  }
+  return value
+}
+
+export function redactPlaywrightReportJson(input) {
+  let parsed
+  try {
+    parsed = JSON.parse(String(input))
+  } catch {
+    throw new Error('Playwright report is not valid JSON')
+  }
+  return `${JSON.stringify(redactJsonValue(parsed))}\n`
 }
 
 function isAllowedPath(path) {
@@ -139,12 +185,18 @@ async function main() {
     process.stdout.write(redactSensitiveText(input))
     return
   }
+  if (command === 'redact-json') {
+    let input = ''
+    for await (const chunk of process.stdin) input += chunk
+    process.stdout.write(redactPlaywrightReportJson(input))
+    return
+  }
   if (command === 'verify' && path) {
     await assertSafeArtifactTree(path)
     process.stdout.write('smoke artifacts: safe\n')
     return
   }
-  throw new Error('usage: verify-smoke-artifacts.mjs redact | verify <directory>')
+  throw new Error('usage: verify-smoke-artifacts.mjs redact | redact-json | verify <directory>')
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

@@ -64,6 +64,17 @@ test('root typecheck includes Playwright config, specs, page objects, and fixtur
   assert.match(optionContract, /stylePath:/)
 })
 
+test('release gate persists structured report, cleanup, and entrypoint contracts', async () => {
+  const packageJson = JSON.parse(await read('package.json'))
+  assert.match(packageJson.scripts['test:release-gate'], /smoke-core-artifacts\.test\.sh/)
+  const smoke = await read('scripts/smoke-core-e2e.sh')
+  assert.match(smoke, /source .*smoke-core-artifacts\.sh/)
+  assert.match(smoke, /trap - EXIT INT TERM ERR/)
+  const mode = await read('scripts/smoke-core-mode.sh')
+  assert.match(mode, /--entrypoint sh/)
+  assert.match(mode, /--entrypoint corepack/)
+})
+
 test('visual authority contains the seven required Linux Chromium baselines', async () => {
   const snapshots = (await readdir(new URL('../e2e/snapshots/', import.meta.url))).sort()
   assert.deepEqual(snapshots, [

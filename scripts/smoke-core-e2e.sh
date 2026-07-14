@@ -5,6 +5,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/infrastructure/alicloud/docker-compose.core.yml"
 source "$ROOT_DIR/scripts/smoke-core-mode.sh"
 source "$ROOT_DIR/scripts/smoke-core-health.sh"
+source "$ROOT_DIR/scripts/smoke-core-artifacts.sh"
 
 SMOKE_REUSE_IMAGES=${SMOKE_REUSE_IMAGES:-0}
 SMOKE_BROWSER_GATE=${SMOKE_BROWSER_GATE:-0}
@@ -78,13 +79,6 @@ redact_stream() {
   node "$ROOT_DIR/scripts/verify-smoke-artifacts.mjs" redact
 }
 
-copy_safe_playwright_report() {
-  local source=$1 destination=$2 report="$source/results.json"
-  [[ -f "$report" && ! -L "$report" ]] || return 0
-  mkdir -p "$destination"
-  redact_stream <"$report" >"$destination/results.json"
-}
-
 collect_failure_artifacts() {
   [[ -n "$SMOKE_ARTIFACT_DIR" ]] || return 0
   if [[ -e "$SMOKE_ARTIFACT_DIR" || -L "$SMOKE_ARTIFACT_DIR" ]]; then
@@ -96,7 +90,10 @@ collect_failure_artifacts() {
   compose config --services 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/services.txt" || true
   compose config --images 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/images.txt" || true
   compose logs --no-color 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/logs.txt" || true
-  copy_safe_playwright_report "$PLAYWRIGHT_REPORT_DIR" "$SMOKE_ARTIFACT_DIR/playwright-report"
+  smoke_copy_safe_playwright_report \
+    "$PLAYWRIGHT_REPORT_DIR" \
+    "$SMOKE_ARTIFACT_DIR/playwright-report" \
+    "$ROOT_DIR/scripts/verify-smoke-artifacts.mjs"
   if [[ -d "$PLAYWRIGHT_OUTPUT_DIR" ]]; then
     while IFS= read -r -d '' file; do
       [[ -f "$file" && ! -L "$file" ]] || continue
@@ -108,18 +105,27 @@ collect_failure_artifacts() {
   node "$ROOT_DIR/scripts/verify-smoke-artifacts.mjs" verify "$SMOKE_ARTIFACT_DIR"
 }
 
-cleanup() {
-  local status=$?
-  status=$(smoke_normalize_exit_status "$status" "$SMOKE_COMPLETED")
-  trap - EXIT INT TERM
-  set +e
-  if [[ $status -ne 0 ]]; then collect_failure_artifacts; fi
+cleanup_compose_resources() {
   if [[ -f "$OVERRIDE_FILE" ]]; then
     compose down --volumes --remove-orphans >/dev/null 2>&1
   fi
-  smoke_cleanup_owned_images
+}
+
+cleanup_temporary_directory() {
   rm -rf "$TEMP_DIR"
-  exit "$status"
+}
+
+cleanup() {
+  local status=$?
+  trap - EXIT INT TERM ERR
+  set +Ee
+  smoke_cleanup_and_exit \
+    "$status" \
+    "$SMOKE_COMPLETED" \
+    collect_failure_artifacts \
+    cleanup_compose_resources \
+    smoke_cleanup_owned_images \
+    cleanup_temporary_directory
 }
 trap cleanup EXIT
 trap 'exit 130' INT
@@ -181,7 +187,11 @@ run_browser_gate() {
     "$grep_pattern" "$snapshot_mode_display"
 
   if [[ -n "${SMOKE_BROWSER_CONTAINER_IMAGE:-}" ]]; then
-    smoke_run_snapshot_command "$SMOKE_UPDATE_SNAPSHOTS" docker run --rm \
+    smoke_run_browser_container \
+      "$SMOKE_UPDATE_SNAPSHOTS" \
+      "${SMOKE_BROWSER_CONTAINER_IMAGE}" \
+      "$grep_pattern" \
+      --rm \
       --network "${PROJECT}_default" \
       --read-only \
       --tmpfs "/tmp:uid=$(id -u),gid=$(id -g),mode=1777" \
@@ -196,9 +206,7 @@ run_browser_gate() {
       --env E2E_MAILBOX_TOKEN="$FAKE_EMAIL_TEST_TOKEN" \
       --env E2E_ADMIN_EMAIL="$email" \
       --env E2E_OUTPUT_DIR=/smoke-output/test-results \
-      --env E2E_REPORT_DIR=/smoke-output/playwright-report \
-      "${SMOKE_BROWSER_CONTAINER_IMAGE}" \
-      corepack pnpm exec playwright test --grep "$grep_pattern"
+      --env E2E_REPORT_DIR=/smoke-output/playwright-report
     return
   fi
 

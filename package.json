@@ -16,7 +16,7 @@
     "test:ui": "node --test scripts/verify-nothing-ui-contract.test.mjs scripts/verify-nothing-focus-contrast.test.mjs",
     "verify:ui": "pnpm run test:ui && node scripts/verify-nothing-ui-contract.mjs",
     "test:e2e": "playwright test",
-    "test:release-gate": "node --test scripts/smoke/fake-email/server.test.mjs scripts/verify-smoke-artifacts.test.mjs scripts/verify-release-gate.test.mjs && bash scripts/smoke-core-mode.test.sh && bash scripts/smoke-core-health.test.sh",
+    "test:release-gate": "node --test scripts/smoke/fake-email/server.test.mjs scripts/verify-smoke-artifacts.test.mjs scripts/verify-release-gate.test.mjs && bash scripts/smoke-core-mode.test.sh && bash scripts/smoke-core-health.test.sh && bash scripts/smoke-core-artifacts.test.sh",
     "verify:smoke-artifacts": "node scripts/verify-smoke-artifacts.mjs verify",
     "quality": "./manage-services.sh quality",
     "test:generated": "bash scripts/test-generated-artifacts-contract.sh",

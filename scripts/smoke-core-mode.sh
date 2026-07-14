@@ -88,12 +88,34 @@ smoke_run_snapshot_command() {
   esac
 }
 
+smoke_run_browser_container() {
+  local update=$1 image=$2 grep_pattern=$3
+  shift 3
+  smoke_run_snapshot_command "$update" docker run "$@" \
+    --entrypoint corepack \
+    "$image" \
+    pnpm exec playwright test --grep "$grep_pattern"
+}
+
 smoke_normalize_exit_status() {
   local status=$1 completed=$2
   if [[ "$completed" != 1 && "$status" == 0 ]]; then
     status=1
   fi
   printf '%s\n' "$status"
+}
+
+smoke_cleanup_and_exit() {
+  local original_status=$1 completed=$2 collect_function=$3 compose_function=$4
+  local image_function=$5 temporary_function=$6 status
+  trap - EXIT INT TERM ERR
+  set +Ee
+  status=$(smoke_normalize_exit_status "$original_status" "$completed")
+  if [[ "$status" != 0 ]]; then "$collect_function"; fi
+  "$compose_function"
+  "$image_function"
+  "$temporary_function"
+  exit "$status"
 }
 
 smoke_validate_snapshot_update_policy() {
@@ -121,8 +143,9 @@ smoke_validate_snapshot_update_policy() {
     --env HOME=/tmp \
     --volume "$root_dir:/work:ro" \
     --workdir /work \
+    --entrypoint sh \
     "$browser_image" \
-    sh -ceu '
+    -ceu '
       test "$(node -p "process.platform")" = linux
       test "$(node -p "require(\"@playwright/test/package.json\").version")" = 1.61.1
       corepack pnpm exec playwright --version | grep -Fx "Version 1.61.1" >/dev/null

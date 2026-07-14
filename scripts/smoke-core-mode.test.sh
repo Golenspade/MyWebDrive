@@ -101,6 +101,26 @@ if [[ "$nounset_status" == 0 ]]; then
   printf 'nounset abort was normalized to success\n' >&2
   exit 1
 fi
+
+CLEANUP_LOG="$FIXTURES/cleanup.log"
+if bash -c '
+  source "$1"
+  log=$2
+  collect_artifacts() { printf "collect\n" >> "$log"; return 23; }
+  cleanup_compose() { printf "compose\n" >> "$log"; }
+  cleanup_images() { printf "images\n" >> "$log"; }
+  cleanup_temp() { printf "temp\n" >> "$log"; }
+  trap "printf err-trap\\n >> \"$log\"" ERR
+  set -Ee
+  smoke_cleanup_and_exit 7 0 collect_artifacts cleanup_compose cleanup_images cleanup_temp
+' _ "$ROOT_DIR/scripts/smoke-core-mode.sh" "$CLEANUP_LOG"; then
+  printf 'cleanup child unexpectedly succeeded\n' >&2
+  exit 1
+else
+  cleanup_status=$?
+fi
+assert_equal "$cleanup_status" 7 'cleanup preserves original nonzero status'
+assert_equal "$(cat "$CLEANUP_LOG")" $'collect\ncompose\nimages\ntemp' 'cleanup survives artifact failure without ERR re-entry'
 if smoke_snapshot_update_arg yes >/dev/null 2>&1; then
   printf 'snapshot update accepted a non-boolean value\n' >&2
   exit 1
@@ -131,5 +151,13 @@ for invalid in snapshot-darwin snapshot-arbitrary; do
 done
 smoke_validate_snapshot_update_policy 1 1 snapshot-linux-verified "$ROOT_DIR"
 grep -F 'snapshot-linux-verified' "$CALL_LOG" >/dev/null
+grep -F -- '--entrypoint sh' "$CALL_LOG" >/dev/null
+
+: > "$CALL_LOG"
+smoke_run_browser_container 0 noop-entrypoint-image @healthy --rm --network smoke_default
+assert_equal "$(cat "$CALL_LOG")" 'run --rm --network smoke_default --entrypoint corepack noop-entrypoint-image pnpm exec playwright test --grep @healthy' 'compare browser forces corepack entrypoint'
+: > "$CALL_LOG"
+smoke_run_browser_container 1 noop-entrypoint-image @healthy --rm --network smoke_default
+assert_equal "$(cat "$CALL_LOG")" 'run --rm --network smoke_default --entrypoint corepack noop-entrypoint-image pnpm exec playwright test --grep @healthy --update-snapshots=all' 'update browser forces corepack entrypoint and exact argument'
 
 printf 'smoke image mode contracts: ok\n'

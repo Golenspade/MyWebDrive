@@ -6,8 +6,29 @@ import test from 'node:test'
 
 import {
   assertSafeArtifactTree,
+  redactPlaywrightReportJson,
   redactSensitiveText,
 } from './verify-smoke-artifacts.mjs'
+
+test('redacts Playwright JSON structurally and preserves safe diagnostics', () => {
+  const encoded = Buffer.from('Authorization: Bearer reviewer.secret.token').toString('base64url')
+  const output = redactPlaywrightReportJson(JSON.stringify({
+    status: 'failed',
+    errors: [{ message: 'safe diagnostic: Authorization: Bearer reviewer.secret.token' }],
+    accessToken: { nested: 'secret-access' },
+    attachment: encoded,
+  }))
+  const parsed = JSON.parse(output)
+  assert.equal(parsed.status, 'failed')
+  assert.match(parsed.errors[0].message, /safe diagnostic:/)
+  assert.equal(parsed.accessToken, '<redacted>')
+  assert.doesNotMatch(output, /reviewer\.secret\.token|secret-access/)
+  assert.equal(redactPlaywrightReportJson(output), output)
+})
+
+test('rejects invalid Playwright JSON without producing uploadable output', () => {
+  assert.throws(() => redactPlaywrightReportJson('{"status":'), /valid JSON/)
+})
 
 test('redacts credential-bearing fields while preserving useful diagnostics', () => {
   const redacted = redactSensitiveText(`
