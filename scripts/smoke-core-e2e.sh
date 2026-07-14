@@ -547,17 +547,17 @@ wait_ready_status core-api http://127.0.0.1:8080/ready 503
 wait_ready_status storage-api http://127.0.0.1:7084/ready 503
 compose start redis
 compose up -d --wait --no-deps redis
-compose up -d --wait --no-deps core-api storage-api storage-worker
 wait_ready_status core-api http://127.0.0.1:8080/ready 200
 wait_ready_status storage-api http://127.0.0.1:7084/ready 200
+wait_ready_status storage-worker http://127.0.0.1:7085/ready 200
 
 compose stop minio
 wait_ready_status storage-api http://127.0.0.1:7084/ready 503
 compose start minio
 compose up -d --wait --no-deps minio
 compose run --rm --no-deps minio-init
-compose up -d --wait --no-deps storage-api storage-worker
 wait_ready_status storage-api http://127.0.0.1:7084/ready 200
+wait_ready_status storage-worker http://127.0.0.1:7085/ready 200
 
 compose logs --no-color >"$TEMP_DIR/compose.log"
 for sensitive in "$EMAIL" "$OTP" "$CHALLENGE_ID" "$ACCESS_INITIAL" "$ACCESS" "$REFRESH_INITIAL" "$REFRESH_ROTATED" "$UPLOAD_GRANT" "$PRIVATE_GRANT" "$SHARE_TOKEN" "$SHARE_GRANT" "$PUBLIC_GRANT" "$PENDING_GRANT" "$UNKNOWN_GRANT"; do

@@ -1,9 +1,14 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { promisify } from 'node:util'
 import test from 'node:test'
 
 const root = new URL('../', import.meta.url)
 const read = (path) => readFile(new URL(path, root), 'utf8')
+const execFileAsync = promisify(execFile)
 
 test('CI orders quality, six-image build, full smoke, then publication', async () => {
   const workflow = await read('.github/workflows/ci.yml')
@@ -130,6 +135,60 @@ test('smoke runs healthy browser checks before Prometheus degradation and degrad
   const recovered = smoke.indexOf('System Health did not recover to available', recovery)
   assert(healthy >= 0 && healthy < stop && stop < degraded && degraded < recovery && recovery < recovered)
   assert.doesNotMatch(smoke, /\["available","partial"\]\.includes/)
+})
+
+test('Redis and MinIO recovery wait for running storage services without re-up fail-fast', async () => {
+  const smoke = await read('scripts/smoke-core-e2e.sh')
+  const postgresStop = smoke.indexOf('compose stop postgres')
+  const redisStop = smoke.indexOf('compose stop redis', postgresStop)
+  const minioStop = smoke.indexOf('compose stop minio', redisStop)
+  const recoveryEnd = smoke.indexOf('compose logs --no-color', minioStop)
+  assert(postgresStop >= 0 && postgresStop < redisStop && redisStop < minioStop && minioStop < recoveryEnd)
+
+  const postgresRecovery = smoke.slice(postgresStop, redisStop)
+  assert.match(postgresRecovery, /compose start postgres[\s\S]*compose up -d --wait --no-deps postgres[\s\S]*compose up -d --wait --no-deps core-api/)
+
+  const redisRecovery = smoke.slice(redisStop, minioStop)
+  const redisStart = redisRecovery.indexOf('compose start redis')
+  const redisHealthy = redisRecovery.indexOf('compose up -d --wait --no-deps redis', redisStart)
+  const redisCoreReady = redisRecovery.indexOf('wait_ready_status core-api http://127.0.0.1:8080/ready 200', redisHealthy)
+  const redisStorageReady = redisRecovery.indexOf('wait_ready_status storage-api http://127.0.0.1:7084/ready 200', redisCoreReady)
+  const redisWorkerReady = redisRecovery.indexOf('wait_ready_status storage-worker http://127.0.0.1:7085/ready 200', redisStorageReady)
+  assert(redisStart >= 0 && redisStart < redisHealthy && redisHealthy < redisCoreReady)
+  assert(redisCoreReady < redisStorageReady && redisStorageReady < redisWorkerReady)
+  assert.doesNotMatch(redisRecovery, /compose up[^\n]*(?:core-api|storage-api|storage-worker)/)
+
+  const minioRecovery = smoke.slice(minioStop, recoveryEnd)
+  const minioStart = minioRecovery.indexOf('compose start minio')
+  const minioHealthy = minioRecovery.indexOf('compose up -d --wait --no-deps minio', minioStart)
+  const minioInit = minioRecovery.indexOf('compose run --rm --no-deps minio-init', minioHealthy)
+  const minioStorageReady = minioRecovery.indexOf('wait_ready_status storage-api http://127.0.0.1:7084/ready 200', minioInit)
+  const minioWorkerReady = minioRecovery.indexOf('wait_ready_status storage-worker http://127.0.0.1:7085/ready 200', minioStorageReady)
+  assert(minioStart >= 0 && minioStart < minioHealthy && minioHealthy < minioInit)
+  assert(minioInit < minioStorageReady && minioStorageReady < minioWorkerReady)
+  assert.doesNotMatch(minioRecovery, /compose up[^\n]*(?:core-api|storage-api|storage-worker)/)
+})
+
+test('failure artifact workflow passes the directory directly to the real package script', async () => {
+  const workflow = await read('.github/workflows/ci.yml')
+  const artifactStep = workflow.slice(
+    workflow.indexOf('name: Verify sanitized failure artifacts'),
+    workflow.indexOf('name: Upload sanitized failure artifacts'),
+  )
+  assert.match(artifactStep, /pnpm run verify:smoke-artifacts "\$SMOKE_ARTIFACT_DIR"/)
+  assert.doesNotMatch(artifactStep, /verify:smoke-artifacts\s+--/)
+
+  const artifactDirectory = await mkdtemp(join(tmpdir(), 'mywebdrive-safe-smoke-artifacts-'))
+  try {
+    const { stdout } = await execFileAsync(
+      'pnpm',
+      ['run', 'verify:smoke-artifacts', artifactDirectory],
+      { cwd: new URL('../', import.meta.url) },
+    )
+    assert.match(stdout, /smoke artifacts: safe/)
+  } finally {
+    await rm(artifactDirectory, { recursive: true, force: true })
+  }
 })
 
 test('snapshot update documentation requires verified Linux container provenance', async () => {

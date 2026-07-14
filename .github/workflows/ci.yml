@@ -137,7 +137,7 @@ jobs:
           SMOKE_ARTIFACT_DIR: ${{ runner.temp }}/core-smoke-artifacts
         run: |
           if [[ -d "$SMOKE_ARTIFACT_DIR" ]]; then
-            pnpm run verify:smoke-artifacts -- "$SMOKE_ARTIFACT_DIR"
+            pnpm run verify:smoke-artifacts "$SMOKE_ARTIFACT_DIR"
             printf 'available=true\n' >> "$GITHUB_OUTPUT"
           else
             printf 'available=false\n' >> "$GITHUB_OUTPUT"
