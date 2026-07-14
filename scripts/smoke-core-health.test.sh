@@ -44,11 +44,13 @@ if smoke_wait_for_exact_availability available 2 0 fetch_recovery_state "$FIXTUR
 fi
 
 STUB_CONTAINER_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+STUB_COMPOSE_FAIL=0
 STUB_INSPECT_FAIL=0
 STUB_INSPECT_OUTPUT="$STUB_CONTAINER_ID|42|2026-07-14T01:02:03.000000000Z|0"
 
 compose() {
   [[ "$1" == ps && "$2" == -q && "$3" == storage-worker ]] || return 2
+  [[ "$STUB_COMPOSE_FAIL" == 0 ]] || return 1
   printf '%s\n' "$STUB_CONTAINER_ID"
 }
 
@@ -109,6 +111,24 @@ STUB_INSPECT_OUTPUT="$STUB_CONTAINER_ID|42|2026-07-14T01:02:03.000000000Z|0"
 STUB_CONTAINER_ID=''
 if smoke_capture_container_identity storage-worker >/dev/null; then
   printf 'worker identity capture accepted an empty compose container id\n' >&2
+  exit 1
+fi
+
+STUB_CONTAINER_ID=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+STUB_INSPECT_OUTPUT="$STUB_CONTAINER_ID|42|not-a-timestamp|0"
+if smoke_capture_container_identity storage-worker >/dev/null; then
+  printf 'worker identity capture accepted an invalid StartedAt timestamp\n' >&2
+  exit 1
+fi
+
+STUB_INSPECT_OUTPUT="$STUB_CONTAINER_ID|42|2026-07-14T01:02:03.000000000Z|0"
+STUB_COMPOSE_FAIL=1
+if smoke_capture_container_identity storage-worker >/dev/null; then
+  printf 'worker identity capture accepted failed compose ps\n' >&2
+  exit 1
+fi
+if smoke_assert_container_identity_unchanged storage-worker "$worker_identity"; then
+  printf 'worker identity comparison accepted failed compose ps\n' >&2
   exit 1
 fi
 

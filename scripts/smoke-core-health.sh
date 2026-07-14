@@ -40,7 +40,8 @@ smoke_capture_container_identity() {
   [[ -z "$extra" ]] || return 1
   [[ "$inspected_id" =~ ^[0-9a-f]{64}$ ]] || return 1
   [[ "$inspected_pid" =~ ^[1-9][0-9]*$ ]] || return 1
-  [[ -n "$inspected_started_at" && "$inspected_started_at" != 0001-01-01T00:00:00Z ]] || return 1
+  [[ "$inspected_started_at" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?Z$ ]] || return 1
+  [[ "$inspected_started_at" != 0001-01-01T00:00:00Z ]] || return 1
   [[ "$inspected_restart_count" =~ ^[0-9]+$ ]] || return 1
 
   printf '%s|%s|%s|%s\n' \
