@@ -145,28 +145,50 @@ test('Redis and MinIO recovery wait for running storage services without re-up f
   const recoveryEnd = smoke.indexOf('compose logs --no-color', minioStop)
   assert(postgresStop >= 0 && postgresStop < redisStop && redisStop < minioStop && minioStop < recoveryEnd)
 
+  const initialWorkerReady = smoke.indexOf('wait_ready_status storage-worker http://127.0.0.1:7085/ready 200')
+  const identityCapture = smoke.indexOf(
+    'STORAGE_WORKER_IDENTITY=$(smoke_capture_container_identity storage-worker)',
+    initialWorkerReady,
+  )
+  assert(initialWorkerReady >= 0 && initialWorkerReady < identityCapture && identityCapture < postgresStop)
+
   const postgresRecovery = smoke.slice(postgresStop, redisStop)
   assert.match(postgresRecovery, /compose start postgres[\s\S]*compose up -d --wait --no-deps postgres[\s\S]*compose up -d --wait --no-deps core-api/)
 
   const redisRecovery = smoke.slice(redisStop, minioStop)
   const redisStart = redisRecovery.indexOf('compose start redis')
+  const redisWorkerUnavailable = redisRecovery.indexOf('wait_ready_status storage-worker http://127.0.0.1:7085/ready 503')
   const redisHealthy = redisRecovery.indexOf('compose up -d --wait --no-deps redis', redisStart)
   const redisCoreReady = redisRecovery.indexOf('wait_ready_status core-api http://127.0.0.1:8080/ready 200', redisHealthy)
   const redisStorageReady = redisRecovery.indexOf('wait_ready_status storage-api http://127.0.0.1:7084/ready 200', redisCoreReady)
   const redisWorkerReady = redisRecovery.indexOf('wait_ready_status storage-worker http://127.0.0.1:7085/ready 200', redisStorageReady)
-  assert(redisStart >= 0 && redisStart < redisHealthy && redisHealthy < redisCoreReady)
+  const redisIdentityCheck = redisRecovery.indexOf(
+    'smoke_assert_container_identity_unchanged storage-worker "$STORAGE_WORKER_IDENTITY"',
+    redisWorkerReady,
+  )
+  assert(redisWorkerUnavailable >= 0 && redisWorkerUnavailable < redisStart)
+  assert(redisStart < redisHealthy && redisHealthy < redisCoreReady)
   assert(redisCoreReady < redisStorageReady && redisStorageReady < redisWorkerReady)
+  assert(redisWorkerReady < redisIdentityCheck)
   assert.doesNotMatch(redisRecovery, /compose up[^\n]*(?:core-api|storage-api|storage-worker)/)
 
   const minioRecovery = smoke.slice(minioStop, recoveryEnd)
   const minioStart = minioRecovery.indexOf('compose start minio')
+  const minioWorkerUnavailable = minioRecovery.indexOf('wait_ready_status storage-worker http://127.0.0.1:7085/ready 503')
   const minioHealthy = minioRecovery.indexOf('compose up -d --wait --no-deps minio', minioStart)
   const minioInit = minioRecovery.indexOf('compose run --rm --no-deps minio-init', minioHealthy)
   const minioStorageReady = minioRecovery.indexOf('wait_ready_status storage-api http://127.0.0.1:7084/ready 200', minioInit)
   const minioWorkerReady = minioRecovery.indexOf('wait_ready_status storage-worker http://127.0.0.1:7085/ready 200', minioStorageReady)
-  assert(minioStart >= 0 && minioStart < minioHealthy && minioHealthy < minioInit)
+  const minioIdentityCheck = minioRecovery.indexOf(
+    'smoke_assert_container_identity_unchanged storage-worker "$STORAGE_WORKER_IDENTITY"',
+    minioWorkerReady,
+  )
+  assert(minioWorkerUnavailable >= 0 && minioWorkerUnavailable < minioStart)
+  assert(minioStart < minioHealthy && minioHealthy < minioInit)
   assert(minioInit < minioStorageReady && minioStorageReady < minioWorkerReady)
+  assert(minioWorkerReady < minioIdentityCheck)
   assert.doesNotMatch(minioRecovery, /compose up[^\n]*(?:core-api|storage-api|storage-worker)/)
+  assert.doesNotMatch(`${redisRecovery}\n${minioRecovery}`, /compose restart[^\n]*storage-worker/)
 })
 
 test('failure artifact workflow passes the directory directly to the real package script', async () => {

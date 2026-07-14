@@ -334,6 +334,8 @@ wait_ready_status core-api http://127.0.0.1:8080/ready 200
 wait_ready_status analytics-worker http://127.0.0.1:8081/ready 200
 wait_ready_status storage-api http://127.0.0.1:7084/ready 200
 wait_ready_status storage-worker http://127.0.0.1:7085/ready 200
+STORAGE_WORKER_IDENTITY=$(smoke_capture_container_identity storage-worker) || \
+  fail 'storage-worker identity baseline could not be captured'
 compose exec -T core-api node -e "fetch('http://127.0.0.1:8080/version').then(async r=>{const b=await r.json();if(r.status!==200||b.gitSha!=='$GIT_SHA'||b.buildId!=='$IMAGE_TAG')process.exit(1)})"
 
 EMAIL="smoke-admin@example.test"
@@ -545,19 +547,25 @@ wait_ready_status core-api http://127.0.0.1:8080/ready 200
 compose stop redis
 wait_ready_status core-api http://127.0.0.1:8080/ready 503
 wait_ready_status storage-api http://127.0.0.1:7084/ready 503
+wait_ready_status storage-worker http://127.0.0.1:7085/ready 503
 compose start redis
 compose up -d --wait --no-deps redis
 wait_ready_status core-api http://127.0.0.1:8080/ready 200
 wait_ready_status storage-api http://127.0.0.1:7084/ready 200
 wait_ready_status storage-worker http://127.0.0.1:7085/ready 200
+smoke_assert_container_identity_unchanged storage-worker "$STORAGE_WORKER_IDENTITY" || \
+  fail 'storage-worker was replaced or restarted during Redis recovery'
 
 compose stop minio
 wait_ready_status storage-api http://127.0.0.1:7084/ready 503
+wait_ready_status storage-worker http://127.0.0.1:7085/ready 503
 compose start minio
 compose up -d --wait --no-deps minio
 compose run --rm --no-deps minio-init
 wait_ready_status storage-api http://127.0.0.1:7084/ready 200
 wait_ready_status storage-worker http://127.0.0.1:7085/ready 200
+smoke_assert_container_identity_unchanged storage-worker "$STORAGE_WORKER_IDENTITY" || \
+  fail 'storage-worker was replaced or restarted during MinIO recovery'
 
 compose logs --no-color >"$TEMP_DIR/compose.log"
 for sensitive in "$EMAIL" "$OTP" "$CHALLENGE_ID" "$ACCESS_INITIAL" "$ACCESS" "$REFRESH_INITIAL" "$REFRESH_ROTATED" "$UPLOAD_GRANT" "$PRIVATE_GRANT" "$SHARE_TOKEN" "$SHARE_GRANT" "$PUBLIC_GRANT" "$PENDING_GRANT" "$UNKNOWN_GRANT"; do
