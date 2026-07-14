@@ -38,6 +38,17 @@ for setting in 'proxy_request_buffering[[:space:]]+off' 'proxy_buffering[[:space
 done
 reject 'gateway|api-gateway' "$NGINX_DIR/nginx.conf" 'nginx must not route to the old Gateway'
 require 'server[[:space:]]+127\.0\.0\.1:18080' "$HOST_NGINX" 'host Nginx must route only to the private Core-first listener'
+require 'location[[:space:]]*=[[:space:]]*/healthz[[:space:]]*\{' "$HOST_NGINX" 'host Nginx exact /healthz route missing'
+require 'location[[:space:]]*=[[:space:]]*/health[[:space:]]*\{' "$HOST_NGINX" 'host Nginx exact /health compatibility route missing'
+reject 'location[[:space:]]+/healthz?([[:space:]]|\{|$)' "$HOST_NGINX" 'host Nginx health routes must be exact matches'
+for route in healthz health; do
+  host_health_location=$(awk -v route="$route" '
+    $0 ~ "location[[:space:]]*=[[:space:]]*/" route "[[:space:]]*\\{" { capture = 1 }
+    capture { print }
+    capture && /^[[:space:]]*}/ { exit }
+  ' "$HOST_NGINX")
+  grep -Eq 'proxy_pass[[:space:]]+http://mywebdrive_core/healthz;' <<<"$host_health_location" || fail "host Nginx exact /$route route must proxy to upstream /healthz"
+done
 require 'log_format[[:space:]]+mywebdrive_safe[[:space:]]+.*\$remote_addr[[:space:]]+\$request_method[[:space:]]+\$status[[:space:]]+\$body_bytes_sent[[:space:]]+\$request_time' "$HOST_NGINX" 'host Nginx access log must omit URLs, query strings and credentials'
 require 'access_log[[:space:]]+/var/log/nginx/mywebdrive-access\.log[[:space:]]+mywebdrive_safe' "$HOST_NGINX" 'host Nginx must use its path-free access log'
 host_share_location=$(awk '
