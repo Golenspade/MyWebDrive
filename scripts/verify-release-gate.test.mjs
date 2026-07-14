@@ -55,6 +55,7 @@ test('Playwright is Chromium-only, deterministic, and never records credentials'
 
 test('root typecheck includes Playwright config, specs, page objects, and fixtures', async () => {
   const packageJson = JSON.parse(await read('package.json'))
+  assert.equal(packageJson.devDependencies['@types/node'], '22.18.6')
   assert.equal(packageJson.scripts['typecheck:e2e'], 'tsc -p tsconfig.e2e.json --noEmit --pretty false')
   assert.match(packageJson.scripts.typecheck, /pnpm run typecheck:e2e/)
   const tsconfig = JSON.parse(await read('tsconfig.e2e.json'))
