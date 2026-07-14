@@ -1,0 +1,10 @@
+*,
+*::before,
+*::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+[data-visual-dynamic] {
+  visibility: hidden !important;
+}

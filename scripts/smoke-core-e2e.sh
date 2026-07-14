@@ -4,11 +4,18 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 COMPOSE_FILE="$ROOT_DIR/infrastructure/alicloud/docker-compose.core.yml"
 source "$ROOT_DIR/scripts/smoke-core-mode.sh"
+source "$ROOT_DIR/scripts/smoke-core-health.sh"
 
 SMOKE_REUSE_IMAGES=${SMOKE_REUSE_IMAGES:-0}
 SMOKE_BROWSER_GATE=${SMOKE_BROWSER_GATE:-0}
+SMOKE_UPDATE_SNAPSHOTS=${SMOKE_UPDATE_SNAPSHOTS:-0}
 [[ "$SMOKE_REUSE_IMAGES" == 0 || "$SMOKE_REUSE_IMAGES" == 1 ]] || { printf 'SMOKE_REUSE_IMAGES must be 0 or 1\n' >&2; exit 64; }
 [[ "$SMOKE_BROWSER_GATE" == 0 || "$SMOKE_BROWSER_GATE" == 1 ]] || { printf 'SMOKE_BROWSER_GATE must be 0 or 1\n' >&2; exit 64; }
+smoke_validate_snapshot_update_policy \
+  "$SMOKE_UPDATE_SNAPSHOTS" \
+  "$SMOKE_BROWSER_GATE" \
+  "${SMOKE_BROWSER_CONTAINER_IMAGE:-}" \
+  "$ROOT_DIR"
 RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$"
 SHA_TAG="sha-$(printf '%040x' "$$")"
 PROJECT="mwd-core-smoke-$RUN_ID"
@@ -23,6 +30,7 @@ FAKE_EMAIL_TEST_TOKEN="smoke-mailbox-${RUN_ID}-000000000000000000"
 SMOKE_ARTIFACT_DIR=${SMOKE_ARTIFACT_DIR:-}
 PLAYWRIGHT_OUTPUT_DIR="$TEMP_DIR/test-results"
 PLAYWRIGHT_REPORT_DIR="$TEMP_DIR/playwright-report"
+SMOKE_COMPLETED=0
 
 export COMPOSE_PROJECT_NAME="$PROJECT"
 export POSTGRES_PASSWORD="smoke-postgres-$RUN_ID"
@@ -70,20 +78,11 @@ redact_stream() {
   node "$ROOT_DIR/scripts/verify-smoke-artifacts.mjs" redact
 }
 
-copy_safe_playwright_files() {
-  local source=$1 destination=$2 file relative extension
-  [[ -d "$source" ]] || return 0
-  while IFS= read -r -d '' file; do
-    [[ -f "$file" && ! -L "$file" ]] || continue
-    relative=${file#"$source"/}
-    extension=${relative##*.}
-    case "$extension" in
-      css|html|js|json|png|txt) ;;
-      *) continue ;;
-    esac
-    mkdir -p "$destination/$(dirname "$relative")"
-    cp "$file" "$destination/$relative"
-  done < <(find "$source" -type f -print0)
+copy_safe_playwright_report() {
+  local source=$1 destination=$2 report="$source/results.json"
+  [[ -f "$report" && ! -L "$report" ]] || return 0
+  mkdir -p "$destination"
+  redact_stream <"$report" >"$destination/results.json"
 }
 
 collect_failure_artifacts() {
@@ -97,7 +96,7 @@ collect_failure_artifacts() {
   compose config --services 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/services.txt" || true
   compose config --images 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/images.txt" || true
   compose logs --no-color 2>&1 | redact_stream >"$SMOKE_ARTIFACT_DIR/compose/logs.txt" || true
-  copy_safe_playwright_files "$PLAYWRIGHT_REPORT_DIR" "$SMOKE_ARTIFACT_DIR/playwright-report"
+  copy_safe_playwright_report "$PLAYWRIGHT_REPORT_DIR" "$SMOKE_ARTIFACT_DIR/playwright-report"
   if [[ -d "$PLAYWRIGHT_OUTPUT_DIR" ]]; then
     while IFS= read -r -d '' file; do
       [[ -f "$file" && ! -L "$file" ]] || continue
@@ -111,6 +110,7 @@ collect_failure_artifacts() {
 
 cleanup() {
   local status=$?
+  status=$(smoke_normalize_exit_status "$status" "$SMOKE_COMPLETED")
   trap - EXIT INT TERM
   set +e
   if [[ $status -ne 0 ]]; then collect_failure_artifacts; fi
@@ -121,7 +121,9 @@ cleanup() {
   rm -rf "$TEMP_DIR"
   exit "$status"
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 trap 'on_error "$LINENO" "$?"' ERR
 
 json_get() {
@@ -141,6 +143,13 @@ request() {
   [[ "$status" == "$expected" ]] || fail "HTTP assertion $(basename "$output") failed: expected $expected, got $status"
 }
 
+fetch_system_dashboard() {
+  local output=$1 status
+  status=$(curl --silent --show-error --output "$output" --write-out '%{http_code}' \
+    -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/system?range=today")
+  [[ "$status" == 200 ]]
+}
+
 wait_ready_status() {
   local service=$1 url=$2 expected=$3
   for _ in $(seq 1 40); do
@@ -153,7 +162,7 @@ wait_ready_status() {
 }
 
 run_browser_gate() {
-  local scenario=$1 email grep_pattern
+  local scenario=$1 email grep_pattern snapshot_mode_display
   [[ "$SMOKE_BROWSER_GATE" == 1 ]] || return 0
   case "$scenario" in
     healthy)
@@ -166,9 +175,13 @@ run_browser_gate() {
       ;;
     *) fail "unknown browser gate scenario: $scenario" ;;
   esac
+  snapshot_mode_display=$(smoke_snapshot_update_arg "$SMOKE_UPDATE_SNAPSHOTS")
+  [[ -n "$snapshot_mode_display" ]] || snapshot_mode_display='(compare)'
+  printf 'core smoke browser command: playwright test --grep %s %s\n' \
+    "$grep_pattern" "$snapshot_mode_display"
 
   if [[ -n "${SMOKE_BROWSER_CONTAINER_IMAGE:-}" ]]; then
-    docker run --rm \
+    smoke_run_snapshot_command "$SMOKE_UPDATE_SNAPSHOTS" docker run --rm \
       --network "${PROJECT}_default" \
       --read-only \
       --tmpfs "/tmp:uid=$(id -u),gid=$(id -g),mode=1777" \
@@ -185,7 +198,7 @@ run_browser_gate() {
       --env E2E_OUTPUT_DIR=/smoke-output/test-results \
       --env E2E_REPORT_DIR=/smoke-output/playwright-report \
       "${SMOKE_BROWSER_CONTAINER_IMAGE}" \
-      corepack pnpm exec playwright test --grep "$grep_pattern" ${SMOKE_UPDATE_SNAPSHOTS:+--update-snapshots}
+      corepack pnpm exec playwright test --grep "$grep_pattern"
     return
   fi
 
@@ -196,7 +209,8 @@ run_browser_gate() {
   E2E_ADMIN_EMAIL="$email" \
   E2E_OUTPUT_DIR="$PLAYWRIGHT_OUTPUT_DIR" \
   E2E_REPORT_DIR="$PLAYWRIGHT_REPORT_DIR" \
-    corepack pnpm exec playwright test --grep "$grep_pattern" ${SMOKE_UPDATE_SNAPSHOTS:+--update-snapshots}
+    smoke_run_snapshot_command "$SMOKE_UPDATE_SNAPSHOTS" \
+      corepack pnpm exec playwright test --grep "$grep_pattern"
 }
 
 cat >"$OVERRIDE_FILE" <<EOF
@@ -434,28 +448,27 @@ if [[ "$dashboard_ready" != 1 ]]; then
   fail 'Business Analytics did not reconcile upload/download facts'
 fi
 
-system_ready=0
-for _ in $(seq 1 30); do
-  status=$(curl --silent --show-error --output "$TEMP_DIR/system.json" --write-out '%{http_code}' -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/system?range=today")
-  if [[ "$status" == 200 ]] && node -e '
+if smoke_wait_for_exact_availability available 30 1 fetch_system_dashboard "$TEMP_DIR/system.json" && node -e '
 const fs=require("node:fs")
 const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))
-if(!["available","partial"].includes(value.availability))process.exit(1)
 if(typeof value.traffic.requestsCount!=="string")process.exit(1)
-' "$TEMP_DIR/system.json"; then system_ready=1; break; fi
-  sleep 1
-done
-[[ "$system_ready" == 1 ]] || fail 'System Health did not become available'
+' "$TEMP_DIR/system.json"; then
+  :
+else
+  fail 'System Health did not become available'
+fi
 
 run_browser_gate healthy
 
 compose stop prometheus
 request 200 "$TEMP_DIR/business-without-prometheus.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
 request 200 "$TEMP_DIR/system-without-prometheus.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/system?range=today"
-[[ $(json_get "$TEMP_DIR/system-without-prometheus.json" availability) == partial ]] || fail 'System Health did not isolate Prometheus failure'
+smoke_has_exact_availability "$TEMP_DIR/system-without-prometheus.json" partial || fail 'System Health did not isolate Prometheus failure'
 request 200 "$TEMP_DIR/page-without-prometheus.html" "$BASE_URL/admin/overview"
 run_browser_gate prometheus-down
 compose up -d --wait --no-deps prometheus
+smoke_wait_for_exact_availability available 60 1 fetch_system_dashboard "$TEMP_DIR/system-recovered.json" || \
+  fail 'System Health did not recover to available'
 
 compose stop analytics-worker
 request 200 "$TEMP_DIR/private-ticket-pending.json" -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' --data '{}' "$BASE_URL/api/v1/files/$FILE_ID/download-ticket"
@@ -546,3 +559,4 @@ done
 if grep -Eiq '(^|[[:space:]])(Authorization|Cookie):' "$TEMP_DIR/compose.log"; then fail 'credential header appeared in logs'; fi
 
 printf 'core empty-environment smoke: ok\n'
+SMOKE_COMPLETED=1

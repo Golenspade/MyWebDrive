@@ -5,7 +5,7 @@ export class DashboardPage {
 
   async waitForHealthyData() {
     await this.page.getByRole('heading', { level: 1, name: '系统概览' }).waitFor()
-    await this.page.getByText(/Prometheus 状态：(available|partial)/).waitFor()
+    await this.page.getByText(/Prometheus 状态：available/).waitFor()
     await this.page.getByText(/读模型更新：(?!不可用)/).waitFor()
   }
 
@@ -25,9 +25,5 @@ export class DashboardPage {
     await this.page.evaluate(async () => {
       await document.fonts.ready
     })
-  }
-
-  dynamicVisualStyle() {
-    return '[data-visual-dynamic] { visibility: hidden !important; }'
   }
 }

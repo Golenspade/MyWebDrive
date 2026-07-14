@@ -22,14 +22,16 @@ export default defineConfig({
   },
   reporter: [
     ['line'],
-    ['html', { outputFolder: reportDir, open: 'never' }],
+    ['json', { outputFile: `${reportDir}/results.json` }],
   ],
   use: {
     baseURL: process.env.E2E_BASE_URL ?? 'http://127.0.0.1:8080',
     locale: 'zh-CN',
     timezoneId: 'Asia/Shanghai',
     colorScheme: 'light',
-    reducedMotion: 'reduce',
+    contextOptions: {
+      reducedMotion: 'reduce',
+    },
     trace: 'off',
     video: 'off',
     screenshot: 'off',

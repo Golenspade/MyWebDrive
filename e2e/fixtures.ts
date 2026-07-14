@@ -1,5 +1,7 @@
 import { test as base, expect } from '@playwright/test'
 
+import { deterministicScreenshotStylePath } from './support/visual'
+
 export const test = base.extend({})
 
 test.beforeEach(async ({ page }) => {
@@ -11,6 +13,7 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async ({ page }, testInfo) => {
   if (testInfo.status === testInfo.expectedStatus) return
   const path = testInfo.outputPath('failure.png')
+  await page.addStyleTag({ path: deterministicScreenshotStylePath })
   await page.screenshot({
     path,
     fullPage: true,
@@ -22,7 +25,6 @@ test.afterEach(async ({ page }, testInfo) => {
       page.getByText(/验证码已发送至/),
     ],
     maskColor: '#000000',
-    style: '*, *::before, *::after { animation: none !important; transition: none !important; }',
   })
   await testInfo.attach('failure-screenshot', { path, contentType: 'image/png' })
 })

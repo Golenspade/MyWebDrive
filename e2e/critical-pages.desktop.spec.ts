@@ -4,6 +4,7 @@ import { PublicPage } from './pages/public-page'
 import { SignInPage } from './pages/sign-in-page'
 import { expectNoSeriousAccessibilityViolations } from './support/accessibility'
 import { requiredEnvironment, retryScopedEmail } from './support/environment'
+import { deterministicScreenshotStylePath } from './support/visual'
 
 test('@healthy home light is structured, accessible, and visually stable', async ({ page }) => {
   const publicPage = new PublicPage(page)
@@ -51,8 +52,9 @@ test('@healthy admin overview uses real OTP and renders both dashboard surfaces'
   await expect(page.getByRole('button', { name: '全部刷新' })).toBeEnabled()
   await expectNoSeriousAccessibilityViolations(page)
   await dashboard.waitForStableRendering()
+  await page.addStyleTag({ path: deterministicScreenshotStylePath })
   await expect(page).toHaveScreenshot('admin-overview-dark.png', {
     fullPage: true,
-    style: dashboard.dynamicVisualStyle(),
+    stylePath: deterministicScreenshotStylePath,
   })
 })

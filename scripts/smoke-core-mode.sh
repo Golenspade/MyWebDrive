@@ -63,3 +63,74 @@ smoke_cleanup_owned_images() {
     docker image rm "$image" >/dev/null 2>&1 || true
   done
 }
+
+smoke_snapshot_update_arg() {
+  case "$1" in
+    0) return 0 ;;
+    1) printf '%s\n' '--update-snapshots=all' ;;
+    *)
+      printf 'SMOKE_UPDATE_SNAPSHOTS must be 0 or 1\n' >&2
+      return 64
+      ;;
+  esac
+}
+
+smoke_run_snapshot_command() {
+  local update=$1
+  shift
+  case "$update" in
+    0) "$@" ;;
+    1) "$@" --update-snapshots=all ;;
+    *)
+      printf 'SMOKE_UPDATE_SNAPSHOTS must be 0 or 1\n' >&2
+      return 64
+      ;;
+  esac
+}
+
+smoke_normalize_exit_status() {
+  local status=$1 completed=$2
+  if [[ "$completed" != 1 && "$status" == 0 ]]; then
+    status=1
+  fi
+  printf '%s\n' "$status"
+}
+
+smoke_validate_snapshot_update_policy() {
+  local update=$1 browser_gate=$2 browser_image=$3 root_dir=$4
+  case "$update" in
+    0) return 0 ;;
+    1) ;;
+    *)
+      printf 'SMOKE_UPDATE_SNAPSHOTS must be 0 or 1\n' >&2
+      return 64
+      ;;
+  esac
+  if [[ "$browser_gate" != 1 ]]; then
+    printf 'snapshot updates require SMOKE_BROWSER_GATE=1\n' >&2
+    return 64
+  fi
+  if [[ -z "$browser_image" ]]; then
+    printf 'snapshot updates require SMOKE_BROWSER_CONTAINER_IMAGE\n' >&2
+    return 64
+  fi
+
+  docker run --rm \
+    --read-only \
+    --tmpfs /tmp:mode=1777 \
+    --env HOME=/tmp \
+    --volume "$root_dir:/work:ro" \
+    --workdir /work \
+    "$browser_image" \
+    sh -ceu '
+      test "$(node -p "process.platform")" = linux
+      test "$(node -p "require(\"@playwright/test/package.json\").version")" = 1.61.1
+      corepack pnpm exec playwright --version | grep -Fx "Version 1.61.1" >/dev/null
+      node --input-type=module -e "
+        import { chromium } from \"@playwright/test\"
+        const browser = await chromium.launch({ headless: true })
+        if (!browser.version()) process.exitCode = 1
+        await browser.close()
+      "
+    '
+}

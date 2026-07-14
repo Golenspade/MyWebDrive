@@ -81,7 +81,7 @@ Legacy tests are available only through `pnpm run test:legacy`; they are not par
 
 The browser suite uses Chromium only. Desktop tests run at `1440x900`; mobile tests run at `390x844`. It signs in through the real `/signin` form and retrieves the one-time code from the recipient-scoped, test-token-protected fake mailbox. The suite records neither traces nor video, and failure screenshots mask authentication inputs and fixed test identities before artifacts are considered for upload.
 
-Committed snapshots under `e2e/snapshots/` are Linux-authoritative. A normal `pnpm run test:e2e` compares against them and must never rewrite them. Snapshot changes are reviewable product changes. Do not generate authoritative snapshots on macOS. Update them only by running the complete Compose gate with the six already-built release images and a Playwright `1.61.1` Linux container:
+Committed snapshots under `e2e/snapshots/` are Linux-authoritative. A normal `pnpm run test:e2e` compares against them and must never rewrite them. `SMOKE_UPDATE_SNAPSHOTS` accepts only `0` or `1`; absent or exactly `0` compares snapshots, and only exactly `1` requests an update. Snapshot changes are reviewable product changes. Do not generate authoritative snapshots on macOS or through the host browser path. Update them only by running the complete Compose gate with the six already-built release images and a Playwright `1.61.1` Linux container:
 
 ```bash
 SMOKE_REUSE_IMAGES=1 \
@@ -91,6 +91,8 @@ SMOKE_UPDATE_SNAPSHOTS=1 \
 bash scripts/smoke-core-e2e.sh
 git diff -- e2e/snapshots
 ```
+
+Before it permits a baseline write, the smoke script starts the selected browser container and verifies its actual Linux platform, the repository-locked Playwright `1.61.1` package, and the ability of that package to launch Chromium from the container. A project name ending in `-linux` is not provenance. Update mode fails closed unless both the browser gate and this verified container path are active.
 
 CI performs the same browser checks after its six release images are built and before any image is published. On failure, only the allowlisted, sanitized directory selected by `SMOKE_ARTIFACT_DIR` may be uploaded.
 

@@ -174,7 +174,8 @@ script_value() {
 authority_filters="--filter './packages/common' --filter './packages/observability' --filter './services/core-api' --filter './services/email-provider' --filter './services/storage' --filter './frontend/cruip-landing'"
 [[ "$(script_value build)" == 'pnpm run build:all' ]] || fail 'build must delegate to the Core-first build'
 [[ "$(script_value build:all)" == "pnpm $authority_filters run build" ]] || fail 'build:all selectors are not exact'
-[[ "$(script_value typecheck)" == "pnpm $authority_filters exec tsc -b --pretty false" ]] || fail 'typecheck selectors are not exact'
+[[ "$(script_value typecheck)" == "pnpm $authority_filters exec tsc -b --pretty false && pnpm run typecheck:e2e" ]] || fail 'typecheck selectors or E2E authority are not exact'
+[[ "$(script_value typecheck:e2e)" == 'tsc -p tsconfig.e2e.json --noEmit --pretty false' ]] || fail 'E2E typecheck is not exposed'
 [[ "$(script_value lint:all)" == "pnpm --if-present $authority_filters run lint" ]] || fail 'lint:all selectors are not exact'
 [[ "$(script_value test:all)" == "pnpm --if-present $authority_filters run test && pnpm run test:generated && pnpm run verify:generated && pnpm run test:release-gate" ]] || fail 'test:all selectors are not exact'
 [[ "$(script_value test:legacy)" == 'bash scripts/run-legacy-tests.sh' ]] || fail 'test:legacy must remain explicit'

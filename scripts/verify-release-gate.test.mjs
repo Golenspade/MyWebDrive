@@ -26,6 +26,8 @@ test('Playwright is Chromium-only, deterministic, and never records credentials'
   assert.match(config, /video:\s*'off'/)
   assert.match(config, /screenshot:\s*'off'/)
   assert.doesNotMatch(config, /firefox|webkit/i)
+  assert.match(config, /\['json',\s*\{\s*outputFile:/)
+  assert.doesNotMatch(config, /\['html'/)
 
   const files = [
     'e2e/fixtures.ts',
@@ -42,7 +44,24 @@ test('Playwright is Chromium-only, deterministic, and never records credentials'
   }
 
   const dashboardPage = await read('e2e/pages/dashboard-page.ts')
-  assert.match(dashboardPage, /\[data-visual-dynamic\].*visibility: hidden/)
+  assert.doesNotMatch(dashboardPage, /dynamicVisualStyle/)
+  const desktop = await read('e2e/critical-pages.desktop.spec.ts')
+  assert.match(desktop, /stylePath:\s*deterministicScreenshotStylePath/)
+  assert.match(desktop, /addStyleTag\(\{\s*path:\s*deterministicScreenshotStylePath\s*\}\)/)
+  assert.doesNotMatch(desktop, /\bstyle:/)
+  const deterministicCss = await read('e2e/styles/deterministic-screenshot.css')
+  assert.match(deterministicCss, /\[data-visual-dynamic\][^{]*\{[^}]*visibility:\s*hidden\s*!important/)
+})
+
+test('root typecheck includes Playwright config, specs, page objects, and fixtures', async () => {
+  const packageJson = JSON.parse(await read('package.json'))
+  assert.equal(packageJson.scripts['typecheck:e2e'], 'tsc -p tsconfig.e2e.json --noEmit --pretty false')
+  assert.match(packageJson.scripts.typecheck, /pnpm run typecheck:e2e/)
+  const tsconfig = JSON.parse(await read('tsconfig.e2e.json'))
+  assert.deepEqual(tsconfig.include, ['playwright.config.ts', 'e2e/**/*.ts'])
+  const optionContract = await read('e2e/support/playwright-options.contract.ts')
+  assert.match(optionContract, /@ts-expect-error Playwright 1\.61\.1 does not support style/)
+  assert.match(optionContract, /stylePath:/)
 })
 
 test('visual authority contains the seven required Linux Chromium baselines', async () => {
@@ -67,9 +86,28 @@ test('browser documentation requires explicit Linux snapshot updates', async () 
 
 test('smoke runs healthy browser checks before Prometheus degradation and degraded checks before recovery', async () => {
   const smoke = await read('scripts/smoke-core-e2e.sh')
+  const health = await read('scripts/smoke-core-health.sh')
+  assert.match(health, /value\.availability !== expected/)
+  assert.match(smoke, /smoke_wait_for_exact_availability available/)
+  assert.match(smoke, /core smoke browser command: playwright test --grep/)
   const healthy = smoke.indexOf('run_browser_gate healthy')
   const stop = smoke.indexOf('compose stop prometheus')
   const degraded = smoke.indexOf('run_browser_gate prometheus-down')
   const recovery = smoke.indexOf('compose up -d --wait --no-deps prometheus', degraded)
-  assert(healthy >= 0 && healthy < stop && stop < degraded && degraded < recovery)
+  const recovered = smoke.indexOf('System Health did not recover to available', recovery)
+  assert(healthy >= 0 && healthy < stop && stop < degraded && degraded < recovery && recovery < recovered)
+  assert.doesNotMatch(smoke, /\["available","partial"\]\.includes/)
+})
+
+test('snapshot update documentation requires verified Linux container provenance', async () => {
+  const docs = await read('docs/manage-services.md')
+  assert.match(docs, /exactly `1`/)
+  assert.match(docs, /actual Linux platform/)
+  assert.match(docs, /Playwright `1\.61\.1`/)
+  assert.match(docs, /launch Chromium/)
+  assert.match(docs, /project name.*not.*provenance/i)
+  const mode = await read('scripts/smoke-core-mode.sh')
+  assert.match(mode, /process\.platform/)
+  assert.match(mode, /@playwright\/test\/package\.json.*1\.61\.1/s)
+  assert.match(mode, /chromium\.launch/)
 })

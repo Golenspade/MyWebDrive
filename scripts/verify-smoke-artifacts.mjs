@@ -8,7 +8,7 @@ const sensitiveTextPatterns = [
   { pattern: /\bCookie\s*:\s*[^\r\n]+/gi },
   { pattern: /\b(?:mwd_refresh|mwd_access)=[^;\s]+/gi },
   {
-    pattern: /(["']?(?:accessToken|refreshToken|mailboxToken|uploadGrant|downloadGrant|objectKey|challengeId|otp|CORE_SESSION_SECRET|OTP_PEPPER|STORAGE_GRANT_SECRET|CORE_CALLBACK_SECRET|EMAIL_PROVIDER_TOKEN|FAKE_EMAIL_TEST_TOKEN|E2E_MAILBOX_TOKEN|POSTGRES_PASSWORD|REDIS_PASSWORD|MINIO_ROOT_PASSWORD)["']?\s*[:=]\s*)["']?(?!<redacted>)[^"'\s,}]+["']?/gi,
+    pattern: /(["']?(?:accessToken|refreshToken|mailboxToken|uploadGrant|downloadGrant|objectKey|challengeId|otp|CORE_SESSION_SECRET|OTP_PEPPER|STORAGE_GRANT_SECRET|CORE_CALLBACK_SECRET|EMAIL_PROVIDER_TOKEN|FAKE_EMAIL_TEST_TOKEN|E2E_MAILBOX_TOKEN|CORE_DATABASE_URL|REDIS_URL|POSTGRES_PASSWORD|REDIS_PASSWORD|MINIO_SECRET_KEY|MINIO_ROOT_PASSWORD)["']?\s*[:=]\s*)["']?(?!<redacted>)[^"'\s,}]+["']?/gi,
     preservePrefix: true,
   },
   {
@@ -19,6 +19,8 @@ const sensitiveTextPatterns = [
     pattern: /(\bX-Test-Mailbox-Token\s*:\s*)(?!<redacted>)\S+/gi,
     preservePrefix: true,
   },
+  { pattern: /\b(?:postgres(?:ql)?|rediss?):\/\/[^\s"'<>]*@[^\s"'<>]*/gi },
+  { pattern: /\bsmoke-(?:postgres|redis|minio)(?:-root)?-[A-Za-z0-9._:-]+\b/gi },
   { pattern: /\bsmoke-(?:mailbox|email-token)-[A-Za-z0-9._:-]+\b/gi },
   { pattern: /\bcontract-[A-Za-z0-9._-]*(?:secret|token|password|pepper)[A-Za-z0-9._-]*\b/gi },
 ]
@@ -29,7 +31,45 @@ const allowedComposeFiles = new Set([
   'compose/ps.txt',
   'compose/services.txt',
 ])
-const allowedReportExtensions = new Set(['.css', '.html', '.js', '.json', '.png', '.txt'])
+const MAX_TEXT_ARTIFACT_BYTES = 4 * 1024 * 1024
+const MAX_DECODED_BYTES = 256 * 1024
+const MAX_DECODE_DEPTH = 3
+const encodedCandidatePattern = /(?<![A-Za-z0-9+/_-])([A-Za-z0-9+/_-]{16,}={0,2})(?![A-Za-z0-9+/_=-])/g
+
+function decodeCandidate(candidate) {
+  if (candidate.length > MAX_DECODED_BYTES * 2) return null
+  const normalized = candidate.replace(/-/g, '+').replace(/_/g, '/')
+  const remainder = normalized.length % 4
+  if (remainder === 1) return null
+  const padded = `${normalized}${remainder === 0 ? '' : '='.repeat(4 - remainder)}`
+  const bytes = Buffer.from(padded, 'base64')
+  if (bytes.length === 0 || bytes.length > MAX_DECODED_BYTES) return null
+  const decoded = bytes.toString('utf8')
+  if (decoded.includes('\uFFFD')) return null
+  return decoded
+}
+
+function containsEncodedSensitiveText(input, depth = 0) {
+  if (depth >= MAX_DECODE_DEPTH) return false
+  encodedCandidatePattern.lastIndex = 0
+  for (const match of input.matchAll(encodedCandidatePattern)) {
+    const decoded = decodeCandidate(match[1])
+    if (!decoded) continue
+    if (containsSensitiveText(decoded) || containsEncodedSensitiveText(decoded, depth + 1)) return true
+  }
+  return false
+}
+
+function redactEncodedSensitiveText(input) {
+  encodedCandidatePattern.lastIndex = 0
+  return input.replace(encodedCandidatePattern, (candidate) => {
+    const decoded = decodeCandidate(candidate)
+    if (!decoded) return candidate
+    return containsSensitiveText(decoded) || containsEncodedSensitiveText(decoded, 1)
+      ? '<redacted-encoded>'
+      : candidate
+  })
+}
 
 export function redactSensitiveText(input) {
   let output = String(input)
@@ -39,12 +79,12 @@ export function redactSensitiveText(input) {
   output = output.replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, (email) => (
     email.toLowerCase().endsWith('@example.test') ? email : '<redacted-email>'
   ))
-  return output
+  return redactEncodedSensitiveText(output)
 }
 
 function isAllowedPath(path) {
   if (allowedComposeFiles.has(path)) return true
-  if (path.startsWith('playwright-report/')) return allowedReportExtensions.has(extname(path))
+  if (path === 'playwright-report/results.json') return true
   if (path.startsWith('test-results/')) return extname(path) === '.png'
   return false
 }
@@ -80,8 +120,11 @@ export async function assertSafeArtifactTree(rootPath) {
         }
         continue
       }
-      const text = await readFile(absolute, 'utf8')
+      const bytes = await readFile(absolute)
+      if (bytes.length > MAX_TEXT_ARTIFACT_BYTES) throw new Error(`artifact textual file is too large: ${path}`)
+      const text = bytes.toString('utf8')
       if (containsSensitiveText(text)) throw new Error(`artifact contains sensitive text: ${path}`)
+      if (containsEncodedSensitiveText(text)) throw new Error(`artifact contains encoded sensitive text: ${path}`)
     }
   }
 
