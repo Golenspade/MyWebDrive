@@ -156,6 +156,13 @@ fetch_system_dashboard() {
   [[ "$status" == 200 ]]
 }
 
+fetch_business_dashboard() {
+  local output=$1 status
+  status=$(curl --silent --show-error --output "$output" --write-out '%{http_code}' \
+    -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today")
+  [[ "$status" == 200 ]]
+}
+
 wait_ready_status() {
   local service=$1 url=$2 expected=$3
   for _ in $(seq 1 40); do
@@ -399,6 +406,11 @@ request 200 "$TEMP_DIR/private-download.bin" -H "Authorization: Bearer $PRIVATE_
 cmp "$TEMP_DIR/payload.bin" "$TEMP_DIR/private-download.bin" >/dev/null || fail 'private download bytes mismatch'
 request 401 "$TEMP_DIR/private-replay.json" -H "Authorization: Bearer $PRIVATE_GRANT" "$BASE_URL/api/v1/storage/objects/$PRIVATE_OBJECT"
 
+if ! smoke_wait_for_exact_business_activity 1 "$SIZE_BYTES" 1 "$SIZE_BYTES" \
+  60 1 fetch_business_dashboard "$TEMP_DIR/business-after-private.json"; then
+  fail 'private download analytics did not reconcile before the intentional Core outage'
+fi
+
 request 201 "$TEMP_DIR/share.json" -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' --data '{"maxDownloads":1}' "$BASE_URL/api/v1/files/$FILE_ID/shares"
 SHARE_TOKEN=$(json_get "$TEMP_DIR/share.json" token)
 compose stop core-api
@@ -430,22 +442,8 @@ PUBLIC_GRANT=$(json_get "$TEMP_DIR/publication-ticket.json" downloadGrant)
 request 200 "$TEMP_DIR/publication-download.bin" -H "Authorization: Bearer $PUBLIC_GRANT" "$BASE_URL/api/v1/storage/objects/$PUBLIC_OBJECT"
 cmp "$TEMP_DIR/payload.bin" "$TEMP_DIR/publication-download.bin" >/dev/null || fail 'publication download bytes mismatch'
 
-dashboard_ready=0
-for _ in $(seq 1 60); do
-  request 200 "$TEMP_DIR/business.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
-  if node -e '
-const fs=require("node:fs")
-const value=JSON.parse(fs.readFileSync(process.argv[1],"utf8"))
-const expectedBytes=(BigInt(process.argv[2])*3n).toString()
-if(value.activity.uploads.count!=="1")process.exit(1)
-if(value.activity.uploads.bytes!==process.argv[2])process.exit(1)
-if(value.activity.downloads.count!=="3")process.exit(1)
-if(value.activity.downloads.bytes!==expectedBytes)process.exit(1)
-for(const field of [value.activity.uploads.count,value.activity.uploads.bytes,value.activity.downloads.count,value.activity.downloads.bytes])if(typeof field!=="string")process.exit(1)
-' "$TEMP_DIR/business.json" "$SIZE_BYTES"; then dashboard_ready=1; break; fi
-  sleep 1
-done
-if [[ "$dashboard_ready" != 1 ]]; then
+if ! smoke_wait_for_exact_business_activity 1 "$SIZE_BYTES" 3 "$((SIZE_BYTES * 3))" \
+  60 1 fetch_business_dashboard "$TEMP_DIR/business.json"; then
   printf 'dashboard diagnostic response:\n' >&2
   sed -E 's/("generatedAt"|"readModelUpdatedAt")[[:space:]]*:[[:space:]]*"[^"]+"/\1:"<timestamp>"/g' "$TEMP_DIR/business.json" >&2
   compose exec -T postgres psql -U mywebdrive -d mywebdrive_core -c \

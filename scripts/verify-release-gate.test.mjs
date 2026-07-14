@@ -191,6 +191,20 @@ test('Redis and MinIO recovery wait for running storage services without re-up f
   assert.doesNotMatch(`${redisRecovery}\n${minioRecovery}`, /compose restart[^\n]*storage-worker/)
 })
 
+test('private download analytics reconciles before the intentional Core outage', async () => {
+  const smoke = await read('scripts/smoke-core-e2e.sh')
+  const privateDownload = smoke.indexOf("fail 'private download bytes mismatch'")
+  const privateAnalytics = smoke.indexOf(
+    'smoke_wait_for_exact_business_activity 1 "$SIZE_BYTES" 1 "$SIZE_BYTES"',
+    privateDownload,
+  )
+  const coreStop = smoke.indexOf('compose stop core-api', privateDownload)
+  assert(privateDownload >= 0 && privateDownload < privateAnalytics && privateAnalytics < coreStop)
+
+  const finalAnalytics = smoke.slice(coreStop)
+  assert.match(finalAnalytics, /smoke_wait_for_exact_business_activity 1 "\$SIZE_BYTES" 3/)
+})
+
 test('failure artifact workflow passes the directory directly to the real package script', async () => {
   const workflow = await read('.github/workflows/ci.yml')
   const artifactStep = workflow.slice(

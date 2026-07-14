@@ -21,6 +21,41 @@ smoke_has_exact_availability "$FIXTURES/available.json" available
 smoke_has_exact_availability "$FIXTURES/partial.json" partial
 ! smoke_has_exact_availability "$FIXTURES/partial.json" available
 
+printf '%s\n' '{"activity":{"uploads":{"count":"1","bytes":"45"},"downloads":{"count":"1","bytes":"45"}}}' \
+  > "$FIXTURES/business-ready.json"
+printf '%s\n' '{"activity":{"uploads":{"count":"1","bytes":"45"},"downloads":{"count":"0","bytes":"0"}}}' \
+  > "$FIXTURES/business-pending.json"
+printf '%s\n' '{"activity":{"uploads":{"count":"1","bytes":"45"},"downloads":{"count":1,"bytes":"45"}}}' \
+  > "$FIXTURES/business-number.json"
+
+smoke_has_exact_business_activity "$FIXTURES/business-ready.json" 1 45 1 45
+! smoke_has_exact_business_activity "$FIXTURES/business-ready.json" 1 45 2 90
+! smoke_has_exact_business_activity "$FIXTURES/business-number.json" 1 45 1 45
+
+business_attempt=0
+fetch_business_state() {
+  local output=$1
+  business_attempt=$((business_attempt + 1))
+  if [[ $business_attempt -lt 3 ]]; then
+    cp "$FIXTURES/business-pending.json" "$output"
+  else
+    cp "$FIXTURES/business-ready.json" "$output"
+  fi
+}
+smoke_wait_for_exact_business_activity 1 45 1 45 3 0 \
+  fetch_business_state "$FIXTURES/business-recovery.json"
+if [[ $business_attempt -ne 3 ]]; then
+  printf 'business activity polling stopped after %s attempts instead of 3\n' "$business_attempt" >&2
+  exit 1
+fi
+
+business_attempt=0
+if smoke_wait_for_exact_business_activity 1 45 1 45 2 0 \
+  fetch_business_state "$FIXTURES/business-timeout.json"; then
+  printf 'business activity polling accepted incomplete analytics\n' >&2
+  exit 1
+fi
+
 attempt=0
 fetch_recovery_state() {
   local output=$1

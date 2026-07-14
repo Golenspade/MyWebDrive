@@ -22,6 +22,42 @@ smoke_wait_for_exact_availability() {
   return 1
 }
 
+smoke_has_exact_business_activity() {
+  local input=$1
+  local expected_upload_count=$2 expected_upload_bytes=$3
+  local expected_download_count=$4 expected_download_bytes=$5
+  node -e '
+const fs = require("node:fs")
+const value = JSON.parse(fs.readFileSync(process.argv[1], "utf8"))
+const fields = [
+  value.activity?.uploads?.count,
+  value.activity?.uploads?.bytes,
+  value.activity?.downloads?.count,
+  value.activity?.downloads?.bytes,
+]
+if (fields.some((field) => typeof field !== "string")) process.exit(1)
+const expected = process.argv.slice(2)
+if (fields.some((field, index) => field !== expected[index])) process.exit(1)
+' "$input" "$expected_upload_count" "$expected_upload_bytes" \
+    "$expected_download_count" "$expected_download_bytes"
+}
+
+smoke_wait_for_exact_business_activity() {
+  local expected_upload_count=$1 expected_upload_bytes=$2
+  local expected_download_count=$3 expected_download_bytes=$4
+  local attempts=$5 interval=$6 fetch_function=$7 output=$8
+  local poll_attempt
+  for ((poll_attempt = 1; poll_attempt <= attempts; poll_attempt += 1)); do
+    if "$fetch_function" "$output" && smoke_has_exact_business_activity \
+      "$output" "$expected_upload_count" "$expected_upload_bytes" \
+      "$expected_download_count" "$expected_download_bytes"; then
+      return 0
+    fi
+    if [[ $poll_attempt -lt $attempts && $interval != 0 ]]; then sleep "$interval"; fi
+  done
+  return 1
+}
+
 smoke_capture_container_identity() {
   local service=$1 container_id inspection
   local inspected_id inspected_pid inspected_started_at inspected_restart_count extra
