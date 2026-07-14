@@ -441,6 +441,34 @@ assert_secret_output_safe "$start_output" 'start output'
 grep -Fx "arg[2]=$ENV_FILE" "$COMMAND_STUB_LOG" >/dev/null || fail 'the env-file path with spaces was not preserved as one argv element'
 grep -Fx 'arg[9]=up' "$COMMAND_STUB_LOG" >/dev/null || fail 'start did not reach Compose up after version validation'
 
+mkdir -p "$FIXTURES/ambient-bin"
+REAL_DOCKER=$(command -v docker)
+AMBIENT_DOCKER_LOG="$FIXTURES/ambient-docker.log"
+export REAL_DOCKER AMBIENT_DOCKER_LOG
+: >"$AMBIENT_DOCKER_LOG"
+cat >"$FIXTURES/ambient-bin/docker" <<'STUB'
+#!/bin/sh
+is_config=0
+for argument do [ "$argument" = config ] && is_config=1; done
+if [ "$is_config" = 1 ]; then
+  printf 'EMAIL_PROVIDER_TOKEN=%s CORE_SESSION_SECRET=%s\n' \
+    "${EMAIL_PROVIDER_TOKEN-<unset>}" "${CORE_SESSION_SECRET-<unset>}" >>"$AMBIENT_DOCKER_LOG"
+fi
+exec "$REAL_DOCKER" "$@"
+STUB
+chmod +x "$FIXTURES/ambient-bin/docker"
+ambient_config_output=$( \
+  EMAIL_PROVIDER_TOKEN=ambient-ci-email-token \
+  CORE_SESSION_SECRET=ambient-ci-core-secret \
+  PATH="$FIXTURES/ambient-bin:$ORIGINAL_PATH" \
+  /bin/bash "$MANAGER" config 2>&1
+)
+[[ $(sort <<<"$ambient_config_output") == $(sort <<<"$STUB_SERVICES") ]] || fail 'ambient CI secrets overrode the stable local env'
+[[ -s "$AMBIENT_DOCKER_LOG" ]] || fail 'ambient-shadow fixture did not observe Compose config'
+if grep -Fv 'EMAIL_PROVIDER_TOKEN=<unset> CORE_SESSION_SECRET=<unset>' "$AMBIENT_DOCKER_LOG" >/dev/null; then
+  fail 'ambient CI secrets reached Compose config instead of the stable local env'
+fi
+
 config_output=$(PATH="$ORIGINAL_PATH" /bin/bash "$MANAGER" config 2>&1)
 expected_services=$STUB_SERVICES
 [[ $(sort <<<"$config_output") == $(sort <<<"$expected_services") ]] || fail 'config did not print the authoritative service set'
@@ -452,10 +480,32 @@ compose_args=(
   -f "$BASE_COMPOSE"
   -f "$DEV_COMPOSE"
 )
-docker compose "${compose_args[@]}" config --quiet
-direct_services=$(docker compose "${compose_args[@]}" config --services)
+fixture_compose() {
+  env \
+    -u POSTGRES_PASSWORD \
+    -u REDIS_PASSWORD \
+    -u MINIO_ROOT_USER \
+    -u MINIO_ROOT_PASSWORD \
+    -u MINIO_BUCKET \
+    -u CORE_DATABASE_URL \
+    -u REDIS_URL \
+    -u CORE_SESSION_SECRET \
+    -u OTP_PEPPER \
+    -u STORAGE_GRANT_SECRET \
+    -u CORE_CALLBACK_SECRET \
+    -u EMAIL_PROVIDER_TOKEN \
+    -u DEFAULT_USER_QUOTA_BYTES \
+    -u CORE_ADMIN_EMAILS \
+    -u REGISTRY \
+    -u IMAGE_TAG \
+    -u GIT_SHA \
+    -u HTTP_PORT \
+    docker compose "${compose_args[@]}" "$@"
+}
+fixture_compose config --quiet
+direct_services=$(fixture_compose config --services)
 [[ $(sort <<<"$direct_services") == $(sort <<<"$config_output") ]] || fail 'config did not print the real Compose service set'
-docker compose "${compose_args[@]}" config --format json >"$FIXTURES/compose.json"
+fixture_compose config --format json >"$FIXTURES/compose.json"
 node - "$FIXTURES/compose.json" "$ROOT_DIR" "$ENV_FILE" <<'NODE'
 const fs = require('node:fs')
 const path = require('node:path')

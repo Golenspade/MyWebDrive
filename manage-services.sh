@@ -206,7 +206,26 @@ ensure_local_env() {
 }
 
 compose() {
-  docker compose \
+  env \
+    -u POSTGRES_PASSWORD \
+    -u REDIS_PASSWORD \
+    -u MINIO_ROOT_USER \
+    -u MINIO_ROOT_PASSWORD \
+    -u MINIO_BUCKET \
+    -u CORE_DATABASE_URL \
+    -u REDIS_URL \
+    -u CORE_SESSION_SECRET \
+    -u OTP_PEPPER \
+    -u STORAGE_GRANT_SECRET \
+    -u CORE_CALLBACK_SECRET \
+    -u EMAIL_PROVIDER_TOKEN \
+    -u DEFAULT_USER_QUOTA_BYTES \
+    -u CORE_ADMIN_EMAILS \
+    -u REGISTRY \
+    -u IMAGE_TAG \
+    -u GIT_SHA \
+    -u HTTP_PORT \
+    docker compose \
     --env-file "$ENV_FILE" \
     --project-name "$PROJECT_NAME" \
     -f "$BASE_COMPOSE" \

@@ -7,11 +7,18 @@ const read = (path) => readFile(new URL(path, root), 'utf8')
 
 test('CI orders quality, six-image build, full smoke, then publication', async () => {
   const workflow = await read('.github/workflows/ci.yml')
+  const install = workflow.indexOf('name: Install locked dependencies')
+  const migration = workflow.indexOf('name: Apply Core migrations')
+  const chromium = workflow.indexOf('name: Install Chromium runtime')
   const quality = workflow.indexOf('name: Workspace quality gate')
   const build = workflow.indexOf('name: Build six release images')
   const smoke = workflow.indexOf('name: Full Core smoke and browser gate')
   const publish = workflow.indexOf('name: Publish immutable images')
+  assert(install >= 0 && install < migration && migration < quality)
+  assert(chromium >= 0 && chromium < quality)
   assert(quality >= 0 && quality < build && build < smoke && smoke < publish)
+  assert.match(workflow, /CORE_DATABASE_URL: postgresql:\/\/postgres:postgres@127\.0\.0\.1:5432\/mywebdrive_core_test\?schema=public/)
+  assert.match(workflow.slice(migration, quality), /run: pnpm --filter core-api exec prisma migrate deploy/)
   assert.match(workflow, /SMOKE_REUSE_IMAGES:\s*["']?1/)
   assert.match(workflow, /SMOKE_BROWSER_GATE:\s*["']?1/)
   assert.doesNotMatch(workflow.slice(0, smoke), /docker push/)
@@ -63,6 +70,20 @@ test('root typecheck includes Playwright config, specs, page objects, and fixtur
   const optionContract = await read('e2e/support/playwright-options.contract.ts')
   assert.match(optionContract, /@ts-expect-error Playwright 1\.61\.1 does not support style/)
   assert.match(optionContract, /stylePath:/)
+})
+
+test('active frontend declares its explicit TypeScript ESLint runtime directly', async () => {
+  const eslintConfig = JSON.parse(await read('frontend/.eslintrc.json'))
+  const frontendPackage = JSON.parse(await read('frontend/cruip-landing/package.json'))
+
+  assert.equal(eslintConfig.parser, '@typescript-eslint/parser')
+  assert(eslintConfig.plugins.includes('@typescript-eslint'))
+  assert(eslintConfig.plugins.includes('react-hooks'))
+  assert(eslintConfig.overrides.some((override) =>
+    override.extends?.includes('plugin:@typescript-eslint/recommended')))
+  assert.equal(frontendPackage.devDependencies['@typescript-eslint/eslint-plugin'], '8.47.0')
+  assert.equal(frontendPackage.devDependencies['@typescript-eslint/parser'], '8.47.0')
+  assert.equal(frontendPackage.devDependencies['eslint-plugin-react-hooks'], '7.0.1')
 })
 
 test('release gate persists structured report, cleanup, and entrypoint contracts', async () => {
