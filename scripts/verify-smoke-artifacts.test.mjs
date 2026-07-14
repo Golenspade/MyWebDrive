@@ -43,11 +43,18 @@ MINIO_SECRET_KEY=smoke-minio-run
 MINIO_ROOT_PASSWORD=smoke-minio-root-run
 recipient=user@real.invalid code=123456
 fixture=healthy-admin@example.test status=partial
+/api/v1/shares/private-share-token/download-ticket
+/api/v1/storage/objects/private%2Fobject-key
+/api/v1/publications/public-release-notes/download-ticket
+smoke-email-token
 `)
-  assert.doesNotMatch(redacted, /secret|header\.payload|private\/key|123456|smoke-(?:mailbox|postgres|redis|minio)|user@real\.invalid/)
+  assert.doesNotMatch(redacted, /secret|header\.payload|private\/key|private-share-token|private%2Fobject-key|123456|smoke-(?:mailbox|email-token|postgres|redis|minio)|user@real\.invalid/)
   assert.doesNotMatch(redacted, /postgresql:\/\/|redis:\/\//)
   assert.match(redacted, /healthy-admin@example\.test/)
   assert.match(redacted, /status=partial/)
+  assert.match(redacted, /\/api\/v1\/shares\/<redacted>\/download-ticket/)
+  assert.match(redacted, /\/api\/v1\/storage\/objects\/<redacted>/)
+  assert.match(redacted, /\/api\/v1\/publications\/public-release-notes\/download-ticket/)
   assert.equal(redactSensitiveText(redacted), redacted)
 })
 
@@ -102,6 +109,34 @@ test('artifact tree rejects credential-bearing URLs and smoke service credential
     await writeFile(join(root, 'compose', 'logs.txt'), `${value}\n`)
     await assert.rejects(() => assertSafeArtifactTree(root), /sensitive/)
   }
+})
+
+test('artifact tree rejects bare email tokens and credential-bearing API path segments', async () => {
+  for (const value of [
+    'smoke-email-token',
+    'POST /api/v1/shares/private-share-token/download-ticket 200',
+    'GET /api/v1/storage/objects/private%2Fobject-key 200',
+  ]) {
+    const root = await mkdtemp(join(tmpdir(), 'mwd-artifact-route-secret-'))
+    await mkdir(join(root, 'compose'), { recursive: true })
+    await writeFile(join(root, 'compose', 'logs.txt'), `${value}\n`)
+    await assert.rejects(() => assertSafeArtifactTree(root), /sensitive/)
+  }
+})
+
+test('artifact tree rejects credential-bearing API paths hidden in base64', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mwd-artifact-route-encoded-'))
+  await mkdir(join(root, 'playwright-report'), { recursive: true })
+  const route = Buffer.from('/api/v1/shares/private-share-token/download-ticket').toString('base64url')
+  await writeFile(join(root, 'playwright-report', 'results.json'), JSON.stringify({ route }))
+  await assert.rejects(() => assertSafeArtifactTree(root), /encoded sensitive text/)
+})
+
+test('artifact tree permits public publication slugs', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mwd-artifact-publication-'))
+  await mkdir(join(root, 'compose'), { recursive: true })
+  await writeFile(join(root, 'compose', 'logs.txt'), 'POST /api/v1/publications/public-release-notes/download-ticket 200\n')
+  await assertSafeArtifactTree(root)
 })
 
 test('artifact report allowlist rejects opaque HTML and JavaScript bundles', async () => {

@@ -51,6 +51,9 @@ reject 'rewrites|API_BASE_URL|localhost:9080|gateway' "$ROOT_DIR/frontend/cruip-
 require 'outputFileTracingRoot' "$ROOT_DIR/frontend/cruip-landing/next.config.js" 'monorepo tracing root is required'
 require '^USER[[:space:]]+node$' "$ROOT_DIR/frontend/cruip-landing/Dockerfile" 'web image must run as node'
 require '^USER[[:space:]]+nginx$' "$NGINX_DIR/Dockerfile" 'nginx image must run as nginx'
+require 'deploy\.sh "\$IMAGE_TAG"' "$ROOT_DIR/docs/runbooks/core-cutover-and-rollback.md" 'new releases must resolve digests through deploy.sh from the immutable tag'
+require '\-\-manifest.*historical manifest' "$ROOT_DIR/docs/runbooks/core-cutover-and-rollback.md" '--manifest must be limited to existing historical manifests'
+require 'ANALYTICS_WORKER_CONTAINER_IMAGE_ID.*container image ID.*support marker' "$ROOT_DIR/docs/runbooks/core-cutover-and-rollback.md" 'Analytics Worker manifest semantics are unclear'
 
 for service in auth user metadata sharing api-gateway-node gateway; do
   reject "^[[:space:]]{2}${service}:" "$COMPOSE" "old service remains active: $service"

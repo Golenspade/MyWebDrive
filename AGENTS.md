@@ -56,12 +56,13 @@ Notes:
 - `./manage-services.sh` is the contracted Core-first local lifecycle manager.
 - Supported commands are exactly `setup`, `start`, `stop`, `status`,
   `logs [service]`, `config`, `smoke`, `quality`, `reset --confirm`, and
-  `legacy:<command>`.
+  the read-only `legacy:help` / `legacy:status` compatibility whitelist.
 - `./manage-services.sh smoke` runs the isolated Core-first Docker smoke test;
   it builds images, creates disposable volumes, and cleans them afterward.
 - Any unrecognized former command must warn `SOFT-RETIRED`, exit `64`, and must
   never start an archived stack.
-- `legacy:<command>` is observation-only. Its retirement clock and deletion
+- `legacy:help` and `legacy:status` are observation-only; all other `legacy:*`
+  commands exit 64 without invoking archived code. The retirement clock and deletion
   eligibility are defined by the event-based rule in `docs/manage-services.md`.
 
 ## Database (Prisma)

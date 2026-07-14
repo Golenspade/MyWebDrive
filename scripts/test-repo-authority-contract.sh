@@ -90,6 +90,22 @@ STUB
     fi
   done
 
+  for blocked_legacy_command in start build generate deploy reset db:reset unknown; do
+    set +e
+    blocked_legacy_output=$("$MANAGER" "legacy:$blocked_legacy_command" 2>&1)
+    blocked_legacy_status=$?
+    set -e
+    if (( blocked_legacy_status != 64 )); then
+      record_failure "manage-services.sh legacy:$blocked_legacy_command must exit 64"
+    fi
+    if [[ $blocked_legacy_output != *SOFT-RETIRED* || $blocked_legacy_output != *observation-only* ]]; then
+      record_failure "manage-services.sh legacy:$blocked_legacy_command must fail with an observation-only warning"
+    fi
+    if [[ $blocked_legacy_output == *'This split-control-plane manager'* ]]; then
+      record_failure "manage-services.sh legacy:$blocked_legacy_command invoked the archived manager"
+    fi
+  done
+
   require_text "$MANAGER" 'make -C "$ROOT_DIR" quality-check' 'manage-services.sh quality forwarding'
   require_text "$MANAGER" 'scripts/smoke-core-e2e.sh' 'manage-services.sh smoke forwarding'
   reject_pattern "$MANAGER" 'services/(auth|user|metadata|sharing|api-gateway-node)|docker-compose\.(production|node|images|alicloud)\.yml' 'manage-services.sh'

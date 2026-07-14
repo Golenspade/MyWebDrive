@@ -36,10 +36,10 @@ config
 smoke
 quality
 reset --confirm
-legacy:<command>
+legacy:help | legacy:status
 ```
 
-`reset` 只在显式提供 `--confirm` 时删除本地容器和卷。`legacy:<command>` 不是开发入口，只允许按软退役政策检查归档行为。
+`reset` 只在显式提供 `--confirm` 时删除本地容器和卷。Legacy 兼容面只允许 `legacy:help` 和不调用归档脚本的 socket-only `legacy:status`；其他 `legacy:*` 命令退出 64。
 
 ## 验证矩阵
 

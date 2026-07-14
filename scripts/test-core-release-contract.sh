@@ -102,7 +102,7 @@ expect_script_failure missing-deploy-migration "$FIXTURES/missing-deploy-migrate
 mkdir -p "$FIXTURES/fake-bin"
 cat > "$FIXTURES/fake-bin/docker" <<'EOF'
 #!/usr/bin/env bash
-printf 'CORE=%s EMAIL=%s STORAGE=%s WEB=%s NGINX=%s PROMETHEUS=%s :: %s\n' "${CORE_API_IMAGE-}" "${EMAIL_PROVIDER_IMAGE-}" "${STORAGE_IMAGE-}" "${WEB_IMAGE-}" "${NGINX_IMAGE-}" "${PROMETHEUS_IMAGE-}" "$*" >> "$DOCKER_CALL_LOG"
+printf 'GIT_SHA=%s CORE=%s EMAIL=%s STORAGE=%s WEB=%s NGINX=%s PROMETHEUS=%s :: %s\n' "${GIT_SHA-}" "${CORE_API_IMAGE-}" "${EMAIL_PROVIDER_IMAGE-}" "${STORAGE_IMAGE-}" "${WEB_IMAGE-}" "${NGINX_IMAGE-}" "${PROMETHEUS_IMAGE-}" "$*" >> "$DOCKER_CALL_LOG"
 if [[ -n "${DOCKER_BLOCK_FILE-}" && "$1" == compose && "$2" == version ]]; then
   : > "$DOCKER_ENTERED_FILE"
   while [[ ! -f "$DOCKER_BLOCK_FILE" ]]; do sleep 0.05; done
@@ -218,8 +218,10 @@ storage_digest="registry.example/mywebdrive-storage@sha256:$(printf 'b%.0s' {1..
 web_digest="registry.example/mywebdrive-web@sha256:$(printf 'c%.0s' {1..64})"
 nginx_digest="registry.example/mywebdrive-nginx@sha256:$(printf 'd%.0s' {1..64})"
 prometheus_digest="registry.example/mywebdrive-prometheus@sha256:$(printf '6%.0s' {1..64})"
-grep -F "CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest PROMETHEUS=$prometheus_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'deployment did not switch Compose to RepoDigests\n' >&2; exit 1; }
+git_sha=${release_tag#sha-}
+grep -F "GIT_SHA=$git_sha CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest PROMETHEUS=$prometheus_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'deployment did not switch Compose to RepoDigests with exact Git identity\n' >&2; exit 1; }
 manifest=$(find "$state_dir/history" -type f -name "*-$release_tag-*.manifest" -print -quit)
+grep -Fx "GIT_SHA=$git_sha" "$manifest" >/dev/null
 grep -Fx "CORE_API_IMAGE=$core_digest" "$manifest" >/dev/null
 grep -Fx "EMAIL_PROVIDER_IMAGE=$email_digest" "$manifest" >/dev/null
 grep -Fx "STORAGE_IMAGE=$storage_digest" "$manifest" >/dev/null
@@ -229,7 +231,7 @@ grep -Fx "PROMETHEUS_IMAGE=$prometheus_digest" "$manifest" >/dev/null
 
 : > "$FIXTURES/docker.log"
 PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$state_dir" "$ROOT_DIR/infrastructure/alicloud/rollback.sh" "$release_tag" >/dev/null
-grep -F "CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest PROMETHEUS=$prometheus_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'rollback did not deploy the recorded digest manifest\n' >&2; exit 1; }
+grep -F "GIT_SHA=$git_sha CORE=$core_digest EMAIL=$email_digest STORAGE=$storage_digest WEB=$web_digest NGINX=$nginx_digest PROMETHEUS=$prometheus_digest :: compose" "$FIXTURES/docker.log" >/dev/null || { printf 'rollback did not deploy the recorded digest manifest with exact Git identity\n' >&2; exit 1; }
 if grep -F 'image inspect' "$FIXTURES/docker.log" >/dev/null; then printf 'rollback resolved a mutable tag instead of using its manifest\n' >&2; exit 1; fi
 
 legacy_tag=sha-4444444444444444444444444444444444444444
@@ -253,10 +255,35 @@ if grep -F ' up -d --no-deps ' "$FIXTURES/docker.log" | grep -F 'analytics-worke
 fi
 legacy_result=$(find "$legacy_state/history" -type f -name "*-$legacy_tag-*.manifest" ! -path "$legacy_manifest" -print -quit)
 [[ -n "$legacy_result" ]] || { printf 'legacy rollback did not record its resulting release\n' >&2; exit 1; }
+grep -Fx "GIT_SHA=${legacy_tag#sha-}" "$legacy_result" >/dev/null || { printf 'legacy rollback did not derive Git identity from IMAGE_TAG\n' >&2; exit 1; }
 if grep -F 'ANALYTICS_WORKER_CONTAINER_IMAGE_ID=' "$legacy_result" >/dev/null; then
   printf 'legacy rollback incorrectly recorded an analytics worker\n' >&2
   exit 1
 fi
+
+identity_manifest_base=(
+  "IMAGE_TAG=$release_tag"
+  "CORE_API_IMAGE=$core_digest"
+  "EMAIL_PROVIDER_IMAGE=$email_digest"
+  "STORAGE_IMAGE=$storage_digest"
+  "WEB_IMAGE=$web_digest"
+  "NGINX_IMAGE=$nginx_digest"
+  "PROMETHEUS_IMAGE=$prometheus_digest"
+)
+for identity_case in invalid duplicate mismatch; do
+  identity_manifest="$FIXTURES/git-sha-$identity_case.manifest"
+  case "$identity_case" in
+    invalid) printf '%s\n' "${identity_manifest_base[@]}" 'GIT_SHA=not-a-sha' > "$identity_manifest" ;;
+    duplicate) printf '%s\n' "${identity_manifest_base[@]}" "GIT_SHA=$git_sha" "GIT_SHA=$git_sha" > "$identity_manifest" ;;
+    mismatch) printf '%s\n' "${identity_manifest_base[@]}" 'GIT_SHA=9999999999999999999999999999999999999999' > "$identity_manifest" ;;
+  esac
+  : > "$FIXTURES/docker.log"
+  set +e
+  PATH="$FIXTURES/fake-bin:$PATH" DOCKER_CALL_LOG="$FIXTURES/docker.log" MYWEBDRIVE_ENV_FILE="$FIXTURES/env" DEPLOY_STATE_DIR="$state_dir" "$ROOT_DIR/infrastructure/alicloud/deploy.sh" --manifest "$identity_manifest" >/dev/null 2>&1
+  code=$?
+  set -e
+  [[ $code -ne 0 && ! -s "$FIXTURES/docker.log" ]] || { printf 'manifest accepted %s GIT_SHA before Docker mutation\n' "$identity_case" >&2; exit 1; }
+done
 
 malicious="$FIXTURES/malicious.manifest"
 printf '%s\n' "IMAGE_TAG=$release_tag" 'CORE_API_IMAGE=$(touch /tmp/contract-pwned)' "EMAIL_PROVIDER_IMAGE=$email_digest" "STORAGE_IMAGE=$storage_digest" "WEB_IMAGE=$web_digest" "NGINX_IMAGE=$nginx_digest" "PROMETHEUS_IMAGE=$prometheus_digest" > "$malicious"

@@ -20,12 +20,13 @@ The former split control plane is **SOFT-RETIRED** in `archive/`. It is excluded
 ./manage-services.sh smoke
 ./manage-services.sh quality
 ./manage-services.sh reset --confirm
-./manage-services.sh legacy:<command>
+./manage-services.sh legacy:help
+./manage-services.sh legacy:status
 ```
 
 The local site is `http://127.0.0.1:8080`; the Compose project is `mywebdrive-core-dev`. See `docs/manage-services.md` for exact behavior. Unrecognized former commands warn `SOFT-RETIRED`, exit 64, and never start an archived topology.
 
-The `legacy:<command>` escape hatch is observation-only. Do not use it for implementation, migrations, deployments, or production writes. Follow the event-based retirement clock and deletion rule in `docs/manage-services.md`.
+The compatibility whitelist contains only `legacy:help` and socket-only `legacy:status`; neither invokes archived code. Every other `legacy:*` command exits 64. Follow the event-based retirement clock and deletion rule in `docs/manage-services.md`.
 
 ## Narrow verification
 

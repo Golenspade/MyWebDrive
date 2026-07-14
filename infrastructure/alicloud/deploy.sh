@@ -47,6 +47,13 @@ validate_release_tag() {
   }
 }
 
+validate_git_sha() {
+  [[ "$1" =~ ^[0-9a-f]{40}$ ]] || {
+    printf 'GIT_SHA must contain exactly 40 lowercase hexadecimal characters\n' >&2
+    exit 65
+  }
+}
+
 validate_digest_ref() {
   [[ "$1" =~ ^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[0-9a-f]{64}$ ]] || {
     printf 'invalid immutable image digest reference\n' >&2
@@ -83,7 +90,7 @@ acquire_deploy_lock() {
 
 parse_manifest() {
   local manifest=$1 line key value
-  local seen_tag=0 seen_core=0 seen_email=0 seen_storage=0 seen_web=0 seen_nginx=0 seen_prometheus=0 seen_analytics_worker=0
+  local seen_tag=0 seen_git_sha=0 seen_core=0 seen_email=0 seen_storage=0 seen_web=0 seen_nginx=0 seen_prometheus=0 seen_analytics_worker=0
   [[ -f "$manifest" ]] || { printf 'release manifest not found: %s\n' "$manifest" >&2; exit 66; }
   while IFS= read -r line || [[ -n "$line" ]]; do
     [[ "$line" == *=* ]] || { printf 'invalid release manifest line\n' >&2; exit 65; }
@@ -93,6 +100,10 @@ parse_manifest() {
       IMAGE_TAG)
         (( seen_tag == 0 )) || { printf 'duplicate IMAGE_TAG in manifest\n' >&2; exit 65; }
         validate_release_tag "$value"; IMAGE_TAG=$value; seen_tag=1
+        ;;
+      GIT_SHA)
+        (( seen_git_sha == 0 )) || { printf 'duplicate GIT_SHA in manifest\n' >&2; exit 65; }
+        validate_git_sha "$value"; GIT_SHA=$value; seen_git_sha=1
         ;;
       CORE_API_IMAGE)
         (( seen_core == 0 )) || { printf 'duplicate CORE_API_IMAGE in manifest\n' >&2; exit 65; }
@@ -133,13 +144,18 @@ parse_manifest() {
     esac
   done < "$manifest"
   (( seen_tag && seen_core && seen_email && seen_storage && seen_web && seen_nginx )) || { printf 'release manifest is incomplete\n' >&2; exit 65; }
+  if (( seen_git_sha )); then
+    [[ "$GIT_SHA" == "${IMAGE_TAG#sha-}" ]] || { printf 'release manifest GIT_SHA does not match IMAGE_TAG\n' >&2; exit 65; }
+  else
+    GIT_SHA=${IMAGE_TAG#sha-}
+  fi
   if (( ! seen_prometheus )); then
     PROMETHEUS_IMAGE=$(sed -n 's/^PROMETHEUS_IMAGE=//p' "$STATE_DIR/current.env" | tail -n 1)
     [[ -n "$PROMETHEUS_IMAGE" ]] || { printf 'legacy rollback requires the current Prometheus image\n' >&2; exit 65; }
     validate_digest_ref "$PROMETHEUS_IMAGE"
   fi
   ANALYTICS_WORKER_ENABLED=$seen_analytics_worker
-  export IMAGE_TAG CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE PROMETHEUS_IMAGE
+  export IMAGE_TAG GIT_SHA CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE PROMETHEUS_IMAGE
 }
 
 resolve_repo_digest() {
@@ -188,6 +204,8 @@ else
   [[ $# -eq 1 ]] || { printf 'usage: %s sha-<40 lowercase hex>\n' "$0" >&2; exit 64; }
   IMAGE_TAG=$1
   validate_release_tag "$IMAGE_TAG"
+  GIT_SHA=${IMAGE_TAG#sha-}
+  validate_git_sha "$GIT_SHA"
 fi
 
 preflight_state_dir
@@ -200,7 +218,7 @@ fi
 command -v docker >/dev/null
 docker compose version >/dev/null
 
-export IMAGE_TAG
+export IMAGE_TAG GIT_SHA
 compose() {
   docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
@@ -271,14 +289,15 @@ else
 fi
 for service in "${runtime_services[@]}"; do wait_healthy "$service"; done
 
-compose exec -T -e EXPECTED_BUILD_ID="$IMAGE_TAG" core-api node -e \
-  "fetch('http://127.0.0.1:8080/version').then(async r=>{if(!r.ok)throw Error('version endpoint failed');const v=await r.json();if(v.buildId!==process.env.EXPECTED_BUILD_ID)throw Error('buildId mismatch')}).catch(e=>{console.error(e.message);process.exit(1)})"
+compose exec -T -e EXPECTED_BUILD_ID="$IMAGE_TAG" -e EXPECTED_GIT_SHA="$GIT_SHA" core-api node -e \
+  "fetch('http://127.0.0.1:8080/version').then(async r=>{if(!r.ok)throw Error('version endpoint failed');const v=await r.json();if(v.buildId!==process.env.EXPECTED_BUILD_ID)throw Error('buildId mismatch');if(v.gitSha!==process.env.EXPECTED_GIT_SHA)throw Error('gitSha mismatch')}).catch(e=>{console.error(e.message);process.exit(1)})"
 
 state_tmp=$(mktemp "$STATE_DIR/.release.XXXXXX")
 deployed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 history_stamp=$(date -u +%Y%m%dT%H%M%SZ)
 {
   printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG"
+  printf 'GIT_SHA=%s\n' "$GIT_SHA"
   printf 'CORE_API_IMAGE=%s\n' "$CORE_API_IMAGE"
   printf 'EMAIL_PROVIDER_IMAGE=%s\n' "$EMAIL_PROVIDER_IMAGE"
   printf 'STORAGE_IMAGE=%s\n' "$STORAGE_IMAGE"

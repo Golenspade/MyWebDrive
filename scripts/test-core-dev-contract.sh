@@ -126,7 +126,7 @@ discovered_commands=$(awk '
 ' <<<"$help_output")
 expected_commands=$(printf '%s\n' \
   setup start stop status 'logs [service]' config smoke quality \
-  'reset --confirm' 'legacy:<command>')
+  'reset --confirm' legacy:help legacy:status)
 [[ "$discovered_commands" == "$expected_commands" ]] || fail 'help does not expose the exact Core-first command surface'
 assert_contains "$help_output" 'http://127.0.0.1:8080' 'help output'
 assert_contains "$help_output" "$PROJECT_NAME" 'help output'
@@ -553,17 +553,31 @@ for retired_command in start-backend start-frontend start-next db:start; do
   [[ $retired_status -eq 64 ]] || fail "$retired_command must exit 64"
   assert_contains "$retired_output" 'SOFT-RETIRED' "$retired_command output"
   assert_contains "$retired_output" './manage-services.sh start' "$retired_command output"
+  assert_contains "$retired_output" './manage-services.sh legacy:help' "$retired_command output"
+  [[ "$retired_output" != *"legacy:$retired_command"* ]] || fail "$retired_command suggested a blocked legacy passthrough"
 done
 
 legacy_output=$(PATH="$ORIGINAL_PATH" /bin/bash "$MANAGER" legacy:help 2>&1)
 assert_contains "$legacy_output" 'observation cycle' 'legacy:help output'
 assert_contains "$legacy_output" 'SOFT-RETIRED' 'legacy:help output'
-assert_contains "$legacy_output" 'start-backend' 'legacy:help output'
+assert_contains "$legacy_output" 'legacy:status' 'legacy:help output'
 
-: >"$COMMAND_STUB_LOG"
-PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" legacy:build >/dev/null 2>&1
-grep -Fx 'tool=pnpm' "$COMMAND_STUB_LOG" >/dev/null || fail 'legacy:build did not reach the archived manager'
-grep -Fx "cwd=$ROOT_DIR" "$COMMAND_STUB_LOG" >/dev/null || fail 'the archived manager did not resolve the fixture root'
+legacy_status_output=$(PATH="$ORIGINAL_PATH" /bin/bash "$MANAGER" legacy:status 2>&1)
+assert_contains "$legacy_status_output" 'SOFT-RETIRED' 'legacy:status output'
+assert_contains "$legacy_status_output" 'Legacy split-control-plane socket observation' 'legacy:status output'
+
+for blocked_legacy_command in start build generate deploy reset db:reset unknown; do
+  : >"$COMMAND_STUB_LOG"
+  set +e
+  blocked_legacy_output=$(PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" "legacy:$blocked_legacy_command" 2>&1)
+  blocked_legacy_status=$?
+  set -e
+  [[ $blocked_legacy_status -eq 64 ]] || fail "legacy:$blocked_legacy_command must exit 64"
+  assert_contains "$blocked_legacy_output" 'SOFT-RETIRED' "legacy:$blocked_legacy_command output"
+  assert_contains "$blocked_legacy_output" 'observation-only' "legacy:$blocked_legacy_command output"
+  [[ $blocked_legacy_output != *'This split-control-plane manager'* ]] || fail "legacy:$blocked_legacy_command invoked the archived manager"
+  [[ ! -s "$COMMAND_STUB_LOG" ]] || fail "legacy:$blocked_legacy_command invoked a tool"
+done
 
 : >"$COMMAND_STUB_LOG"
 PATH="$FIXTURES/bin:$ORIGINAL_PATH" /bin/bash "$MANAGER" quality >/dev/null

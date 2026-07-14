@@ -7,7 +7,6 @@ DEV_COMPOSE="$ROOT_DIR/infrastructure/docker-compose.core-dev.yml"
 PROJECT_NAME=mywebdrive-core-dev
 STATE_DIR="$ROOT_DIR/.state"
 ENV_FILE="$STATE_DIR/core-dev.env"
-LEGACY_MANAGER="$ROOT_DIR/archive/legacy-split-control-plane-2026-07-13/manage-services.sh"
 EX_USAGE=64
 SECRET_TEMP_FILE=''
 
@@ -25,7 +24,8 @@ Public commands:
   smoke                  Run the isolated Core-first end-to-end smoke test.
   quality                Run the fail-closed repository quality gate.
   reset --confirm        Remove local containers, volumes, and orphans; preserve secrets.
-  legacy:<command>       Observe an archived split-control-plane command explicitly.
+  legacy:help            Show the strict legacy observation-only interface.
+  legacy:status          Inspect the former local listener sockets without starting anything.
 
 Site: http://127.0.0.1:8080
 Fake email: http://127.0.0.1:8025
@@ -220,6 +220,45 @@ validate_logs_service() {
   grep -Fxq -- "$service" <<<"$services" || usage_error "logs service is not defined in the Core-first topology: $service"
 }
 
+legacy_warning() {
+  printf 'SOFT-RETIRED: legacy:%s is observation-only and never invokes the archived manager.\n' "$1" >&2
+}
+
+legacy_usage() {
+  cat <<'USAGE'
+Legacy observation-only commands:
+  legacy:help            Show this whitelist.
+  legacy:status          Inspect the former local listener sockets.
+
+All lifecycle, build, generate, deploy, reset, database, and unknown legacy
+commands are blocked with exit code 64.
+USAGE
+}
+
+legacy_status() {
+  local name port pid
+  printf 'Legacy split-control-plane socket observation (no processes are started):\n'
+  while read -r name port; do
+    pid=''
+    if command -v lsof >/dev/null 2>&1; then
+      pid=$(lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)
+    fi
+    if [[ -n "$pid" ]]; then
+      printf '%-12s 127.0.0.1:%s LISTEN pid=%s\n' "$name" "$port" "$pid"
+    else
+      printf '%-12s 127.0.0.1:%s STOPPED\n' "$name" "$port"
+    fi
+  done <<'PORTS'
+gateway 9080
+auth 7081
+user 7082
+metadata 7083
+storage 7084
+sharing 7085
+frontend 3100
+PORTS
+}
+
 command=${1:-help}
 if (( $# > 0 )); then shift; fi
 
@@ -289,15 +328,29 @@ case "$command" in
   legacy:*)
     legacy_command=${command#legacy:}
     [[ -n "$legacy_command" ]] || usage_error 'legacy:<command> requires an archived command name.'
-    [[ -x "$LEGACY_MANAGER" ]] || usage_error "Archived manager is unavailable: $LEGACY_MANAGER"
-    printf 'WARNING: legacy:%s is for a time-boxed observation cycle only; it is not an active workflow.\n' "$legacy_command" >&2
-    cd "$(dirname "$LEGACY_MANAGER")"
-    exec "$LEGACY_MANAGER" "$legacy_command" "$@"
+    case "$legacy_command" in
+      help)
+        require_no_args "$command" "$@"
+        legacy_warning "$legacy_command"
+        printf 'This observation cycle does not make the retired architecture active.\n' >&2
+        legacy_usage
+        ;;
+      status)
+        require_no_args "$command" "$@"
+        legacy_warning "$legacy_command"
+        legacy_status
+        ;;
+      *)
+        legacy_warning "$legacy_command"
+        printf 'Blocked legacy command. Allowed commands are legacy:help and legacy:status.\n' >&2
+        exit "$EX_USAGE"
+        ;;
+    esac
     ;;
   *)
     printf 'SOFT-RETIRED: manage-services.sh %s is not an active Core-first command.\n' "$command" >&2
     printf 'Use "./manage-services.sh start" for the supported local stack.\n' >&2
-    printf 'Use "./manage-services.sh legacy:%s" only for an explicit observation cycle.\n' "$command" >&2
+    printf 'Use "./manage-services.sh legacy:help" to view the observation-only whitelist.\n' >&2
     exit "$EX_USAGE"
     ;;
 esac

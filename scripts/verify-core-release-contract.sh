@@ -47,6 +47,7 @@ export EMAIL_PROVIDER_URL=http://email-provider:8090
 export EMAIL_PROVIDER_TOKEN=contract-email-provider-token-0000000001
 export REGISTRY=registry.invalid
 export IMAGE_TAG=sha-0123456789abcdef0123456789abcdef01234567
+export GIT_SHA=0123456789abcdef0123456789abcdef01234567
 export SOURCE_DIR="$ROOT_DIR"
 unset CORE_API_IMAGE EMAIL_PROVIDER_IMAGE STORAGE_IMAGE WEB_IMAGE NGINX_IMAGE PROMETHEUS_IMAGE
 
@@ -207,5 +208,10 @@ actual_prometheus_targets=$(sed -n "s/^[[:space:]]*-[[:space:]]*'\([^']*\)'[[:sp
 [[ "$actual_prometheus_targets" == $'core-api:8080\nstorage-api:7084\nstorage-worker:7085' ]] || fail 'Prometheus must scrape exactly the approved three targets'
 reject_pattern 'localhost|127\.0\.0\.1|api-gateway|host\.docker\.internal' "$ROOT_DIR/infrastructure/alicloud/prometheus/prometheus.yml" 'Prometheus config contains an unapproved scrape target'
 reject_pattern 'API_BASE_URL|rewrites|gateway' "$ROOT_DIR/frontend/cruip-landing/next.config.js" 'frontend must use same-origin API routes'
+
+require_pattern 'GIT_SHA=\$\{IMAGE_TAG#sha-\}' "$DEPLOY_SCRIPT" 'deploy must derive the exact Git SHA from IMAGE_TAG'
+require_pattern 'export IMAGE_TAG GIT_SHA' "$DEPLOY_SCRIPT" 'deploy must export the exact release identity to Compose'
+require_pattern 'EXPECTED_GIT_SHA' "$DEPLOY_SCRIPT" 'deploy must verify /version gitSha'
+require_pattern "printf 'GIT_SHA=%s" "$DEPLOY_SCRIPT" 'release manifests must record GIT_SHA'
 
 printf 'core release contract: ok\n'

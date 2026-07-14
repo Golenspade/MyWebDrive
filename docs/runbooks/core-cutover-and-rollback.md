@@ -19,7 +19,7 @@
 ## 部署和切流
 
 1. 将现有流量保持在旧环境，完成上述快照，并在变更单记录“零用户业务数据，不迁移”决策。
-2. 使用六个 digest 创建 release manifest，运行 `infrastructure/alicloud/deploy.sh --manifest <manifest>`。部署工具必须先拉取 digest，再运行 `minio-init` 和单一 `core-migrate`，最后启动应用。
+2. 新版本以 CI 通过的不可变标签执行 `IMAGE_TAG=sha-<40hex>` 后运行 `infrastructure/alicloud/deploy.sh "$IMAGE_TAG"`。部署脚本会解析六个 tag 的唯一 registry digest、拉取 digest，并把 `IMAGE_TAG`、由标签派生的 40 位 `GIT_SHA` 与六个 digest 写入新的 release manifest；随后运行 `minio-init` 和单一 `core-migrate`，最后启动应用。`--manifest` 仅用于回滚或已有记录的恢复操作所选择的既有历史 manifest（existing historical manifest），禁止为新版本手工拼装 manifest 或绕过 digest 解析。
 3. 检查 Core、Analytics Worker、Email Provider、Storage API、Storage Worker、Prometheus、Web、Nginx 健康状态；读取 Core `/version`，确认 `gitSha/buildId` 与 manifest 一致。
 4. 在切换 DNS/负载均衡前完成生产只读 smoke：Nginx `/healthz`、公开 publication 空态、`/api/v1/internal/*` 固定 404。
 5. 小流量切入后完成一次真实邮箱 OTP、会话刷新、小文件上传、私有下载票据和登出。在扩大流量前确认日志不包含邮箱、OTP、access/refresh/grant、Cookie 或 Authorization 值。
@@ -39,6 +39,6 @@
 
 ## digest 回滚和隔离恢复演练
 
-回滚只能选择上一份已验证 release manifest 中的不可变 digest，通过 `rollback.sh <release-tag>` 再调用同一 deploy 流程。部署脚本以 manifest 中是否存在 `ANALYTICS_WORKER_CONTAINER_IMAGE_ID` 判断旧 release 是否支持 Analytics Worker；回滚到首次 Dashboard 发布之前的 Core 时会先停止该 Worker，绝不把旧 Core 镜像当 Worker 强制启动。回滚不得恢复旧 Auth/User/Metadata/Sharing/Gateway 写入，也不得把旧 migration 应用到 Core 数据库。如果新版本已创建数据，优先运行向前修复；不支持的 schema 回退必须先经过单独审批。
+回滚只能选择上一份已验证 release manifest 中的不可变 digest，通过 `rollback.sh <release-tag>` 再调用同一 deploy 流程。`ANALYTICS_WORKER_CONTAINER_IMAGE_ID` 记录运行时 container image ID，并作为历史 release 是否支持 Worker 的 support marker；它不是第七个 registry digest，也不是用来选择 Worker 镜像的输入。部署脚本以该键是否存在判断旧 release 是否支持 Analytics Worker；存在时 Worker 仍复用 manifest 的 `CORE_API_IMAGE` digest，缺失时回滚会先停止该 Worker，绝不把旧 Core 镜像当 Worker 强制启动。回滚不得恢复旧 Auth/User/Metadata/Sharing/Gateway 写入，也不得把旧 migration 应用到 Core 数据库。如果新版本已创建数据，优先运行向前修复；不支持的 schema 回退必须先经过单独审批。
 
 正式切流前，将快照恢复到与生产网络、桶和密钥隔离的演练环境；对备份执行校验，运行四个 Core migration，启动上一组 digest，检查 `/ready`、`/version` 和只读数量。恢复演练绝不连接生产 DNS、Redis 或对象桶。记录 RTO/RPO 后销毁隔离环境。

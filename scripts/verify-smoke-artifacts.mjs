@@ -19,9 +19,18 @@ const sensitiveTextPatterns = [
     pattern: /(\bX-Test-Mailbox-Token\s*:\s*)(?!<redacted>)\S+/gi,
     preservePrefix: true,
   },
+  {
+    pattern: /(\/api\/v1\/shares\/)(?!<redacted>)[^\/\s"'?#<>]+(?=\/download-ticket(?:[?#\s"'<>]|$))/gi,
+    preservePrefix: true,
+  },
+  {
+    pattern: /(\/api\/v1\/storage\/objects\/)(?!<redacted>)[^\/\s"'?#<>]+/gi,
+    preservePrefix: true,
+  },
   { pattern: /\b(?:postgres(?:ql)?|rediss?):\/\/[^\s"'<>]*@[^\s"'<>]*/gi },
   { pattern: /\bsmoke-(?:postgres|redis|minio)(?:-root)?-[A-Za-z0-9._:-]+\b/gi },
   { pattern: /\bsmoke-(?:mailbox|email-token)-[A-Za-z0-9._:-]+\b/gi },
+  { pattern: /\bsmoke-email-token\b/gi },
   { pattern: /\bcontract-[A-Za-z0-9._-]*(?:secret|token|password|pepper)[A-Za-z0-9._-]*\b/gi },
 ]
 
