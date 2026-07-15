@@ -12,7 +12,6 @@ async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'mywebdrive-doc-authority-'))
   for (const relative of [
     '.redocly.lint-ignore.yaml',
-    'AGENTS.md',
     'CLAUDE.md',
     'CONTEXT.md',
     'CONTRIBUTING.md',

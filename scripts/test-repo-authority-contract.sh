@@ -4,13 +4,11 @@ set -Eeuo pipefail
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 MANAGER="$ROOT_DIR/manage-services.sh"
 ACTIVE_DOCS=(
-  "$ROOT_DIR/AGENTS.md"
   "$ROOT_DIR/CLAUDE.md"
   "$ROOT_DIR/README.md"
   "$ROOT_DIR/infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md"
 )
 WORKFLOW_DOCS=(
-  "$ROOT_DIR/AGENTS.md"
   "$ROOT_DIR/CLAUDE.md"
   "$ROOT_DIR/README.md"
 )
@@ -22,6 +20,13 @@ record_failure() {
   printf 'repository authority contract failed: %s\n' "$1" >&2
   failures=$((failures + 1))
 }
+
+if git -C "$ROOT_DIR" ls-files --error-unmatch AGENTS.md >/dev/null 2>&1; then
+  record_failure 'AGENTS.md must remain local and must not be tracked'
+fi
+if ! git -C "$ROOT_DIR" check-ignore -q AGENTS.md; then
+  record_failure 'AGENTS.md must be covered by a local-only ignore rule'
+fi
 
 require_text() {
   local file=$1 text=$2 label=$3

@@ -112,7 +112,6 @@ const routeGroups = [
 ]
 
 const activeDocFiles = new Set([
-  'AGENTS.md',
   'CLAUDE.md',
   'CODE_OF_CONDUCT.md',
   'CONTEXT.md',

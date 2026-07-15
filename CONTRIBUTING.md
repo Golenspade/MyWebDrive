@@ -1,6 +1,6 @@
 # Contributing to MyWebDrive
 
-Thank you for contributing. Read `AGENTS.md` before editing; it defines repository authority, code style, security boundaries, and required tests.
+Thank you for contributing. Read `README.md` before editing; it defines repository authority. This guide defines the contribution workflow, active code boundaries, and required tests.
 
 ## Development setup
 

@@ -84,6 +84,7 @@ deploy/
 frontend/_templates/tailwind-landing-page-template
 
 # Local MCP / agent tooling
+/AGENTS.md
 .chunkhound.json
 .chunkhound/
 .serena/

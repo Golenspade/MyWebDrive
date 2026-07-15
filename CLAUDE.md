@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Read `AGENTS.md` first. Its repository authority, style, security, testing, and Git rules apply to every change.
+Use this file as the agent operating guide. Read `README.md` for repository authority, `CONTRIBUTING.md` for the contribution workflow, and `SECURITY.md` for security boundaries.
 
 ## Current architecture
 

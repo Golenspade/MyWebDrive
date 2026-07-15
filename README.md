@@ -81,6 +81,6 @@ bash infrastructure/alicloud/rollback.sh "sha-<40-lowercase-hex>"
 
 ## 安全与贡献
 
-不得提交 `.env`、凭据、token、数据库备份或生成产物。贡献前阅读 [`AGENTS.md`](AGENTS.md)、[`CONTRIBUTING.md`](CONTRIBUTING.md) 与 [`SECURITY.md`](SECURITY.md)，并运行 `./manage-services.sh quality`。
+不得提交 `.env`、凭据、token、数据库备份或生成产物。贡献前阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md) 与 [`SECURITY.md`](SECURITY.md)，并运行 `./manage-services.sh quality`。
 
 本项目采用 MIT License，详见 [`LICENSE`](LICENSE)。
