@@ -6,12 +6,15 @@ MANAGER="$ROOT_DIR/manage-services.sh"
 ACTIVE_DOCS=(
   "$ROOT_DIR/CLAUDE.md"
   "$ROOT_DIR/README.md"
+  "$ROOT_DIR/docs/git-workflow.md"
   "$ROOT_DIR/infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md"
 )
 WORKFLOW_DOCS=(
   "$ROOT_DIR/CLAUDE.md"
   "$ROOT_DIR/README.md"
 )
+GIT_WORKFLOW_DOC="$ROOT_DIR/docs/git-workflow.md"
+PR_TEMPLATE="$ROOT_DIR/.github/pull_request_template.md"
 SHIM_FIXTURES=$(mktemp -d)
 trap 'rm -rf "$SHIM_FIXTURES"' EXIT
 failures=0
@@ -42,6 +45,29 @@ reject_pattern() {
     record_failure "$label still advertises a retired workflow"
   fi
 }
+
+for required_file in "$GIT_WORKFLOW_DOC" "$PR_TEMPLATE"; do
+  if [[ ! -f "$required_file" ]]; then
+    record_failure "Git workflow authority is missing: ${required_file#"$ROOT_DIR/"}"
+  fi
+done
+
+require_text "$ROOT_DIR/README.md" 'docs/git-workflow.md' 'README Git workflow entrypoint'
+require_text "$ROOT_DIR/CONTRIBUTING.md" 'feature/*' 'CONTRIBUTING short-lived branch rule'
+require_text "$ROOT_DIR/CONTRIBUTING.md" '`develop`' 'CONTRIBUTING development branch rule'
+
+if [[ -f "$GIT_WORKFLOW_DOC" ]]; then
+  require_text "$GIT_WORKFLOW_DOC" '`main`' 'Git workflow production branch'
+  require_text "$GIT_WORKFLOW_DOC" '`develop`' 'Git workflow development branch'
+  require_text "$GIT_WORKFLOW_DOC" '`develop -> main`' 'Git workflow release direction'
+  require_text "$GIT_WORKFLOW_DOC" '`hotfix/*`' 'Git workflow hotfix path'
+  require_text "$GIT_WORKFLOW_DOC" 'deploy.sh "sha-<40-lowercase-hex>"' 'Git workflow manual deployment boundary'
+fi
+
+if [[ -f "$PR_TEMPLATE" ]]; then
+  require_text "$PR_TEMPLATE" '## Target branch' 'Pull Request target-branch prompt'
+  require_text "$PR_TEMPLATE" 'Production deployment remains manual' 'Pull Request deployment boundary'
+fi
 
 if [[ ! -f "$MANAGER" ]]; then
   record_failure 'manage-services.sh Core-first manager is missing'

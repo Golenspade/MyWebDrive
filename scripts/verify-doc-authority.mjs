@@ -112,12 +112,14 @@ const routeGroups = [
 ]
 
 const activeDocFiles = new Set([
+  '.github/pull_request_template.md',
   'CLAUDE.md',
   'CODE_OF_CONDUCT.md',
   'CONTEXT.md',
   'CONTRIBUTING.md',
   'README.md',
   'SECURITY.md',
+  'docs/git-workflow.md',
   'docs/manage-services.md',
   'frontend/cruip-landing/README.md',
   'infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md',
