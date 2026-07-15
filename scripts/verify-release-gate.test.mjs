@@ -29,6 +29,23 @@ test('CI orders quality, six-image build, full smoke, then publication', async (
   assert.doesNotMatch(workflow.slice(0, smoke), /docker push/)
 })
 
+test('dual-branch CI validates develop but publishes only main', async () => {
+  const workflow = await read('.github/workflows/ci.yml')
+  assert.match(workflow, /push:\s*\n\s*branches: \[main, develop\]/)
+  assert.match(workflow, /pull_request:\s*\n\s*branches: \[main, develop\]/)
+
+  const publishStart = workflow.indexOf('name: Publish immutable images')
+  assert(publishStart >= 0)
+  const publishStep = workflow.slice(publishStart)
+  assert.match(publishStep, /github\.event_name == 'push' && github\.ref == 'refs\/heads\/main'/)
+  assert.doesNotMatch(publishStep, /refs\/heads\/develop/)
+
+  const dependabot = await read('.github/dependabot.yml')
+  const updateEntries = dependabot.match(/package-ecosystem:/g) ?? []
+  const developTargets = dependabot.match(/target-branch: "?develop"?/g) ?? []
+  assert.equal(developTargets.length, updateEntries.length)
+})
+
 test('Playwright is Chromium-only, deterministic, and never records credentials', async () => {
   const config = await read('playwright.config.ts')
   assert.match(config, /width:\s*1440,\s*height:\s*900/)

@@ -79,6 +79,10 @@ bash infrastructure/alicloud/rollback.sh "sha-<40-lowercase-hex>"
 
 归档运行时仅供只读或对照观察，不得承载新开发、迁移、部署或生产写入。退役计时尚未开始；只有最终生产部署、回滚和重新部署验收成功并记录 UTC 完成时间后才开始。最早物理删除时间是该记录时间之后连续 14 个无依赖的 24 小时周期。完整规则与证据要求见 [`docs/manage-services.md`](docs/manage-services.md)。
 
+## Git 工作流
+
+仓库采用轻量双分支：`main` 是生产权威，`develop` 是下一版本的开发集成分支。日常修改从 `develop` 创建短期分支并通过 PR 回到 `develop`；发布通过 `develop -> main` PR 提升。完整规则见 [`docs/git-workflow.md`](docs/git-workflow.md)。
+
 ## 安全与贡献
 
 不得提交 `.env`、凭据、token、数据库备份或生成产物。贡献前阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md) 与 [`SECURITY.md`](SECURITY.md)，并运行 `./manage-services.sh quality`。
