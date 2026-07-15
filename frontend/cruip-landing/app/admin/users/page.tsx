@@ -13,8 +13,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAuthStore } from '@/lib/stores/auth-store'
 import { adminApi, type UsersResp } from '@/lib/api/admin'
-import { usersApi } from '@/lib/api/users'
-import { auditApi } from '@/lib/api/audit'
 import { parseBytes, toUnit } from '@/lib/utils/parse-bytes'
 import { SegmentedBar } from '../components/segmented-bar'
 
@@ -50,11 +48,6 @@ export default function AdminUsersPage() {
 
   async function changeRole(id: string, nextRole: 'user' | 'admin') {
     await adminApi.setRole(id, nextRole)
-    try {
-      await auditApi.create({ action: 'user.role.update', target: id, meta: { role: nextRole } })
-    } catch {
-      // 审计写入失败不影响角色变更主流程
-    }
     setData(prev => ({ ...prev, items: prev.items.map(u => u.id === id ? { ...u, role: nextRole } : u) }))
   }
 
@@ -72,14 +65,17 @@ export default function AdminUsersPage() {
     setQuotaUserId(id)
     setQuotaDlgOpen(true)
     try {
-      const js = await usersApi.getStorageById(id)
+      const user = await adminApi.getUser(id)
+      const js = {
+        storageQuota: Number(user.quota?.limitBytes ?? '0'),
+        storageUsed: Number(user.quota?.committedBytes ?? '0'),
+      }
       setQuotaInfo(js)
       setSliderVal(toUnit(js.storageQuota || 0, quotaUnit))
       setQuotaInput('')
     } catch (err) {
       const maybe = err as { status?: number } | null | undefined
       const status = typeof maybe?.status === 'number' ? maybe.status : undefined
-      // 当用户还没有在 User 服务中创建档案时，GET /users/:id/storage 返回 404
       if (status === 404) {
         const fallback = { storageQuota: 0, storageUsed: 0 }
         setQuotaInfo(fallback)
@@ -98,14 +94,11 @@ export default function AdminUsersPage() {
       const map: Record<string, number> = { KB: 1024, MB: 1024**2, GB: 1024**3, TB: 1024**4 }
       return Math.max(0, Math.floor((map[quotaUnit] || 1) * sliderVal))
     })()
-    await usersApi.setQuotaById(quotaUserId, bytes)
-    try {
-      await auditApi.create({ action: 'user.quota.update', target: quotaUserId, meta: { storageQuota: bytes } })
-    } catch {
-      // 审计写入失败时仍然以用户服务中的最终配额为准
-    }
-    const fresh = await usersApi.getStorageById(quotaUserId)
-    setQuotaInfo(fresh)
+    const fresh = await adminApi.setQuota(quotaUserId, String(bytes))
+    setQuotaInfo({
+      storageQuota: Number(fresh.limitBytes),
+      storageUsed: Number(fresh.committedBytes),
+    })
   }
 
   return (

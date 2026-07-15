@@ -1,4 +1,4 @@
-// Admin notifications API client (gateway in-memory MVP)
+// Core-persisted admin notifications API client
 // Style: 2-space indent, single quotes, no semicolons
 
 import { apiClient } from './client'

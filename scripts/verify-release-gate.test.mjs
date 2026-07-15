@@ -128,6 +128,7 @@ test('smoke runs healthy browser checks before Prometheus degradation and degrad
   assert.match(health, /value\.availability !== expected/)
   assert.match(smoke, /smoke_wait_for_exact_availability available/)
   assert.match(smoke, /core smoke browser command: playwright test --grep/)
+  assert.match(smoke, /--env COREPACK_HOME=\/smoke-output\/corepack/)
   const healthy = smoke.indexOf('run_browser_gate healthy')
   const stop = smoke.indexOf('compose stop prometheus')
   const degraded = smoke.indexOf('run_browser_gate prometheus-down')

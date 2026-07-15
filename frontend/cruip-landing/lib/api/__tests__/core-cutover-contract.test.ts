@@ -66,6 +66,26 @@ describe('Core-first frontend source contract', () => {
     expect(source).toContain('/shares/${encodeURIComponent(token)}/download-ticket')
   })
 
+  test('uses only Core-native admin identity and quota routes', () => {
+    const admin = read('frontend/cruip-landing/lib/api/admin.ts')
+    const usersPage = read('frontend/cruip-landing/app/admin/users/page.tsx')
+    const storagePage = read('frontend/cruip-landing/app/admin/storage/page.tsx')
+
+    expect(admin).toContain("apiClient.get<UsersResp>(`/admin/users${")
+    expect(admin).toContain('/admin/users/${encodeURIComponent(id)}')
+    expect(admin).toContain('/admin/users/${encodeURIComponent(id)}/role')
+    expect(admin).toContain('/admin/users/${encodeURIComponent(id)}/quota')
+    expect(admin).toMatch(/committedBytes:\s*string/)
+    expect(usersPage).not.toContain('usersApi')
+    expect(storagePage).not.toContain('usersApi')
+
+    for (const legacy of ['/auth/admin/users', '/users/${id}/storage', '/users/${id}/quota']) {
+      expect(admin).not.toContain(legacy)
+      expect(usersPage).not.toContain(legacy)
+      expect(storagePage).not.toContain(legacy)
+    }
+  })
+
   test('publishes only versioned owned files through the Core publication model', () => {
     const source = read('frontend/cruip-landing/app/admin/publish/page.tsx')
 

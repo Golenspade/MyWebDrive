@@ -3,7 +3,21 @@
 
 import { apiClient } from './client'
 
-export type AdminUser = { id: string; name: string | null; email: string; role: 'user' | 'admin'; createdAt: string }
+export type QuotaBalance = {
+  limitBytes: string
+  reservedBytes: string
+  committedBytes: string
+  availableBytes: string
+}
+export type AdminUser = {
+  id: string
+  name: string | null
+  email: string
+  role: 'user' | 'admin'
+  status: string
+  createdAt: string
+  quota: QuotaBalance | null
+}
 export type UsersResp = { items: AdminUser[]; page: number; pageSize: number; total: number }
 
 export const adminApi = {
@@ -13,10 +27,9 @@ export const adminApi = {
     if (query.page) usp.set('page', String(query.page))
     if (query.pageSize) usp.set('pageSize', String(query.pageSize))
     const qs = usp.toString()
-    // Use gateway aggregated endpoint to overlay profile name from User service
     return apiClient.get<UsersResp>(`/admin/users${qs ? `?${qs}` : ''}`)
   },
-  getUser: (id: string) => apiClient.get<AdminUser>(`/auth/admin/users/${id}`),
-  setRole: (id: string, role: 'user' | 'admin') => apiClient.patch<{ id: string; role: 'user' | 'admin' }>(`/auth/admin/users/${id}/role`, { role }),
+  getUser: (id: string) => apiClient.get<AdminUser>(`/admin/users/${encodeURIComponent(id)}`),
+  setRole: (id: string, role: 'user' | 'admin') => apiClient.patch<{ id: string; role: 'user' | 'admin' }>(`/admin/users/${encodeURIComponent(id)}/role`, { role }),
+  setQuota: (id: string, limitBytes: string) => apiClient.patch<QuotaBalance>(`/admin/users/${encodeURIComponent(id)}/quota`, { limitBytes }),
 }
-

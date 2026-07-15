@@ -314,7 +314,7 @@ export default function NotificationsPage() {
                       <DropdownMenuItem onClick={() => setServiceFilter('all')} className='text-nothing-primary focus:bg-nothing-raised focus:text-nothing-display'>
                         所有服务
                       </DropdownMenuItem>
-                      {(services.length ? services : ['gateway','auth-service','user-service','metadata-service','storage-service','sharing-service']).map((s) => (
+                      {(services.length ? services : ['core-api','storage-api','storage-worker','email-provider','web','nginx','prometheus']).map((s) => (
                         <DropdownMenuItem key={s} onClick={() => setServiceFilter(s)} className='text-nothing-primary focus:bg-nothing-raised focus:text-nothing-display'>
                           <Server className='mr-2 h-4 w-4' /> {s}
                         </DropdownMenuItem>
@@ -414,6 +414,11 @@ export default function NotificationsPage() {
                         </TableCell>
                       </TableRow>
                     ))}
+                    {paged.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className='py-10 text-center text-nothing-secondary'>暂无通知</TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                 </Table>
               </div>

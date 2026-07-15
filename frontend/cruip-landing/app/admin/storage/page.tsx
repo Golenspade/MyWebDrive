@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { adminApi } from '@/lib/api/admin'
-import { usersApi } from '@/lib/api/users'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
 import { ResponsiveContainer, BarChart, XAxis, YAxis, Tooltip, Bar, Cell } from 'recharts'
 import { Badge } from '@/components/ui/badge'
@@ -12,11 +11,7 @@ import { Label } from '@/components/ui/label'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 // Admin Storage Panel: show per-user used vs quota with chart.
-// 后端并没有直接提供“按用户聚合后的存储统计”，所以这里：
-// 1. 先用 adminApi.listUsers 拿到前 100 个用户；
-// 2. 再逐个调用 usersApi.getStorageById(u.id) 拼出 used/quota；
-// 3. 在前端做排序 + Top N 截断，仅用于管理员观察整体水位，
-//    如果未来用户规模增大，这块要改成后端聚合接口。
+// Core 的管理员用户契约直接返回 QuotaAccount 余额，页面只负责排序和展示。
 export default function AdminStoragePage(){
   // 目前 loading 只用于防抖/未来扩展，所以不暴露给 UI
   const [, setLoading] = useState(false)
@@ -25,20 +20,19 @@ export default function AdminStoragePage(){
   // topN 用字符串是为了直接和 Select 组件的 value 对齐
   const [topN, setTopN] = useState<string>('10')  // '5' | '10' | '20' | '100' | 'ALL'
 
-  // 拉取前 100 个用户，并补充存储信息（失败时按 0 处理）
+  // 拉取前 100 个用户及其 Core 权威配额余额。
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const list = await adminApi.listUsers({ page:1, pageSize:100 })
-      const enriched = await Promise.all(list.items.map(async (u)=>{
-        try{
-          const s = await usersApi.getStorageById(u.id)
-          return { id:u.id, name:u.name, email:u.email, role: u.role, used: s.storageUsed||0, quota: s.storageQuota||0 }
-        }catch{
-          // 用户在 User 服务里还没有存储记录时，视为 0 / 0，避免打断整体面板
-          return { id:u.id, name:u.name, email:u.email, role: u.role, used: 0, quota: 0 }
-        }
+      const enriched = list.items.map((u) => ({
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        used: Number(u.quota?.committedBytes ?? '0'),
+        quota: Number(u.quota?.limitBytes ?? '0'),
       }))
       setItems(enriched)
     } catch (err) {

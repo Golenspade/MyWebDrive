@@ -8,6 +8,7 @@ import {
 import express from 'express'
 import type Redis from 'ioredis'
 
+import { createAdminRouter } from './admin/router.js'
 import { createAnalyticsRouter } from './analytics/router.js'
 import { createDownloadAttemptCallbackRouter } from './analytics/download-attempt.js'
 import type { EmailSender } from './identity/email-sender.js'
@@ -115,6 +116,15 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
       now: deps.now,
       randomBytes: deps.randomBytes,
       ...identity,
+    }),
+  )
+
+  app.use(
+    '/api/v1',
+    createAdminRouter({
+      prisma: deps.prisma,
+      sessionSecret: identity.sessionSecret,
+      now: deps.now,
     }),
   )
 

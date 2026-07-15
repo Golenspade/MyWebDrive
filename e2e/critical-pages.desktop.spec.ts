@@ -1,4 +1,5 @@
 import { test, expect } from './fixtures'
+import { AdminOperationsPage } from './pages/admin-operations-page'
 import { DashboardPage } from './pages/dashboard-page'
 import { PublicPage } from './pages/public-page'
 import { SignInPage } from './pages/sign-in-page'
@@ -38,9 +39,10 @@ test('@healthy download catalog is usable, accessible, and visually stable', asy
 })
 
 test('@healthy admin overview uses real OTP and renders both dashboard surfaces', async ({ page }, testInfo) => {
+  const email = retryScopedEmail(requiredEnvironment('E2E_ADMIN_EMAIL'), testInfo.retry)
   const signIn = new SignInPage(page)
   await signIn.signInWithEmailOtp({
-    email: retryScopedEmail(requiredEnvironment('E2E_ADMIN_EMAIL'), testInfo.retry),
+    email,
     mailboxBaseUrl: requiredEnvironment('E2E_MAILBOX_BASE_URL'),
     mailboxToken: requiredEnvironment('E2E_MAILBOX_TOKEN'),
   })
@@ -57,4 +59,9 @@ test('@healthy admin overview uses real OTP and renders both dashboard surfaces'
     fullPage: true,
     stylePath: deterministicScreenshotStylePath,
   })
+
+  const admin = new AdminOperationsPage(page)
+  await admin.openUsers(email)
+  await admin.openStorage(email)
+  await admin.openNotifications()
 })

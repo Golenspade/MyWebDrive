@@ -201,6 +201,20 @@ model OutboxEvent {
   @@index([processedAt, availableAt])
 }
 
+model AdminNotification {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  severity    String
+  service     String?
+  unread      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  meta        Json?
+
+  @@index([createdAt])
+  @@index([unread, createdAt])
+}
+
 model AnalyticsDaily {
   date           DateTime @id @db.Date
   uploadsCount   BigInt   @default(0)

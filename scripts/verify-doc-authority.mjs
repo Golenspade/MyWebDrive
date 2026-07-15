@@ -10,6 +10,22 @@ const scriptRoot = path.resolve(import.meta.dirname, '..')
 
 const routeGroups = [
   {
+    source: 'services/core-api/src/admin/router.ts',
+    factory: 'createAdminRouter',
+    mountSource: 'services/core-api/src/app.ts',
+    mountPrefix: '/api/v1',
+    mountFactory: 'createAdminRouter',
+    routes: [
+      ['get', '/admin/users'],
+      ['get', '/admin/users/:userId'],
+      ['patch', '/admin/users/:userId/role'],
+      ['get', '/admin/notifications'],
+      ['post', '/admin/notifications'],
+      ['post', '/admin/notifications/mark-read'],
+      ['get', '/admin/notifications/stream'],
+    ],
+  },
+  {
     source: 'services/core-api/src/identity/router.ts',
     factory: 'createIdentityRouter',
     mountSource: 'services/core-api/src/app.ts',

@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { adminApi, type AdminUser } from '@/lib/api/admin'
 import { adminAuditApi, type AuditLog } from '@/lib/api/admin-audit'
-import { usersApi } from '@/lib/api/users'
 import { filesApi } from '@/lib/api/files'
 import { storageAdminApi } from '@/lib/api/storage-admin'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
@@ -26,14 +25,14 @@ export default function AdminUserDetailPage(){
   const load = useCallback(async () => {
     if (!id) return
     try {
-      setBasic(await adminApi.getUser(id))
+      const user = await adminApi.getUser(id)
+      setBasic(user)
+      setStorage({
+        storageQuota: Number(user.quota?.limitBytes ?? '0'),
+        storageUsed: Number(user.quota?.committedBytes ?? '0'),
+      })
     } catch {
-      // 基本信息加载失败时保持为空，用占位文案展示
-    }
-    try {
-      setStorage(await usersApi.getStorageById(id))
-    } catch {
-      // 用户在 User 服务中还没有存储记录时允许忽略
+      // Core 用户信息加载失败时保持为空，用占位文案展示
     }
     try {
       const r = await filesApi.listByUserAdmin(id, { limit: 20 })

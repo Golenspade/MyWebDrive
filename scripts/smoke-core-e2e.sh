@@ -208,6 +208,7 @@ run_browser_gate() {
       --workdir /work \
       --env CI=1 \
       --env HOME=/tmp \
+      --env COREPACK_HOME=/smoke-output/corepack \
       --env E2E_BASE_URL=http://nginx:8080 \
       --env E2E_MAILBOX_BASE_URL=http://fake-email:8025 \
       --env E2E_MAILBOX_TOKEN="$FAKE_EMAIL_TEST_TOKEN" \
