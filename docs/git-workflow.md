@@ -44,8 +44,10 @@ If GitHub rejects any protected step, stop and inspect the failure instead of by
 
 1. Create `hotfix/<slug>` from the current `main`.
 2. Open a Pull Request targeting `main`, wait for CI, and Squash merge the minimal fix.
-3. Wait for the `main` image publication and deploy the selected immutable SHA manually.
-4. Immediately open `main -> develop` and use Merge commit to return the hotfix to development.
+3. Wait for the hotfix `main` push to succeed and publish all immutable images. Production deployment remains manual; deploy the selected immutable SHA only as a separate decision.
+4. After the hotfix `main` push succeeds and publishes the immutable images, run the Protected history sync above to return the hotfix to `develop`.
+5. Create the sync branch from the latest `develop`, merge the current `main`, and return it through a protected Pull Request to `develop` with Merge commit.
+6. Wait for the exact resulting `develop` push to succeed with `Publish immutable images` skipped. Do not open a direct `main -> develop` Pull Request.
 
 If deployment fails, use `infrastructure/alicloud/rollback.sh` with an existing immutable manifest. Never rewrite Git history to represent a production rollback.
 
@@ -64,4 +66,4 @@ If deployment fails, use `infrastructure/alicloud/rollback.sh` with an existing 
 | Release | `develop` | `main` | Merge commit |
 | Protected history sync | short-lived sync branch | `develop` | Merge commit |
 | Emergency fix | `hotfix/*` | `main` | Squash merge |
-| Hotfix return | `main` | `develop` | Merge commit |
+| Hotfix return | short-lived sync branch | `develop` | Merge commit |

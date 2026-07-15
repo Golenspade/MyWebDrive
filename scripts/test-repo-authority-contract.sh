@@ -70,6 +70,10 @@ if [[ -f "$GIT_WORKFLOW_DOC" ]]; then
   require_text "$GIT_WORKFLOW_DOC" 'Do not use the update-branch API or push directly to `develop`.' 'Git workflow protected sync bypass prohibition'
   require_text "$GIT_WORKFLOW_DOC" 'The release is closed only when `main` is an ancestor of `develop`.' 'Git workflow release-closure ancestry'
   require_text "$GIT_WORKFLOW_DOC" '`hotfix/*`' 'Git workflow hotfix path'
+  require_text "$GIT_WORKFLOW_DOC" 'After the hotfix `main` push succeeds and publishes the immutable images, run the Protected history sync above to return the hotfix to `develop`.' 'Git workflow protected hotfix return'
+  require_text "$GIT_WORKFLOW_DOC" 'Create the sync branch from the latest `develop`, merge the current `main`, and return it through a protected Pull Request to `develop` with Merge commit.' 'Git workflow hotfix sync topology'
+  require_text "$GIT_WORKFLOW_DOC" 'Wait for the exact resulting `develop` push to succeed with `Publish immutable images` skipped. Do not open a direct `main -> develop` Pull Request.' 'Git workflow hotfix return publish boundary'
+  require_text "$GIT_WORKFLOW_DOC" '| Hotfix return | short-lived sync branch | `develop` | Merge commit |' 'Git workflow hotfix return merge summary'
   require_text "$GIT_WORKFLOW_DOC" 'deploy.sh "sha-<40-lowercase-hex>"' 'Git workflow manual deployment boundary'
 fi
 
