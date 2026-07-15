@@ -15,6 +15,16 @@ cd MyWebDrive
 
 The Core-first site is available at `http://127.0.0.1:8080` in the `mywebdrive-core-dev` Compose project. See `docs/manage-services.md` for the exact command surface.
 
+## Git workflow
+
+- `main` is the protected production authority and GitHub default branch.
+- `develop` is the protected integration branch for the next release.
+- Create `feature/*`, `fix/*`, `chore/*`, `docs/*`, or `codex/*` from `develop` and target `develop` with the Pull Request.
+- Ordinary work uses Squash merge. A release Pull Request from `develop` to `main` uses Merge commit.
+- A `hotfix/*` starts from `main`, returns to `main`, and must then be synchronized through a `main` to `develop` Pull Request.
+
+See [`docs/git-workflow.md`](docs/git-workflow.md) for the exact branch, CI, release, and hotfix contract.
+
 ## Pull requests
 
 1. Keep the change focused and follow existing patterns.
