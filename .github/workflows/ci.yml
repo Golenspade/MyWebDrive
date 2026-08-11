@@ -146,7 +146,7 @@ jobs:
 
       - name: Upload sanitized failure artifacts
         if: failure() && steps.artifact-safety.outputs.available == 'true'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: core-smoke-${{ github.run_id }}
           path: ${{ runner.temp }}/core-smoke-artifacts
