@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { adminApi } from '@/lib/api/admin'
+import type { Role } from '@/lib/api/auth'
 import { formatCompactBytes } from '@/lib/utils/format-bytes'
 import { ResponsiveContainer, BarChart, XAxis, YAxis, Tooltip, Bar, Cell } from 'recharts'
 import { Badge } from '@/components/ui/badge'
@@ -16,7 +17,7 @@ export default function AdminStoragePage(){
   // 目前 loading 只用于防抖/未来扩展，所以不暴露给 UI
   const [, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [items, setItems] = useState<Array<{ id:string; name:string|null; email:string; role:'user'|'admin'; used:number; quota:number }>>([])
+  const [items, setItems] = useState<Array<{ id:string; name:string|null; email:string; role:Role; used:number; quota:number }>>([])
   // topN 用字符串是为了直接和 Select 组件的 value 对齐
   const [topN, setTopN] = useState<string>('10')  // '5' | '10' | '20' | '100' | 'ALL'
 

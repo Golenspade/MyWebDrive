@@ -300,6 +300,31 @@ integration('passwordless identity routes', () => {
     }
   })
 
+  test('assigns superuser from CORE_SUPERUSER_EMAILS unless the email is also an admin', async () => {
+    const identity = {
+      sessionSecret: 'identity-test-secret-at-least-32-bytes',
+      otpPepper: 'identity-test-otp-pepper',
+      adminEmails: 'boss@example.test',
+      superuserEmails: 'lead@example.test,boss@example.test',
+      production: false,
+      defaultUserQuotaBytes: 1000n,
+    }
+
+    for (const [email, role] of [
+      ['lead@example.test', 'superuser'],
+      ['boss@example.test', 'admin'],
+    ] as const) {
+      const { response: requested, code } = await requestCode(email)
+      const verified = await request(app({ identity })).post('/api/v1/auth/email/verify').send({
+        challengeId: requested.body.challengeId,
+        email,
+        code,
+      })
+      expect(verified.status).toBe(200)
+      expect(verified.body.user.role).toBe(role)
+    }
+  })
+
   test('creates or backfills quota during OTP verification without resetting an existing account', async () => {
     const existing = await prisma.user.create({ data: { email: 'quota-backfill@example.test' } })
     const first = await requestCode(existing.email)

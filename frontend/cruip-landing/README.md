@@ -4,17 +4,17 @@
 
 ## 当前边界
 
-- 本目录是仓库权威 Web 应用，由 Core-first Compose 中的 Nginx 同源提供。
+- 本目录是仓库权威 Web 应用，由本地 Core-first 栈中的 Nginx 同源提供。
 - 公共 API 合同位于 [`../../docs/openapi.yaml`](../../docs/openapi.yaml)。
-- 本地完整栈通过仓库根目录的 `./manage-services.sh start` 启动。
-- 生产部署遵循 [`../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md`](../../infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md)。
+- 本地完整栈通过仓库根目录的 `./manage-services.sh setup` 然后 `./manage-services.sh start` 启动，站点 `http://127.0.0.1:8080`。
+- 生产 compose / 部署脚本仍在仓库中，但不是日常开发完成条件。
 
 ## 功能概览
 
 - 营销着陆页（`/`）：产品介绍与下载入口
 - 下载中心（`/download`）：应用与资源下载列表
 - 账号体系（`/signin`）：邮箱验证码登录，首次验证成功即由 Core 创建账户
-- 管理后台（`/admin`）：用户与配额管理等
+- 管理后台（`/admin`）：用户、存储池预览，以及 Admin 一键「按池自动分配」（Superuser 只读预览）
 - 文档站（`/docs`）：基于 Nextra 4 的文档系统
 
 ## 技术栈
@@ -27,7 +27,7 @@
 
 ## 本地开发
 
-在仓库根目录执行：
+完整栈请用仓库根目录 `./manage-services.sh start`（`http://127.0.0.1:8080`）。仅前端时：
 
 ```bash
 pnpm -C frontend/cruip-landing dev

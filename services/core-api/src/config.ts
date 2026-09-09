@@ -10,6 +10,8 @@ export type CoreConfig = {
   emailProviderUrl: string
   emailProviderToken: string
   defaultUserQuotaBytes: bigint
+  storagePoolBytes: bigint
+  storagePlatformReserveBytes: bigint
 }
 
 export type AnalyticsWorkerConfig = {
@@ -96,15 +98,28 @@ function parseAnalyticsWorkerPort(value: string | undefined): number {
   return port
 }
 
-function parseDefaultUserQuotaBytes(value: string | undefined): bigint {
-  if (value === undefined || !/^(0|[1-9]\d*)$/.test(value)) {
-    throw new Error('DEFAULT_USER_QUOTA_BYTES must be a nonnegative decimal integer')
+function parseNonnegativeByteCount(value: string | undefined, key: string, fallback?: string): bigint {
+  const raw = value === undefined && fallback !== undefined ? fallback : value
+  if (raw === undefined || !/^(0|[1-9]\d*)$/.test(raw)) {
+    throw new Error(`${key} must be a nonnegative decimal integer`)
   }
-  const parsed = BigInt(value)
+  const parsed = BigInt(raw)
   if (parsed > MAX_DATABASE_BIGINT) {
-    throw new Error('DEFAULT_USER_QUOTA_BYTES must be a nonnegative decimal integer')
+    throw new Error(`${key} must be a nonnegative decimal integer`)
   }
   return parsed
+}
+
+function parseDefaultUserQuotaBytes(value: string | undefined): bigint {
+  return parseNonnegativeByteCount(value, 'DEFAULT_USER_QUOTA_BYTES')
+}
+
+function parseStoragePoolBytes(value: string | undefined): bigint {
+  return parseNonnegativeByteCount(value, 'STORAGE_POOL_BYTES')
+}
+
+function parseStoragePlatformReserveBytes(value: string | undefined): bigint {
+  return parseNonnegativeByteCount(value, 'STORAGE_PLATFORM_RESERVE_BYTES', '0')
 }
 
 export function loadCoreConfig(env: Environment = process.env): CoreConfig {
@@ -151,6 +166,8 @@ export function loadCoreConfig(env: Environment = process.env): CoreConfig {
     emailProviderUrl,
     emailProviderToken,
     defaultUserQuotaBytes: parseDefaultUserQuotaBytes(env.DEFAULT_USER_QUOTA_BYTES),
+    storagePoolBytes: parseStoragePoolBytes(env.STORAGE_POOL_BYTES),
+    storagePlatformReserveBytes: parseStoragePlatformReserveBytes(env.STORAGE_PLATFORM_RESERVE_BYTES),
   }
 }
 

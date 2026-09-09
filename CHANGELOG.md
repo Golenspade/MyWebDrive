@@ -1,6 +1,24 @@
 # Changelog
 
-All notable changes to this repository will be documented in this file.
+Current Core-first local development (2026-09-09). Older sections below are historical release notes and no longer describe the authoritative architecture.
+
+## 2026-09-09 — local-first quota pool
+
+The working tree is a Core API + Storage stack. Daily entry is `./manage-services.sh setup|start` at `http://127.0.0.1:8080`. Production cutover drills are out of scope for this round.
+
+### Added
+- Superuser role (`CORE_SUPERUSER_EMAILS`); Admin emails win on overlap
+- Storage pool allocation: leftover bytes after platform reserve and occupied (committed + reserved), weights 1 / 3 / 8
+- `GET /api/v1/admin/quota/pool`, `POST /api/v1/admin/quota/rebalance`
+- Admin users page primary action: 按池自动分配
+
+### Changed
+- Live docs describe local-first development; retirement-clock copy is gone
+- Split control-plane sources (Auth / User / Metadata / Sharing / Gateway) removed from the working tree
+
+### Notes
+Manual `PATCH /api/v1/admin/users/:id/quota` remains and returns 409 `pool exceeded` when the pool would overflow.
+Local code tests may set `SMOKE_ALLOW_HOST_SNAPSHOTS=1` on macOS; committed snapshots stay Linux-authoritative and must be restored to Linux-only once a Linux development machine exists.
 
 
 

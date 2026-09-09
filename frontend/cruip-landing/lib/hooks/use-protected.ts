@@ -16,7 +16,7 @@ export function useProtected(requiredRole?: 'admin' | 'user') {
     if (!isAuthenticated) return false
     if (!requiredRole) return true
     if (requiredRole === 'user') return true
-    return role === 'admin'
+    return role === 'admin' || role === 'superuser'
   }, [isAuthenticated, role, requiredRole])
 
   useEffect(() => {

@@ -1,7 +1,8 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import express from 'express'
 
-import { createAccessMiddleware, requireAdmin } from '../auth/middleware.js'
+import { createAccessMiddleware, requireAdmin, requireAdminOrSuperuser } from '../auth/middleware.js'
+import { previewQuotaPool, rebalanceQuotaPool, type QuotaPoolConfig } from '../quota/pool.js'
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -11,6 +12,7 @@ type AdminRouterDependencies = {
   prisma: PrismaClient
   sessionSecret: string
   now: () => Date
+  quota: QuotaPoolConfig
 }
 
 type QuotaRecord = {
@@ -58,6 +60,22 @@ function serializeUser(user: AdminUserRecord) {
   }
 }
 
+function serializePoolPlan(plan: Awaited<ReturnType<typeof previewQuotaPool>>) {
+  return {
+    overcommitted: plan.overcommitted,
+    poolBytes: plan.poolBytes.toString(),
+    platformReserveBytes: plan.platformReserveBytes.toString(),
+    occupiedBytes: plan.occupiedBytes.toString(),
+    allocableBytes: plan.allocableBytes.toString(),
+    allocations: plan.allocations.map((row) => ({
+      userId: row.userId,
+      previousLimitBytes: row.previousLimitBytes.toString(),
+      occupiedBytes: row.occupiedBytes.toString(),
+      limitBytes: row.limitBytes.toString(),
+    })),
+  }
+}
+
 function optionalString(value: unknown, maximum: number): string | undefined {
   if (typeof value !== 'string') return undefined
   const trimmed = value.trim()
@@ -92,7 +110,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): express.Router
   })
   const streamClients = new Set<express.Response>()
 
-  router.get('/admin/users', requireAccess, requireAdmin, async (req, res) => {
+  router.get('/admin/users', requireAccess, requireAdminOrSuperuser, async (req, res) => {
     const query = optionalString(req.query.query ?? req.query.q, 200) ?? ''
     const page = parsePositiveInteger(req.query.page, 1, Number.MAX_SAFE_INTEGER)
     const pageSize = parsePositiveInteger(req.query.pageSize, 20, 100)
@@ -141,7 +159,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): express.Router
     }
   })
 
-  router.get('/admin/users/:userId', requireAccess, requireAdmin, async (req, res) => {
+  router.get('/admin/users/:userId', requireAccess, requireAdminOrSuperuser, async (req, res) => {
     if (!UUID_PATTERN.test(req.params.userId ?? '')) {
       return res.status(404).json({ error: 'user not found' })
     }
@@ -176,7 +194,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): express.Router
       return res.status(404).json({ error: 'user not found' })
     }
     const role = req.body?.role
-    if (role !== 'user' && role !== 'admin') {
+    if (role !== 'user' && role !== 'superuser' && role !== 'admin') {
       return res.status(400).json({ error: 'invalid role' })
     }
     try {
@@ -190,6 +208,24 @@ export function createAdminRouter(deps: AdminRouterDependencies): express.Router
       if ((error as { code?: string }).code === 'P2025') {
         return res.status(404).json({ error: 'user not found' })
       }
+      return res.status(503).json({ error: 'service unavailable' })
+    }
+  })
+
+  router.get('/admin/quota/pool', requireAccess, requireAdminOrSuperuser, async (_req, res) => {
+    try {
+      const plan = await previewQuotaPool(deps.prisma, deps.quota)
+      return res.json(serializePoolPlan(plan))
+    } catch {
+      return res.status(503).json({ error: 'service unavailable' })
+    }
+  })
+
+  router.post('/admin/quota/rebalance', requireAccess, requireAdmin, async (_req, res) => {
+    try {
+      const plan = await rebalanceQuotaPool(deps.prisma, deps.now(), deps.quota)
+      return res.json(serializePoolPlan(plan))
+    } catch {
       return res.status(503).json({ error: 'service unavailable' })
     }
   })

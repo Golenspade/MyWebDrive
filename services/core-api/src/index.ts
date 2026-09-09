@@ -44,8 +44,13 @@ async function runApi(): Promise<void> {
       sessionSecret: config.sessionSecret,
       otpPepper: config.otpPepper,
       adminEmails: process.env.CORE_ADMIN_EMAILS ?? '',
+      superuserEmails: process.env.CORE_SUPERUSER_EMAILS ?? '',
       production: config.nodeEnv === 'production',
       defaultUserQuotaBytes: config.defaultUserQuotaBytes,
+    },
+    quota: {
+      poolBytes: config.storagePoolBytes,
+      platformReserveBytes: config.storagePlatformReserveBytes,
     },
     storage: {
       grantSecret: config.storageGrantSecret,

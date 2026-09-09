@@ -1,11 +1,9 @@
 'use client'
 
 import { create } from 'zustand'
-import { authApi, type AuthUser, type EmailChallenge } from '@/lib/api/auth'
+import { authApi, type AuthUser, type EmailChallenge, type Role } from '@/lib/api/auth'
 import { apiClient } from '@/lib/api/client'
 import { CookieMutationCoordinator } from '@/lib/auth/cookie-mutation-coordinator'
-
-type Role = 'user' | 'admin'
 
 type AuthState = {
   user: AuthUser | null

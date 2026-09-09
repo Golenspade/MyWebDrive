@@ -33,6 +33,7 @@ function productionEnvironment(): ProductionEnvironment {
     EMAIL_PROVIDER_URL: 'https://email.example.test',
     EMAIL_PROVIDER_TOKEN: 'p'.repeat(32),
     DEFAULT_USER_QUOTA_BYTES: '10737418240',
+    STORAGE_POOL_BYTES: '107374182400',
   }
 }
 
@@ -262,6 +263,8 @@ describe('Core configuration', () => {
     expect(config.emailProviderToken).toBe('p'.repeat(32))
     expect(config.emailProviderUrl).toBe('https://email.example.test')
     expect(config.defaultUserQuotaBytes).toBe(10_737_418_240n)
+    expect(config.storagePoolBytes).toBe(107_374_182_400n)
+    expect(config.storagePlatformReserveBytes).toBe(0n)
   })
 
   test('production accepts the exact private email-provider origin', () => {
@@ -306,5 +309,22 @@ describe('Core configuration', () => {
     const env = productionEnvironment()
     env.DEFAULT_USER_QUOTA_BYTES = '0'
     expect(loadCoreConfig(env).defaultUserQuotaBytes).toBe(0n)
+  })
+
+  test.each([undefined, '', '-1', '01', 'abc'])(
+    'rejects a missing or non-canonical STORAGE_POOL_BYTES (%s)',
+    (value) => {
+      const env = productionEnvironment()
+      env.STORAGE_POOL_BYTES = value
+      expect(() => loadCoreConfig(env)).toThrow(
+        'STORAGE_POOL_BYTES must be a nonnegative decimal integer',
+      )
+    },
+  )
+
+  test('accepts an explicit platform reserve of zero by default', () => {
+    const env = productionEnvironment()
+    delete env.STORAGE_PLATFORM_RESERVE_BYTES
+    expect(loadCoreConfig(env).storagePlatformReserveBytes).toBe(0n)
   })
 })

@@ -1,9 +1,11 @@
 import { apiClient } from './client'
 
+export type Role = 'user' | 'superuser' | 'admin'
+
 export type AuthUser = {
   id: string
   email: string
-  role: 'user' | 'admin'
+  role: Role
   name?: string | null
   storageQuota?: number
   storageUsed?: number

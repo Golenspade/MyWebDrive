@@ -35,6 +35,7 @@ export default function SignIn() {
   useEffect(() => {
     if (!isAuthenticated) return
     if (role === 'admin') router.replace('/admin/overview')
+    else if (role === 'superuser') router.replace('/admin/users')
     else router.replace('/account')
   }, [isAuthenticated, role, router])
 
@@ -63,6 +64,7 @@ export default function SignIn() {
       await verifyEmailCode({ challengeId, email, code })
       const nextRole = useAuthStore.getState().role
       if (nextRole === 'admin') router.push('/admin/overview')
+      else if (nextRole === 'superuser') router.push('/admin/users')
       else router.push('/account')
     } catch (err) {
       const message = err instanceof Error ? err.message : null

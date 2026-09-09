@@ -207,6 +207,9 @@ ensure_local_env() {
     printf 'EMAIL_PROVIDER_TOKEN=%s\n' "$email_token"
     printf 'DEFAULT_USER_QUOTA_BYTES=10737418240\n'
     printf 'CORE_ADMIN_EMAILS=dev-admin@example.test\n'
+    printf 'CORE_SUPERUSER_EMAILS=\n'
+    printf 'STORAGE_POOL_BYTES=107374182400\n'
+    printf 'STORAGE_PLATFORM_RESERVE_BYTES=0\n'
     printf 'REGISTRY=local.invalid\n'
     printf 'IMAGE_TAG=local-dev\n'
     printf 'GIT_SHA=local-dev\n'
@@ -239,6 +242,9 @@ compose() {
     -u EMAIL_PROVIDER_TOKEN \
     -u DEFAULT_USER_QUOTA_BYTES \
     -u CORE_ADMIN_EMAILS \
+    -u CORE_SUPERUSER_EMAILS \
+    -u STORAGE_POOL_BYTES \
+    -u STORAGE_PLATFORM_RESERVE_BYTES \
     -u REGISTRY \
     -u IMAGE_TAG \
     -u GIT_SHA \

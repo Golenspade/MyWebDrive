@@ -2,6 +2,7 @@
 // Style: 2-space indent, single quotes, no semicolons
 
 import { apiClient } from './client'
+import type { Role } from './auth'
 
 export type QuotaBalance = {
   limitBytes: string
@@ -13,12 +14,28 @@ export type AdminUser = {
   id: string
   name: string | null
   email: string
-  role: 'user' | 'admin'
+  role: Role
   status: string
   createdAt: string
   quota: QuotaBalance | null
 }
 export type UsersResp = { items: AdminUser[]; page: number; pageSize: number; total: number }
+
+export type QuotaPoolAllocation = {
+  userId: string
+  previousLimitBytes: string
+  occupiedBytes: string
+  limitBytes: string
+}
+
+export type QuotaPoolPlan = {
+  overcommitted: boolean
+  poolBytes: string
+  platformReserveBytes: string
+  occupiedBytes: string
+  allocableBytes: string
+  allocations: QuotaPoolAllocation[]
+}
 
 export const adminApi = {
   listUsers: (query: { q?: string; page?: number; pageSize?: number } = {}) => {
@@ -30,6 +47,8 @@ export const adminApi = {
     return apiClient.get<UsersResp>(`/admin/users${qs ? `?${qs}` : ''}`)
   },
   getUser: (id: string) => apiClient.get<AdminUser>(`/admin/users/${encodeURIComponent(id)}`),
-  setRole: (id: string, role: 'user' | 'admin') => apiClient.patch<{ id: string; role: 'user' | 'admin' }>(`/admin/users/${encodeURIComponent(id)}/role`, { role }),
+  setRole: (id: string, role: Role) => apiClient.patch<{ id: string; role: Role }>(`/admin/users/${encodeURIComponent(id)}/role`, { role }),
   setQuota: (id: string, limitBytes: string) => apiClient.patch<QuotaBalance>(`/admin/users/${encodeURIComponent(id)}/quota`, { limitBytes }),
+  previewQuotaPool: () => apiClient.get<QuotaPoolPlan>('/admin/quota/pool'),
+  rebalanceQuotaPool: () => apiClient.post<QuotaPoolPlan>('/admin/quota/rebalance'),
 }

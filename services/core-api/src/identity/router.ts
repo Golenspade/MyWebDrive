@@ -19,6 +19,7 @@ import {
   revokeRefreshSession,
   rotateRefreshSession,
 } from './session.js'
+import { emailAllowlist } from './roles.js'
 
 const COOKIE_NAME = 'mwd_refresh'
 const COOKIE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
@@ -32,8 +33,10 @@ type IdentityRouterDependencies = {
   sessionSecret: string
   otpPepper: string
   adminEmails: string
+  superuserEmails?: string
   production: boolean
   defaultUserQuotaBytes: bigint
+  quotaPool?: { poolBytes: bigint; platformReserveBytes: bigint }
 }
 
 function parseCookie(header: string | undefined, name: string): string | undefined {
@@ -62,22 +65,10 @@ function cookieOptions(production: boolean): express.CookieOptions {
   }
 }
 
-function adminAllowlist(value: string): ReadonlySet<string> {
-  const emails = new Set<string>()
-  for (const candidate of value.split(',')) {
-    if (!candidate.trim()) continue
-    try {
-      emails.add(normalizeEmail(candidate))
-    } catch {
-      continue
-    }
-  }
-  return emails
-}
-
 export function createIdentityRouter(deps: IdentityRouterDependencies): express.Router {
   const router = express.Router()
-  const admins = adminAllowlist(deps.adminEmails)
+  const admins = emailAllowlist(deps.adminEmails)
+  const superusers = emailAllowlist(deps.superuserEmails ?? '')
 
   router.post('/email/request', async (req, res) => {
     let email: string
@@ -136,8 +127,10 @@ export function createIdentityRouter(deps: IdentityRouterDependencies): express.
         now: deps.now(),
         pepper: deps.otpPepper,
         adminEmails: admins,
+        superuserEmails: superusers,
         randomBytes: deps.randomBytes,
         defaultUserQuotaBytes: deps.defaultUserQuotaBytes,
+        quotaPool: deps.quotaPool,
       })
       const accessToken = issueAccessToken(verified.user, deps.sessionSecret)
       res.cookie(COOKIE_NAME, verified.refreshToken, cookieOptions(deps.production))

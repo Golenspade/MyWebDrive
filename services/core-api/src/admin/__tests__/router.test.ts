@@ -51,6 +51,10 @@ function dependencies(prisma: PrismaClient): CoreDependencies {
       grantSecret: 'admin-router-storage-secret-at-least-32-bytes',
       callbackSecret: 'admin-router-callback-secret-at-least-32-bytes',
     },
+    quota: {
+      poolBytes: 10_000n,
+      platformReserveBytes: 0n,
+    },
   }
 }
 
@@ -67,6 +71,36 @@ function usersPrisma(role = 'admin') {
       update: vi.fn(async () => ({ id: member.id, role: 'admin' })),
     },
   } as unknown as PrismaClient
+}
+
+function poolPrisma(role = 'admin') {
+  const prisma = {
+    user: {
+      findUnique: vi.fn(async () => ({ ...admin, role })),
+      findMany: vi.fn(async () => [
+        {
+          id: member.id,
+          role: 'user',
+          status: 'active',
+          quotaAccount: member.quotaAccount,
+        },
+      ]),
+    },
+    quotaReservation: {
+      findMany: vi.fn(async () => []),
+    },
+    quotaAccount: {
+      update: vi.fn(async () => ({})),
+      findMany: vi.fn(async () => [
+        { userId: member.id, limitBytes: member.quotaAccount.limitBytes },
+      ]),
+    },
+    quotaLedgerEntry: {
+      create: vi.fn(async () => ({})),
+    },
+    $transaction: vi.fn(async (operation: (tx: unknown) => unknown) => operation(prisma)),
+  }
+  return prisma as unknown as PrismaClient
 }
 
 function notificationsPrisma(role = 'admin') {
@@ -155,6 +189,76 @@ describe('Core admin users contract', () => {
       .set('Authorization', `Bearer ${token(admin)}`)
       .send({ role: 'admin' })
       .expect(200, { id: member.id, role: 'admin' })
+  })
+
+  test('lets an administrator assign the superuser role', async () => {
+    const prisma = usersPrisma()
+    ;(prisma.user.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: member.id,
+      role: 'superuser',
+    })
+
+    await request(createCoreApp(dependencies(prisma)))
+      .patch(`/api/v1/admin/users/${member.id}/role`)
+      .set('Authorization', `Bearer ${token(admin)}`)
+      .send({ role: 'superuser' })
+      .expect(200, { id: member.id, role: 'superuser' })
+  })
+
+  test('lets a superuser read users but not change roles', async () => {
+    const prisma = usersPrisma('superuser')
+    const app = createCoreApp(dependencies(prisma))
+    const authorization = `Bearer ${token({ ...admin, role: 'superuser' })}`
+
+    await request(app)
+      .get('/api/v1/admin/users')
+      .set('Authorization', authorization)
+      .expect(200)
+
+    await request(app)
+      .patch(`/api/v1/admin/users/${member.id}/role`)
+      .set('Authorization', authorization)
+      .send({ role: 'user' })
+      .expect(403, { error: 'admin access required' })
+  })
+
+  test('lets a superuser preview the pool but not rebalance it', async () => {
+    const prisma = poolPrisma('superuser')
+    const app = createCoreApp(dependencies(prisma))
+    const authorization = `Bearer ${token({ ...admin, role: 'superuser' })}`
+
+    const preview = await request(app)
+      .get('/api/v1/admin/quota/pool')
+      .set('Authorization', authorization)
+    expect(preview.status).toBe(200)
+    expect(preview.body.poolBytes).toBe('10000')
+    expect(preview.body.allocableBytes).toBe('9600')
+
+    await request(app)
+      .post('/api/v1/admin/quota/rebalance')
+      .set('Authorization', authorization)
+      .expect(403, { error: 'admin access required' })
+  })
+
+  test('lets an administrator persist a pool rebalance', async () => {
+    const prisma = poolPrisma()
+    const response = await request(createCoreApp(dependencies(prisma)))
+      .post('/api/v1/admin/quota/rebalance')
+      .set('Authorization', `Bearer ${token(admin)}`)
+
+    expect(response.status).toBe(200)
+    expect(response.body.overcommitted).toBe(false)
+    expect(prisma.quotaAccount.update).toHaveBeenCalled()
+    expect(prisma.quotaLedgerEntry.create).toHaveBeenCalled()
+  })
+
+  test('rejects a manual quota that exceeds the remaining pool', async () => {
+    const prisma = poolPrisma()
+    await request(createCoreApp(dependencies(prisma)))
+      .patch(`/api/v1/admin/users/${member.id}/quota`)
+      .set('Authorization', `Bearer ${token(admin)}`)
+      .send({ limitBytes: '20000' })
+      .expect(409, { error: 'pool exceeded' })
   })
 
   test('requires a live Core administrator', async () => {

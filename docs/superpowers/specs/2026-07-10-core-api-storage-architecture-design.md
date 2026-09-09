@@ -451,7 +451,25 @@ MyWebDrive 的控制面复杂度主要来自错误的进程切分，而数据面
 
 书面设计确认后，下一步是生成逐文件实施计划，明确每个阶段的测试、兼容路由、数据迁移、上线检查和回滚点。
 
-## 19. 实施核对记录（2026-07-10）
+## 19. 实施核对记录
+
+当前权威状态见 §19.3。§19.0–19.2 是 2026-07 止血与 Core-first 决策的历史记录，不再作为「尚未完成」清单。
+
+### 19.3 纯开发态与配额池（2026-09-09）
+
+仓库按纯开发状态维护。日常入口是 `./manage-services.sh setup|start`，站点 `http://127.0.0.1:8080`。远端生产部署约 2026-09 月底至 10 月停用，本轮不把生产 smoke、digest 回滚或部署结构验证当作完成条件。
+
+已落地、对照本设计目标态：
+
+- Core API 是身份、文件、配额账本、上传编排、分享、发布与分析事实的 SoR。旧 Auth / User / Metadata / Sharing / Gateway 源码已移出工作树，需要时从 git history 取回。
+- 邮箱 OTP、刷新会话轮换、分享下载额度原子消费、Core 内部配额账本事务。
+- Superuser 角色（`CORE_SUPERUSER_EMAILS`）；Admin 邮箱优先。
+- 存储池 `STORAGE_POOL_BYTES` 减去 `STORAGE_PLATFORM_RESERVE_BYTES` 与全部 occupied（committed + reserved）后，按 User / Superuser / Admin 权重 1 / 3 / 8 做 Hamilton 最大余数分配。过订时活跃用户 `limit = occupied`。
+- `GET /api/v1/admin/quota/pool`（Admin 与 Superuser 只读）、`POST /api/v1/admin/quota/rebalance`（仅 Admin）。手动 `PATCH` 限额若使 `sum(limit) > pool - reserve` 则 409。Admin 用户页主按钮为「按池自动分配」。
+
+配额与角色细则以 [`2026-09-09-dev-mode-quota-allocation.md`](./2026-09-09-dev-mode-quota-allocation.md) 为准。本轮明确不做加密、Kubernetes、访客 UV，也不处理 Dependabot。
+
+### 19.0 止血措施（2026-07-10）
 
 已验证并已落地的止血措施：
 
@@ -460,12 +478,6 @@ MyWebDrive 的控制面复杂度主要来自错误的进程切分，而数据面
 - 新下载 Router 要求独立 `STORAGE_GRANT_SECRET` 签发的 60 秒、用途绑定、一次性 grant；Redis 不可用时 fail closed。
 - 旧的公开下载、直链和重定向 URL 在新 Router 中返回 410；Storage 增加 `/live`、`/ready` 和 `/version`。
 - 普通用户可调用的 storage delta 接口返回 410；它不能再把配额用量置零。
-
-尚未完成、因此不能作为上线完成条件宣称的条目：
-
-- Core API 模块合并、单一迁移历史、Quota Ledger、Upload Orchestrator、Outbox/Worker 和旧网关退役。
-- 邮箱 OTP 无密码认证、刷新会话轮换、分享下载额度原子消费及 Core 内部配额账本事务。
-- 唯一 image-based production compose、迁移 job、真实全栈 readiness、CI fail-closed 质量门和镜像 digest 回滚。
 
 ### 19.1 生产轮换记录（2026-07-10）
 
@@ -480,4 +492,4 @@ MyWebDrive 的控制面复杂度主要来自错误的进程切分，而数据面
 - 邀请码和密码认证从目标态删除。用户通过邮箱 OTP 完成首次注册和后续登录；验证成功后签发短期 access token 与可轮换 refresh session，使客户端能够长期保持登录态。
 - 旧止血计划只保留已经完成的 Task 0–2；未完成的旧 Task 3–4 由新的 Core-first 实施计划接管。
 
-该清单是当前代码与本设计的核对结果；只有所有“尚未完成”条目完成并通过发布验证，系统才符合本设计的目标态。
+历史生产轮换记录保留在此，供对照当时现场；当前完成条件以 §19.3 与 2026-09-09 配额 spec 为准。

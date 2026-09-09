@@ -10,13 +10,16 @@ source "$ROOT_DIR/scripts/smoke-core-artifacts.sh"
 SMOKE_REUSE_IMAGES=${SMOKE_REUSE_IMAGES:-0}
 SMOKE_BROWSER_GATE=${SMOKE_BROWSER_GATE:-0}
 SMOKE_UPDATE_SNAPSHOTS=${SMOKE_UPDATE_SNAPSHOTS:-0}
+SMOKE_ALLOW_HOST_SNAPSHOTS=${SMOKE_ALLOW_HOST_SNAPSHOTS:-0}
 [[ "$SMOKE_REUSE_IMAGES" == 0 || "$SMOKE_REUSE_IMAGES" == 1 ]] || { printf 'SMOKE_REUSE_IMAGES must be 0 or 1\n' >&2; exit 64; }
 [[ "$SMOKE_BROWSER_GATE" == 0 || "$SMOKE_BROWSER_GATE" == 1 ]] || { printf 'SMOKE_BROWSER_GATE must be 0 or 1\n' >&2; exit 64; }
+[[ "$SMOKE_ALLOW_HOST_SNAPSHOTS" == 0 || "$SMOKE_ALLOW_HOST_SNAPSHOTS" == 1 ]] || { printf 'SMOKE_ALLOW_HOST_SNAPSHOTS must be 0 or 1\n' >&2; exit 64; }
 smoke_validate_snapshot_update_policy \
   "$SMOKE_UPDATE_SNAPSHOTS" \
   "$SMOKE_BROWSER_GATE" \
   "${SMOKE_BROWSER_CONTAINER_IMAGE:-}" \
-  "$ROOT_DIR"
+  "$ROOT_DIR" \
+  "$SMOKE_ALLOW_HOST_SNAPSHOTS"
 RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$"
 SHA_TAG="sha-$(printf '%040x' "$$")"
 PROJECT="mwd-core-smoke-$RUN_ID"
@@ -48,6 +51,8 @@ export CORE_CALLBACK_SECRET="smoke-core-callback-${RUN_ID}-000000000000000"
 export EMAIL_PROVIDER_URL="http://fake-email:8025"
 export EMAIL_PROVIDER_TOKEN="smoke-email-token"
 export DEFAULT_USER_QUOTA_BYTES="10485760"
+export STORAGE_POOL_BYTES="10485760"
+export STORAGE_PLATFORM_RESERVE_BYTES="0"
 export CORE_ADMIN_EMAILS="smoke-admin@example.test"
 export REGISTRY="registry.invalid"
 export IMAGE_TAG="$SHA_TAG"
@@ -255,6 +260,8 @@ services:
       EMAIL_PROVIDER_URL: http://fake-email:8025
       EMAIL_PROVIDER_TOKEN: smoke-email-token
       CORE_ADMIN_EMAILS: smoke-admin@example.test,browser-healthy-admin@example.test,browser-healthy-admin-retry1@example.test,browser-degraded-admin@example.test,browser-degraded-admin-retry1@example.test
+      STORAGE_POOL_BYTES: "$STORAGE_POOL_BYTES"
+      STORAGE_PLATFORM_RESERVE_BYTES: "$STORAGE_PLATFORM_RESERVE_BYTES"
     depends_on:
       fake-email:
         condition: service_healthy
@@ -368,7 +375,9 @@ request 200 "$TEMP_DIR/me.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/ap
 [[ $(json_get "$TEMP_DIR/me.json" email) == "$EMAIL" ]] || fail 'refreshed access token is not usable'
 
 request 200 "$TEMP_DIR/quota.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/quota"
-[[ $(json_get "$TEMP_DIR/quota.json" limitBytes) == "$DEFAULT_USER_QUOTA_BYTES" ]] || fail 'default quota mismatch'
+request 200 "$TEMP_DIR/pool.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/quota/pool"
+[[ $(json_get "$TEMP_DIR/pool.json" overcommitted) == 'false' ]] || fail 'quota pool overcommitted'
+[[ $(json_get "$TEMP_DIR/quota.json" limitBytes) == "$STORAGE_POOL_BYTES" ]] || fail 'pool quota mismatch'
 
 request 200 "$TEMP_DIR/business-initial.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
 node -e '

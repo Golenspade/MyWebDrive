@@ -3,7 +3,7 @@ import request from 'supertest'
 import { describe, expect, test, vi } from 'vitest'
 
 import { issueAccessToken } from '../access-token.js'
-import { createAccessMiddleware, requireAdmin } from '../middleware.js'
+import { createAccessMiddleware, requireAdmin, requireAdminOrSuperuser } from '../middleware.js'
 
 const secret = 'middleware-test-secret-at-least-32-bytes'
 
@@ -15,6 +15,7 @@ function appFor(user: { id: string; email: string; role: string; status: string 
   app.use(createAccessMiddleware({ prisma: prisma as never, sessionSecret: secret }))
   app.get('/user', (req, res) => res.json(req.authUser))
   app.get('/admin', requireAdmin, (_req, res) => res.json({ ok: true }))
+  app.get('/staff', requireAdminOrSuperuser, (_req, res) => res.json({ ok: true }))
   return { app, prisma }
 }
 
@@ -65,5 +66,18 @@ describe('Core access middleware', () => {
       .get('/user')
       .set('Authorization', `Bearer ${token}`)
       .expect(401, { error: 'invalid access token' })
+  })
+
+  test('lets a superuser pass staff checks but not admin-only checks', async () => {
+    const token = issueAccessToken({ id: 'lead-1', role: 'user' }, secret)
+    const { app } = appFor({
+      id: 'lead-1',
+      email: 'lead@example.test',
+      role: 'superuser',
+      status: 'active',
+    })
+
+    await request(app).get('/staff').set('Authorization', `Bearer ${token}`).expect(200)
+    await request(app).get('/admin').set('Authorization', `Bearer ${token}`).expect(403)
   })
 })

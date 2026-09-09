@@ -132,6 +132,7 @@ integration('analytics projector', () => {
       now: firstNow,
       pepper,
       adminEmails: new Set(),
+      superuserEmails: new Set(),
       randomBytes: (size) => Buffer.alloc(size, 3),
       defaultUserQuotaBytes: 100n,
     })

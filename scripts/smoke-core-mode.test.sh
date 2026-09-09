@@ -154,6 +154,21 @@ grep -F 'snapshot-linux-verified' "$CALL_LOG" >/dev/null
 grep -F -- '--entrypoint sh' "$CALL_LOG" >/dev/null
 
 : > "$CALL_LOG"
+if smoke_validate_snapshot_update_policy 1 0 '' "$ROOT_DIR" 1 >/dev/null 2>&1; then
+  printf 'host snapshot override accepted a disabled browser gate\n' >&2
+  exit 1
+fi
+if smoke_validate_snapshot_update_policy 1 1 snapshot-linux-verified "$ROOT_DIR" yes >/dev/null 2>&1; then
+  printf 'host snapshot override accepted a non-boolean value\n' >&2
+  exit 1
+fi
+smoke_validate_snapshot_update_policy 1 1 '' "$ROOT_DIR" 1
+if grep -F -- '--entrypoint sh' "$CALL_LOG" >/dev/null; then
+  printf 'host snapshot override invoked Docker provenance validation\n' >&2
+  exit 1
+fi
+
+: > "$CALL_LOG"
 smoke_run_browser_container 0 noop-entrypoint-image @healthy --rm --network smoke_default
 assert_equal "$(cat "$CALL_LOG")" 'run --rm --network smoke_default --entrypoint corepack noop-entrypoint-image pnpm exec playwright test --grep @healthy' 'compare browser forces corepack entrypoint'
 : > "$CALL_LOG"

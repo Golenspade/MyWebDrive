@@ -125,9 +125,6 @@ STUB
     if (( retired_status != 64 )); then
       record_failure "manage-services.sh $retired_command must exit 64"
     fi
-    if [[ $retired_output != *SOFT-RETIRED* ]]; then
-      record_failure "manage-services.sh $retired_command must warn SOFT-RETIRED"
-    fi
   done
 
   for blocked_legacy_command in start build generate deploy reset db:reset unknown; do
@@ -138,7 +135,7 @@ STUB
     if (( blocked_legacy_status != 64 )); then
       record_failure "manage-services.sh legacy:$blocked_legacy_command must exit 64"
     fi
-    if [[ $blocked_legacy_output != *SOFT-RETIRED* || $blocked_legacy_output != *observation-only* ]]; then
+    if [[ $blocked_legacy_output != *observation-only* ]]; then
       record_failure "manage-services.sh legacy:$blocked_legacy_command must fail with an observation-only warning"
     fi
     if [[ $blocked_legacy_output == *'This split-control-plane manager'* ]]; then
@@ -169,8 +166,7 @@ done
 
 for doc in "${WORKFLOW_DOCS[@]}"; do
   require_text "$doc" './manage-services.sh quality' "${doc#"$ROOT_DIR/"}"
-  require_text "$doc" './manage-services.sh smoke' "${doc#"$ROOT_DIR/"}"
-  require_text "$doc" 'SOFT-RETIRED' "${doc#"$ROOT_DIR/"}"
+  require_text "$doc" './manage-services.sh start' "${doc#"$ROOT_DIR/"}"
 done
 
 deploy_guide="$ROOT_DIR/infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md"
