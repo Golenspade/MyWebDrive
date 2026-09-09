@@ -18,6 +18,7 @@ The working tree is a Core API + Storage stack. Daily entry is `./manage-service
 
 ### Notes
 Manual `PATCH /api/v1/admin/users/:id/quota` remains and returns 409 `pool exceeded` when the pool would overflow.
+Local code tests may set `SMOKE_ALLOW_HOST_SNAPSHOTS=1` on macOS; committed snapshots stay Linux-authoritative and must be restored to Linux-only once a Linux development machine exists.
 
 
 
