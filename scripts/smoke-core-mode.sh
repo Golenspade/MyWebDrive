@@ -120,6 +120,7 @@ smoke_cleanup_and_exit() {
 
 smoke_validate_snapshot_update_policy() {
   local update=$1 browser_gate=$2 browser_image=$3 root_dir=$4
+  local allow_host=${5:-0}
   case "$update" in
     0) return 0 ;;
     1) ;;
@@ -128,9 +129,19 @@ smoke_validate_snapshot_update_policy() {
       return 64
       ;;
   esac
+  case "$allow_host" in
+    0|1) ;;
+    *)
+      printf 'SMOKE_ALLOW_HOST_SNAPSHOTS must be 0 or 1\n' >&2
+      return 64
+      ;;
+  esac
   if [[ "$browser_gate" != 1 ]]; then
     printf 'snapshot updates require SMOKE_BROWSER_GATE=1\n' >&2
     return 64
+  fi
+  if [[ "$allow_host" == 1 ]]; then
+    return 0
   fi
   if [[ -z "$browser_image" ]]; then
     printf 'snapshot updates require SMOKE_BROWSER_CONTAINER_IMAGE\n' >&2

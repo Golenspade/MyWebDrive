@@ -10,13 +10,16 @@ source "$ROOT_DIR/scripts/smoke-core-artifacts.sh"
 SMOKE_REUSE_IMAGES=${SMOKE_REUSE_IMAGES:-0}
 SMOKE_BROWSER_GATE=${SMOKE_BROWSER_GATE:-0}
 SMOKE_UPDATE_SNAPSHOTS=${SMOKE_UPDATE_SNAPSHOTS:-0}
+SMOKE_ALLOW_HOST_SNAPSHOTS=${SMOKE_ALLOW_HOST_SNAPSHOTS:-0}
 [[ "$SMOKE_REUSE_IMAGES" == 0 || "$SMOKE_REUSE_IMAGES" == 1 ]] || { printf 'SMOKE_REUSE_IMAGES must be 0 or 1\n' >&2; exit 64; }
 [[ "$SMOKE_BROWSER_GATE" == 0 || "$SMOKE_BROWSER_GATE" == 1 ]] || { printf 'SMOKE_BROWSER_GATE must be 0 or 1\n' >&2; exit 64; }
+[[ "$SMOKE_ALLOW_HOST_SNAPSHOTS" == 0 || "$SMOKE_ALLOW_HOST_SNAPSHOTS" == 1 ]] || { printf 'SMOKE_ALLOW_HOST_SNAPSHOTS must be 0 or 1\n' >&2; exit 64; }
 smoke_validate_snapshot_update_policy \
   "$SMOKE_UPDATE_SNAPSHOTS" \
   "$SMOKE_BROWSER_GATE" \
   "${SMOKE_BROWSER_CONTAINER_IMAGE:-}" \
-  "$ROOT_DIR"
+  "$ROOT_DIR" \
+  "$SMOKE_ALLOW_HOST_SNAPSHOTS"
 RUN_ID="$(date -u +%Y%m%d%H%M%S)-$$"
 SHA_TAG="sha-$(printf '%040x' "$$")"
 PROJECT="mwd-core-smoke-$RUN_ID"

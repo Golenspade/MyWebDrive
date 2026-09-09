@@ -62,3 +62,28 @@ pnpm run verify:docs
 ```
 
 Public API: `docs/openapi.yaml`. Nginx exposes `/healthz` and blocks `/api/v1/internal/*`. Operational `/live`, `/ready`, `/version`, and `/metrics` are not public OpenAPI.
+
+## Browser snapshots
+
+Committed snapshots under `e2e/snapshots/` are Linux-authoritative. Production remains Linux. A normal `pnpm run test:e2e` compares against them and must never rewrite them. `SMOKE_UPDATE_SNAPSHOTS` accepts only `0` or `1`; absent or exactly `0` compares snapshots, and only exactly `1` requests an update.
+
+Do not generate authoritative snapshots on macOS or through the host browser path, except the temporary override below. The default path still starts `SMOKE_BROWSER_CONTAINER_IMAGE` and verifies its actual Linux platform, the repository-locked Playwright `1.61.1` package, and the ability of that package to launch Chromium from the container. A project name ending in `-linux` is not provenance.
+
+```bash
+SMOKE_REUSE_IMAGES=1 \
+SMOKE_BROWSER_GATE=1 \
+SMOKE_BROWSER_CONTAINER_IMAGE=mcr.microsoft.com/playwright:v1.61.1-noble \
+SMOKE_UPDATE_SNAPSHOTS=1 \
+bash scripts/smoke-core-e2e.sh
+```
+
+There is no Linux development machine in this workspace yet. For local **code tests on macOS**, set `SMOKE_ALLOW_HOST_SNAPSHOTS` to exactly `1`. That skips Linux container provenance and lets host Playwright compare (and, with `SMOKE_UPDATE_SNAPSHOTS=1`, write) snapshots. Do not commit those host files as the production authority.
+
+```bash
+SMOKE_BROWSER_GATE=1 \
+SMOKE_UPDATE_SNAPSHOTS=1 \
+SMOKE_ALLOW_HOST_SNAPSHOTS=1 \
+pnpm run test:e2e
+```
+
+This override is temporary. When a Linux development machine exists, unset `SMOKE_ALLOW_HOST_SNAPSHOTS` (or set it to `0`) and restore Linux-container-only snapshot updates. Do not leave the macOS exception in place once that machine is available.
