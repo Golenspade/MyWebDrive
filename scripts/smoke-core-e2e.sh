@@ -51,6 +51,8 @@ export CORE_CALLBACK_SECRET="smoke-core-callback-${RUN_ID}-000000000000000"
 export EMAIL_PROVIDER_URL="http://fake-email:8025"
 export EMAIL_PROVIDER_TOKEN="smoke-email-token"
 export DEFAULT_USER_QUOTA_BYTES="10485760"
+export STORAGE_POOL_BYTES="10485760"
+export STORAGE_PLATFORM_RESERVE_BYTES="0"
 export CORE_ADMIN_EMAILS="smoke-admin@example.test"
 export REGISTRY="registry.invalid"
 export IMAGE_TAG="$SHA_TAG"
@@ -258,6 +260,8 @@ services:
       EMAIL_PROVIDER_URL: http://fake-email:8025
       EMAIL_PROVIDER_TOKEN: smoke-email-token
       CORE_ADMIN_EMAILS: smoke-admin@example.test,browser-healthy-admin@example.test,browser-healthy-admin-retry1@example.test,browser-degraded-admin@example.test,browser-degraded-admin-retry1@example.test
+      STORAGE_POOL_BYTES: "$STORAGE_POOL_BYTES"
+      STORAGE_PLATFORM_RESERVE_BYTES: "$STORAGE_PLATFORM_RESERVE_BYTES"
     depends_on:
       fake-email:
         condition: service_healthy
@@ -371,7 +375,9 @@ request 200 "$TEMP_DIR/me.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/ap
 [[ $(json_get "$TEMP_DIR/me.json" email) == "$EMAIL" ]] || fail 'refreshed access token is not usable'
 
 request 200 "$TEMP_DIR/quota.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/quota"
-[[ $(json_get "$TEMP_DIR/quota.json" limitBytes) == "$DEFAULT_USER_QUOTA_BYTES" ]] || fail 'default quota mismatch'
+request 200 "$TEMP_DIR/pool.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/quota/pool"
+[[ $(json_get "$TEMP_DIR/pool.json" overcommitted) == 'false' ]] || fail 'quota pool overcommitted'
+[[ $(json_get "$TEMP_DIR/quota.json" limitBytes) == "$STORAGE_POOL_BYTES" ]] || fail 'pool quota mismatch'
 
 request 200 "$TEMP_DIR/business-initial.json" -H "Authorization: Bearer $ACCESS" "$BASE_URL/api/v1/admin/dashboard/business?range=today"
 node -e '
