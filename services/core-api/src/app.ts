@@ -38,6 +38,10 @@ export type CoreDependencies = {
     production: boolean
     defaultUserQuotaBytes: bigint
   }
+  quota?: {
+    poolBytes: bigint
+    platformReserveBytes: bigint
+  }
   storage?: { grantSecret: string; callbackSecret?: string }
   telemetry?: AppTelemetry
   prometheus?: PrometheusHealthClient
@@ -71,6 +75,10 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
     superuserEmails: process.env.CORE_SUPERUSER_EMAILS ?? '',
     production: process.env.NODE_ENV === 'production',
     defaultUserQuotaBytes: 0n,
+  }
+  const quota = deps.quota ?? {
+    poolBytes: 0n,
+    platformReserveBytes: 0n,
   }
 
   app.disable('x-powered-by')
@@ -118,6 +126,7 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
       now: deps.now,
       randomBytes: deps.randomBytes,
       ...identity,
+      quotaPool: quota,
     }),
   )
 
@@ -127,6 +136,7 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
       prisma: deps.prisma,
       sessionSecret: identity.sessionSecret,
       now: deps.now,
+      quota,
     }),
   )
 
@@ -145,6 +155,7 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
         process.env.CORE_CALLBACK_SECRET ??
         'development-only-core-callback-secret',
       uploadMetrics,
+      quota,
     }),
   )
 

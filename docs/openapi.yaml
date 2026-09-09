@@ -634,6 +634,48 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/admin/quota/pool:
+    get:
+      operationId: getQuotaPool
+      tags: [Admin]
+      summary: Preview weighted quota allocation from the remaining storage pool
+      security:
+        - accessToken: []
+      responses:
+        '200':
+          description: Proposed per-user limits. Byte counts are decimal strings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaPoolPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/admin/quota/rebalance:
+    post:
+      operationId: rebalanceQuotaPool
+      tags: [Admin]
+      summary: Persist weighted quota allocation from the remaining storage pool
+      security:
+        - accessToken: []
+      responses:
+        '200':
+          description: Written per-user limits. Byte counts are decimal strings.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QuotaPoolPlan'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/files/{fileId}/shares:
     post:
       operationId: createShare
@@ -1359,6 +1401,29 @@ components:
         reservedBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
         committedBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
         availableBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+    QuotaPoolAllocation:
+      type: object
+      required: [userId, previousLimitBytes, occupiedBytes, limitBytes]
+      properties:
+        userId: { type: string, format: uuid }
+        previousLimitBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+        occupiedBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+        limitBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+    QuotaPoolPlan:
+      type: object
+      required: [overcommitted, poolBytes, platformReserveBytes, occupiedBytes, allocableBytes, allocations]
+      properties:
+        overcommitted: { type: boolean }
+        poolBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+        platformReserveBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+        occupiedBytes: { $ref: '#/components/schemas/NonnegativeByteString' }
+        allocableBytes:
+          type: string
+          pattern: '^-?(0|[1-9][0-9]*)$'
+          description: Signed decimal string; negative when the pool is overcommitted.
+        allocations:
+          type: array
+          items: { $ref: '#/components/schemas/QuotaPoolAllocation' }
     SharePassword:
       type: string
       minLength: 1

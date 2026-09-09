@@ -8,8 +8,8 @@ import {
   QuotaLimitConflictError,
   QuotaNotFoundError,
   serializeQuota,
-  setQuotaLimit,
 } from '../quota/service.js'
+import { QuotaPoolExceededError, setQuotaLimitWithinPool, type QuotaPoolConfig } from '../quota/pool.js'
 import {
   cancelUploadIntent,
   createUploadIntent,
@@ -45,6 +45,7 @@ type UploadRouterDependencies = {
     recordSuccess(durationMs: number): void
     recordFailure(durationMs: number): void
   }
+  quota: QuotaPoolConfig
 }
 
 function parseNonnegativeBigInt(value: unknown): bigint {
@@ -245,9 +246,17 @@ export function createUploadRouter(deps: UploadRouterDependencies): express.Rout
     }
 
     try {
-      const quota = await setQuotaLimit(deps.prisma, req.params.userId, limitBytes)
+      const quota = await setQuotaLimitWithinPool(
+        deps.prisma,
+        req.params.userId,
+        limitBytes,
+        deps.quota,
+      )
       return res.json(serializeQuota(quota))
     } catch (error) {
+      if (error instanceof QuotaPoolExceededError) {
+        return res.status(409).json({ error: 'pool exceeded' })
+      }
       if (error instanceof QuotaLimitConflictError) {
         return res.status(409).json({ error: 'quota limit below current usage' })
       }

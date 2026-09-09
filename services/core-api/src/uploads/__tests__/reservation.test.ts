@@ -41,6 +41,7 @@ integration('quota reservations and upload intents', () => {
         defaultUserQuotaBytes: 100n,
       },
       storage: { grantSecret },
+      quota: { poolBytes: 1_000_000_000n, platformReserveBytes: 0n },
     })
   }
 

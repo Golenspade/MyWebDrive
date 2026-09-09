@@ -19,6 +19,8 @@ const routeGroups = [
       ['get', '/admin/users'],
       ['get', '/admin/users/:userId'],
       ['patch', '/admin/users/:userId/role'],
+      ['get', '/admin/quota/pool'],
+      ['post', '/admin/quota/rebalance'],
       ['get', '/admin/notifications'],
       ['post', '/admin/notifications'],
       ['post', '/admin/notifications/mark-read'],

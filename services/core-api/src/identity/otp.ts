@@ -8,6 +8,7 @@ import { normalizeEmail } from './email.js'
 import { createRefreshSession } from './session.js'
 import { enqueueDomainEvent } from '../outbox/service.js'
 import { signupRole } from './roles.js'
+import { rebalanceQuotaPool, type QuotaPoolConfig } from '../quota/pool.js'
 
 export { normalizeEmail } from './email.js'
 
@@ -153,6 +154,7 @@ export async function verifyEmailOtp(input: {
   superuserEmails: ReadonlySet<string>
   randomBytes: RandomBytes
   defaultUserQuotaBytes: bigint
+  quotaPool?: QuotaPoolConfig
 }): Promise<{
   user: { id: string; email: string; role: string }
   refreshToken: string
@@ -239,12 +241,17 @@ export async function verifyEmailOtp(input: {
             update: {},
           })
           const session = await createRefreshSession(tx, user.id, input.now, input.randomBytes)
-          return { kind: 'verified', user, refreshToken: session.token } as const
+          return { kind: 'verified', created: !existingUser, user, refreshToken: session.token } as const
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       )
 
-      if (outcome.kind === 'verified') return outcome
+      if (outcome.kind === 'verified') {
+        if (outcome.created && input.quotaPool) {
+          await rebalanceQuotaPool(input.prisma, input.now, input.quotaPool)
+        }
+        return { user: outcome.user, refreshToken: outcome.refreshToken }
+      }
       if (outcome.kind === 'exhausted') throw new OtpAttemptsExhaustedError()
       throw new InvalidOtpError()
     } catch (error) {

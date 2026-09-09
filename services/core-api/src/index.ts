@@ -48,6 +48,10 @@ async function runApi(): Promise<void> {
       production: config.nodeEnv === 'production',
       defaultUserQuotaBytes: config.defaultUserQuotaBytes,
     },
+    quota: {
+      poolBytes: config.storagePoolBytes,
+      platformReserveBytes: config.storagePlatformReserveBytes,
+    },
     storage: {
       grantSecret: config.storageGrantSecret,
       callbackSecret: config.callbackSecret,

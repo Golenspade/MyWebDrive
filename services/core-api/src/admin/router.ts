@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client'
 import express from 'express'
 
 import { createAccessMiddleware, requireAdmin, requireAdminOrSuperuser } from '../auth/middleware.js'
+import { previewQuotaPool, rebalanceQuotaPool, type QuotaPoolConfig } from '../quota/pool.js'
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -11,6 +12,7 @@ type AdminRouterDependencies = {
   prisma: PrismaClient
   sessionSecret: string
   now: () => Date
+  quota: QuotaPoolConfig
 }
 
 type QuotaRecord = {
@@ -55,6 +57,22 @@ function serializeUser(user: AdminUserRecord) {
     status: user.status,
     createdAt: user.createdAt.toISOString(),
     quota: serializeQuota(user.quotaAccount),
+  }
+}
+
+function serializePoolPlan(plan: Awaited<ReturnType<typeof previewQuotaPool>>) {
+  return {
+    overcommitted: plan.overcommitted,
+    poolBytes: plan.poolBytes.toString(),
+    platformReserveBytes: plan.platformReserveBytes.toString(),
+    occupiedBytes: plan.occupiedBytes.toString(),
+    allocableBytes: plan.allocableBytes.toString(),
+    allocations: plan.allocations.map((row) => ({
+      userId: row.userId,
+      previousLimitBytes: row.previousLimitBytes.toString(),
+      occupiedBytes: row.occupiedBytes.toString(),
+      limitBytes: row.limitBytes.toString(),
+    })),
   }
 }
 
@@ -190,6 +208,24 @@ export function createAdminRouter(deps: AdminRouterDependencies): express.Router
       if ((error as { code?: string }).code === 'P2025') {
         return res.status(404).json({ error: 'user not found' })
       }
+      return res.status(503).json({ error: 'service unavailable' })
+    }
+  })
+
+  router.get('/admin/quota/pool', requireAccess, requireAdminOrSuperuser, async (_req, res) => {
+    try {
+      const plan = await previewQuotaPool(deps.prisma, deps.quota)
+      return res.json(serializePoolPlan(plan))
+    } catch {
+      return res.status(503).json({ error: 'service unavailable' })
+    }
+  })
+
+  router.post('/admin/quota/rebalance', requireAccess, requireAdmin, async (_req, res) => {
+    try {
+      const plan = await rebalanceQuotaPool(deps.prisma, deps.now(), deps.quota)
+      return res.json(serializePoolPlan(plan))
+    } catch {
       return res.status(503).json({ error: 'service unavailable' })
     }
   })

@@ -36,6 +36,7 @@ type IdentityRouterDependencies = {
   superuserEmails?: string
   production: boolean
   defaultUserQuotaBytes: bigint
+  quotaPool?: { poolBytes: bigint; platformReserveBytes: bigint }
 }
 
 function parseCookie(header: string | undefined, name: string): string | undefined {
@@ -129,6 +130,7 @@ export function createIdentityRouter(deps: IdentityRouterDependencies): express.
         superuserEmails: superusers,
         randomBytes: deps.randomBytes,
         defaultUserQuotaBytes: deps.defaultUserQuotaBytes,
+        quotaPool: deps.quotaPool,
       })
       const accessToken = issueAccessToken(verified.user, deps.sessionSecret)
       res.cookie(COOKIE_NAME, verified.refreshToken, cookieOptions(deps.production))

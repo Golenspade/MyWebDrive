@@ -525,6 +525,8 @@ fixture_compose() {
     -u DEFAULT_USER_QUOTA_BYTES \
     -u CORE_ADMIN_EMAILS \
     -u CORE_SUPERUSER_EMAILS \
+    -u STORAGE_POOL_BYTES \
+    -u STORAGE_PLATFORM_RESERVE_BYTES \
     -u REGISTRY \
     -u IMAGE_TAG \
     -u GIT_SHA \
