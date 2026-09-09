@@ -15,7 +15,10 @@ export class AdminOperationsPage {
   async openUsers(expectedEmail: string) {
     await this.page.goto('/admin/users')
     await expect(this.page.getByRole('heading', { level: 1, name: '用户管理' })).toBeVisible()
-    await expect(this.page.getByRole('cell', { name: expectedEmail })).toBeVisible()
+    await expect(this.page.getByRole('button', { name: '按池自动分配' })).toBeVisible()
+    await expect(
+      this.page.getByRole('table', { name: '用户列表' }).getByRole('cell', { name: expectedEmail, exact: true }),
+    ).toBeVisible()
     await expect.poll(() => this.responses.get('/api/v1/admin/users')?.status()).toBe(200)
   }
 

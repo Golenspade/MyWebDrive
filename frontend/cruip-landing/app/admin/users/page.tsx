@@ -218,7 +218,7 @@ export default function AdminUsersPage() {
                 <div className='text-sm text-amber-500'>池已过订：活跃用户限额将压到当前占用，无法再分配余量。</div>
               )}
               <div className='rounded-[var(--nothing-r-md)] border border-nothing-line-2 overflow-hidden'>
-                <Table>
+                <Table aria-label='存储池分配'>
                   <TableHeader>
                     <TableRow>
                       <TableHead>用户</TableHead>
@@ -286,7 +286,7 @@ export default function AdminUsersPage() {
           </div>
 
           <div className='rounded-[var(--nothing-r-md)] border border-nothing-line-2 overflow-hidden'>
-            <Table>
+            <Table aria-label='用户列表'>
               <TableHeader>
                 <TableRow>
                   <TableHead className='w-80'>ID</TableHead>

@@ -79,6 +79,8 @@ describe('Core-first frontend source contract', () => {
     expect(admin).toContain("apiClient.post<QuotaPoolPlan>('/admin/quota/rebalance')")
     expect(admin).toMatch(/committedBytes:\s*string/)
     expect(usersPage).toContain('按池自动分配')
+    expect(usersPage).toContain("aria-label='存储池分配'")
+    expect(usersPage).toContain("aria-label='用户列表'")
     expect(usersPage).toContain('adminApi.previewQuotaPool')
     expect(usersPage).toContain('adminApi.rebalanceQuotaPool')
     expect(usersPage).toContain('手动调整限额')
