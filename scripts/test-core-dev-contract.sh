@@ -524,6 +524,7 @@ fixture_compose() {
     -u EMAIL_PROVIDER_TOKEN \
     -u DEFAULT_USER_QUOTA_BYTES \
     -u CORE_ADMIN_EMAILS \
+    -u CORE_SUPERUSER_EMAILS \
     -u REGISTRY \
     -u IMAGE_TAG \
     -u GIT_SHA \

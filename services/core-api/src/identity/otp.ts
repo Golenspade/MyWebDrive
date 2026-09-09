@@ -7,6 +7,7 @@ import type { EmailSender } from './email-sender.js'
 import { normalizeEmail } from './email.js'
 import { createRefreshSession } from './session.js'
 import { enqueueDomainEvent } from '../outbox/service.js'
+import { signupRole } from './roles.js'
 
 export { normalizeEmail } from './email.js'
 
@@ -149,6 +150,7 @@ export async function verifyEmailOtp(input: {
   now: Date
   pepper: string
   adminEmails: ReadonlySet<string>
+  superuserEmails: ReadonlySet<string>
   randomBytes: RandomBytes
   defaultUserQuotaBytes: bigint
 }): Promise<{
@@ -215,7 +217,10 @@ export async function verifyEmailOtp(input: {
           })
           const user = await tx.user.upsert({
             where: { email },
-            create: { email, role: input.adminEmails.has(email) ? 'admin' : 'user' },
+            create: {
+              email,
+              role: signupRole(email, input.adminEmails, input.superuserEmails),
+            },
             update: {},
             select: { id: true, email: true, role: true },
           })

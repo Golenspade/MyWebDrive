@@ -62,3 +62,11 @@ export const requireAdmin: express.RequestHandler = (req, res, next) => {
   }
   return next()
 }
+
+export const requireAdminOrSuperuser: express.RequestHandler = (req, res, next) => {
+  const role = req.authUser?.role
+  if (role !== 'admin' && role !== 'superuser') {
+    return res.status(403).json({ error: 'admin access required' })
+  }
+  return next()
+}

@@ -157,6 +157,37 @@ describe('Core admin users contract', () => {
       .expect(200, { id: member.id, role: 'admin' })
   })
 
+  test('lets an administrator assign the superuser role', async () => {
+    const prisma = usersPrisma()
+    ;(prisma.user.update as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: member.id,
+      role: 'superuser',
+    })
+
+    await request(createCoreApp(dependencies(prisma)))
+      .patch(`/api/v1/admin/users/${member.id}/role`)
+      .set('Authorization', `Bearer ${token(admin)}`)
+      .send({ role: 'superuser' })
+      .expect(200, { id: member.id, role: 'superuser' })
+  })
+
+  test('lets a superuser read users but not change roles', async () => {
+    const prisma = usersPrisma('superuser')
+    const app = createCoreApp(dependencies(prisma))
+    const authorization = `Bearer ${token({ ...admin, role: 'superuser' })}`
+
+    await request(app)
+      .get('/api/v1/admin/users')
+      .set('Authorization', authorization)
+      .expect(200)
+
+    await request(app)
+      .patch(`/api/v1/admin/users/${member.id}/role`)
+      .set('Authorization', authorization)
+      .send({ role: 'user' })
+      .expect(403, { error: 'admin access required' })
+  })
+
   test('requires a live Core administrator', async () => {
     const prisma = usersPrisma('user')
     await request(createCoreApp(dependencies(prisma)))

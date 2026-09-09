@@ -34,6 +34,7 @@ export type CoreDependencies = {
     sessionSecret: string
     otpPepper: string
     adminEmails: string
+    superuserEmails?: string
     production: boolean
     defaultUserQuotaBytes: bigint
   }
@@ -67,6 +68,7 @@ export function createCoreApp(deps: CoreDependencies): express.Express {
       process.env.CORE_SESSION_SECRET ?? 'development-only-core-session-secret',
     otpPepper: process.env.OTP_PEPPER ?? 'development-only-otp-pepper',
     adminEmails: process.env.CORE_ADMIN_EMAILS ?? '',
+    superuserEmails: process.env.CORE_SUPERUSER_EMAILS ?? '',
     production: process.env.NODE_ENV === 'production',
     defaultUserQuotaBytes: 0n,
   }

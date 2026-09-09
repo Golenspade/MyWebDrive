@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import express from 'express'
 
-import { createAccessMiddleware, requireAdmin } from '../auth/middleware.js'
+import { createAccessMiddleware, requireAdmin, requireAdminOrSuperuser } from '../auth/middleware.js'
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
@@ -92,7 +92,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): express.Router
   })
   const streamClients = new Set<express.Response>()
 
-  router.get('/admin/users', requireAccess, requireAdmin, async (req, res) => {
+  router.get('/admin/users', requireAccess, requireAdminOrSuperuser, async (req, res) => {
     const query = optionalString(req.query.query ?? req.query.q, 200) ?? ''
     const page = parsePositiveInteger(req.query.page, 1, Number.MAX_SAFE_INTEGER)
     const pageSize = parsePositiveInteger(req.query.pageSize, 20, 100)
@@ -141,7 +141,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): express.Router
     }
   })
 
-  router.get('/admin/users/:userId', requireAccess, requireAdmin, async (req, res) => {
+  router.get('/admin/users/:userId', requireAccess, requireAdminOrSuperuser, async (req, res) => {
     if (!UUID_PATTERN.test(req.params.userId ?? '')) {
       return res.status(404).json({ error: 'user not found' })
     }
@@ -176,7 +176,7 @@ export function createAdminRouter(deps: AdminRouterDependencies): express.Router
       return res.status(404).json({ error: 'user not found' })
     }
     const role = req.body?.role
-    if (role !== 'user' && role !== 'admin') {
+    if (role !== 'user' && role !== 'superuser' && role !== 'admin') {
       return res.status(400).json({ error: 'invalid role' })
     }
     try {
