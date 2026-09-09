@@ -117,11 +117,10 @@ for relative in \
   frontend/cruip-landing/Dockerfile \
   scripts/smoke/fake-email/Dockerfile \
   scripts/smoke/fake-email/server.mjs \
-  scripts/smoke-core-e2e.sh \
-  archive/legacy-split-control-plane-2026-07-13/manage-services.sh; do
+  scripts/smoke-core-e2e.sh; do
   copy_fixture_file "$relative"
 done
-chmod +x "$MANAGER" "$ROOT_DIR/archive/legacy-split-control-plane-2026-07-13/manage-services.sh"
+chmod +x "$MANAGER"
 
 help_output=$(/bin/bash "$MANAGER" --help)
 default_output=$(/bin/bash "$MANAGER")
@@ -630,19 +629,14 @@ for retired_command in start-backend start-frontend start-next db:start; do
   retired_status=$?
   set -e
   [[ $retired_status -eq 64 ]] || fail "$retired_command must exit 64"
-  assert_contains "$retired_output" 'SOFT-RETIRED' "$retired_command output"
-  assert_contains "$retired_output" './manage-services.sh start' "$retired_command output"
-  assert_contains "$retired_output" './manage-services.sh legacy:help' "$retired_command output"
   [[ "$retired_output" != *"legacy:$retired_command"* ]] || fail "$retired_command suggested a blocked legacy passthrough"
 done
 
 legacy_output=$(PATH="$ORIGINAL_PATH" /bin/bash "$MANAGER" legacy:help 2>&1)
 assert_contains "$legacy_output" 'observation cycle' 'legacy:help output'
-assert_contains "$legacy_output" 'SOFT-RETIRED' 'legacy:help output'
 assert_contains "$legacy_output" 'legacy:status' 'legacy:help output'
 
 legacy_status_output=$(PATH="$ORIGINAL_PATH" /bin/bash "$MANAGER" legacy:status 2>&1)
-assert_contains "$legacy_status_output" 'SOFT-RETIRED' 'legacy:status output'
 assert_contains "$legacy_status_output" 'Legacy split-control-plane socket observation' 'legacy:status output'
 
 for blocked_legacy_command in start build generate deploy reset db:reset unknown; do
@@ -652,7 +646,6 @@ for blocked_legacy_command in start build generate deploy reset db:reset unknown
   blocked_legacy_status=$?
   set -e
   [[ $blocked_legacy_status -eq 64 ]] || fail "legacy:$blocked_legacy_command must exit 64"
-  assert_contains "$blocked_legacy_output" 'SOFT-RETIRED' "legacy:$blocked_legacy_command output"
   assert_contains "$blocked_legacy_output" 'observation-only' "legacy:$blocked_legacy_command output"
   [[ $blocked_legacy_output != *'This split-control-plane manager'* ]] || fail "legacy:$blocked_legacy_command invoked the archived manager"
   [[ ! -s "$COMMAND_STUB_LOG" ]] || fail "legacy:$blocked_legacy_command invoked a tool"

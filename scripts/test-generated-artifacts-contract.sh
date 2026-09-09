@@ -43,7 +43,7 @@ VERIFY_TRACKED_ARTIFACTS_ROOT="$clean_repo" bash "$VERIFIER"
 expect_rejected dist packages/common/dist/index.js
 expect_rejected next frontend/cruip-landing/.next/server/app.js
 expect_rejected tsbuildinfo packages/common/tsconfig.tsbuildinfo
-expect_rejected prisma-client services/auth/prisma/client/index.js
+expect_rejected prisma-client services/core-api/prisma/client/index.js
 expect_rejected prisma-dot-client services/core-api/.prisma/client/index.js
 expect_rejected prisma-native services/core-api/prisma/query_engine-windows.dll.node
 expect_rejected prisma-native-extensionless services/core-api/prisma/schema-engine-darwin-arm64

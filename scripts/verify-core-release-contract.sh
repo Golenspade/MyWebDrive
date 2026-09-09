@@ -182,10 +182,14 @@ authority_filters="--filter './packages/common' --filter './packages/observabili
 [[ "$(script_value test:legacy)" == 'bash scripts/run-legacy-tests.sh' ]] || fail 'test:legacy must remain explicit'
 [[ "$(script_value verify:generated)" == 'bash scripts/verify-no-generated-artifacts.sh' ]] || fail 'generated artifact verifier is not exposed'
 [[ "$(script_value test:e2e)" == 'playwright test' ]] || fail 'test:e2e must expose Playwright directly'
-require_pattern 'SOFT-RETIRED' "$LEGACY_TEST_SCRIPT" 'legacy test warning is missing'
-for legacy in auth user metadata sharing api-gateway-node; do
-  require_pattern "--filter '\./services/$legacy'" "$LEGACY_TEST_SCRIPT" "legacy test discovery is missing $legacy"
-done
+require_pattern '源码已移除，见 git history' "$LEGACY_TEST_SCRIPT" 'legacy tests must report that sources were removed'
+reject_pattern "--filter '\./services/(auth|user|metadata|sharing|api-gateway-node)'" "$LEGACY_TEST_SCRIPT" 'legacy tests must not discover removed split-control-plane packages'
+set +e
+legacy_test_output=$(bash "$LEGACY_TEST_SCRIPT" 2>&1)
+legacy_test_status=$?
+set -e
+[[ $legacy_test_status -eq 0 ]] || fail "run-legacy-tests.sh must exit 0 after source removal, got $legacy_test_status"
+[[ $legacy_test_output == *'源码已移除，见 git history'* ]] || fail 'run-legacy-tests.sh must print the git-history message'
 reject_pattern '\|\|[[:space:]]*true' "$MAKEFILE" 'Makefile must fail closed'
 for pattern in 'pnpm run build:all' 'pnpm run typecheck' 'pnpm run lint:all' 'pnpm run test:all' 'pnpm run verify:generated' 'test-repo-authority-contract\.sh' 'verify-core-release-contract\.sh'; do require_pattern "$pattern" "$MAKEFILE" "Makefile quality-check is missing: $pattern"; done
 
