@@ -232,7 +232,7 @@ paths:
               additionalProperties: false
               required: [role]
               properties:
-                role: { type: string, enum: [user, admin] }
+                role: { type: string, enum: [user, superuser, admin] }
       responses:
         '200':
           description: Updated role.
@@ -639,6 +639,7 @@ paths:
       operationId: getQuotaPool
       tags: [Admin]
       summary: Preview weighted quota allocation from the remaining storage pool
+      description: Admin and Superuser may read. Superuser cannot persist the plan.
       security:
         - accessToken: []
       responses:
@@ -660,6 +661,7 @@ paths:
       operationId: rebalanceQuotaPool
       tags: [Admin]
       summary: Persist weighted quota allocation from the remaining storage pool
+      description: Admin only. Superuser receives 403.
       security:
         - accessToken: []
       responses:
@@ -1189,7 +1191,7 @@ components:
       properties:
         id: { type: string, format: uuid }
         email: { type: string, format: email }
-        role: { type: string }
+        role: { type: string, enum: [user, superuser, admin] }
     AdminUser:
       type: object
       required: [id, name, email, role, status, createdAt, quota]
@@ -1197,7 +1199,7 @@ components:
         id: { type: string, format: uuid }
         name: { type: string, nullable: true }
         email: { type: string, format: email }
-        role: { type: string, enum: [user, admin] }
+        role: { type: string, enum: [user, superuser, admin] }
         status: { type: string }
         createdAt: { type: string, format: date-time }
         quota:
@@ -1220,7 +1222,7 @@ components:
       required: [id, role]
       properties:
         id: { type: string, format: uuid }
-        role: { type: string, enum: [user, admin] }
+        role: { type: string, enum: [user, superuser, admin] }
     NotificationSeverity:
       type: string
       enum: [critical, warning, info, success]

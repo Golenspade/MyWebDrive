@@ -60,6 +60,18 @@ _Avoid_: Publication, public file
 A named catalogue entry that makes one File discoverable and eligible for public Download Tickets while published.
 _Avoid_: Share, release artifact
 
+**Superuser**:
+An Identity that can read the user list and preview Storage Pool allocation, but cannot change another Identity's role or execute Rebalance.
+_Avoid_: Admin, operator
+
+**Storage Pool**:
+The environment byte budget (`STORAGE_POOL_BYTES`) minus platform reserve; leftover bytes are partitioned as per-Identity Quota limits.
+_Avoid_: Disk size, physical volume, overcommit
+
+**Rebalance**:
+The weighted assignment of leftover Storage Pool bytes to active Identities (user 1, Superuser 3, Admin 8) using Hamilton largest remainders after subtracting occupied reserved and committed bytes.
+_Avoid_: Default quota, manual PATCH, fair share
+
 **Quota**:
 The per-Identity byte budget divided into reserved, committed, and available capacity.
 _Avoid_: Disk size, physical storage
