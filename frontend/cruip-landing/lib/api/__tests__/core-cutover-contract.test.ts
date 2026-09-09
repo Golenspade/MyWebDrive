@@ -75,7 +75,13 @@ describe('Core-first frontend source contract', () => {
     expect(admin).toContain('/admin/users/${encodeURIComponent(id)}')
     expect(admin).toContain('/admin/users/${encodeURIComponent(id)}/role')
     expect(admin).toContain('/admin/users/${encodeURIComponent(id)}/quota')
+    expect(admin).toContain("apiClient.get<QuotaPoolPlan>('/admin/quota/pool')")
+    expect(admin).toContain("apiClient.post<QuotaPoolPlan>('/admin/quota/rebalance')")
     expect(admin).toMatch(/committedBytes:\s*string/)
+    expect(usersPage).toContain('按池自动分配')
+    expect(usersPage).toContain('adminApi.previewQuotaPool')
+    expect(usersPage).toContain('adminApi.rebalanceQuotaPool')
+    expect(usersPage).toContain('手动调整限额')
     expect(usersPage).not.toContain('usersApi')
     expect(storagePage).not.toContain('usersApi')
 

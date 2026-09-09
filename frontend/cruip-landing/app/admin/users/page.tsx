@@ -12,25 +12,44 @@ import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useAuthStore } from '@/lib/stores/auth-store'
-import { adminApi, type UsersResp } from '@/lib/api/admin'
+import { adminApi, type QuotaPoolPlan, type UsersResp } from '@/lib/api/admin'
+import type { Role } from '@/lib/api/auth'
+import { ApiError } from '@/lib/api/client'
 import { parseBytes, toUnit } from '@/lib/utils/parse-bytes'
 import { SegmentedBar } from '../components/segmented-bar'
 
 type QuotaUnit = 'KB' | 'MB' | 'GB' | 'TB'
 
+function staffAllowed(role: Role | null) {
+  return role === 'admin' || role === 'superuser'
+}
+
+function formatPoolBytes(raw: string) {
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return raw
+  if (n < 0) return `-${formatCompactBytes(-n)}`
+  return formatCompactBytes(n)
+}
+
 export default function AdminUsersPage() {
   const { isAuthenticated, role } = useAuthStore()
+  const canManage = role === 'admin'
   const [query, setQuery] = useState('')
   const queryRef = useRef('')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [loading, setLoading] = useState(false)
+  const [poolLoading, setPoolLoading] = useState(false)
+  const [rebalancing, setRebalancing] = useState(false)
+  const [poolError, setPoolError] = useState<string | null>(null)
+  const [pool, setPool] = useState<QuotaPoolPlan | null>(null)
   const [data, setData] = useState<UsersResp>({ items: [], page: 1, pageSize: 10, total: 0 })
 
   const totalPages = useMemo(() => Math.max(1, Math.ceil((data.total || 0) / pageSize)), [data.total, pageSize])
+  const emailById = useMemo(() => new Map(data.items.map((user) => [user.id, user.email])), [data.items])
 
   const fetchUsers = useCallback(async () => {
-    if (!isAuthenticated || role !== 'admin') return
+    if (!isAuthenticated || !staffAllowed(role)) return
     setLoading(true)
     try {
       const list = await adminApi.listUsers({ q: queryRef.current, page, pageSize })
@@ -42,13 +61,49 @@ export default function AdminUsersPage() {
     }
   }, [isAuthenticated, role, page, pageSize])
 
+  const fetchPool = useCallback(async () => {
+    if (!isAuthenticated || !staffAllowed(role)) return
+    setPoolLoading(true)
+    setPoolError(null)
+    try {
+      setPool(await adminApi.previewQuotaPool())
+    } catch (err) {
+      console.error(err)
+      setPoolError(err instanceof Error ? err.message : '无法读取存储池')
+    } finally {
+      setPoolLoading(false)
+    }
+  }, [isAuthenticated, role])
+
   useEffect(() => {
     void fetchUsers()
   }, [fetchUsers])
 
-  async function changeRole(id: string, nextRole: 'user' | 'admin') {
+  useEffect(() => {
+    void fetchPool()
+  }, [fetchPool])
+
+  async function changeRole(id: string, nextRole: Role) {
+    if (!canManage) return
     await adminApi.setRole(id, nextRole)
     setData(prev => ({ ...prev, items: prev.items.map(u => u.id === id ? { ...u, role: nextRole } : u) }))
+    void fetchPool()
+  }
+
+  async function applyPoolRebalance() {
+    if (!canManage) return
+    setRebalancing(true)
+    setPoolError(null)
+    try {
+      const plan = await adminApi.rebalanceQuotaPool()
+      setPool(plan)
+      await fetchUsers()
+    } catch (err) {
+      console.error(err)
+      setPoolError(err instanceof Error ? err.message : '自动分配失败')
+    } finally {
+      setRebalancing(false)
+    }
   }
 
   // Storage quota dialog state
@@ -57,6 +112,7 @@ export default function AdminUsersPage() {
   const [quotaInput, setQuotaInput] = useState('')
   const [quotaInfo, setQuotaInfo] = useState<{ storageQuota: number; storageUsed: number } | null>(null)
   const [quotaUnit, setQuotaUnit] = useState<QuotaUnit>('GB')
+  const [quotaError, setQuotaError] = useState<string | null>(null)
   const DEFAULT_TOTAL_BYTES = 40 * 1024 * 1024 * 1024 // 40 GiB
   const [sliderMax, setSliderMax] = useState<number>(toUnit(DEFAULT_TOTAL_BYTES, 'GB'))
   const [sliderVal, setSliderVal] = useState<number>(0)
@@ -64,6 +120,7 @@ export default function AdminUsersPage() {
   async function openQuota(id: string) {
     setQuotaUserId(id)
     setQuotaDlgOpen(true)
+    setQuotaError(null)
     try {
       const user = await adminApi.getUser(id)
       const js = {
@@ -88,17 +145,30 @@ export default function AdminUsersPage() {
   }
 
   async function saveQuota() {
-    if (!quotaUserId) return
-    // prefer manual input if provided (supports units), else use slider value with selected unit
+    if (!quotaUserId || !canManage) return
+    setQuotaError(null)
     const bytes = quotaInput.trim() ? parseBytes(quotaInput) : (() => {
       const map: Record<string, number> = { KB: 1024, MB: 1024**2, GB: 1024**3, TB: 1024**4 }
       return Math.max(0, Math.floor((map[quotaUnit] || 1) * sliderVal))
     })()
-    const fresh = await adminApi.setQuota(quotaUserId, String(bytes))
-    setQuotaInfo({
-      storageQuota: Number(fresh.limitBytes),
-      storageUsed: Number(fresh.committedBytes),
-    })
+    try {
+      const fresh = await adminApi.setQuota(quotaUserId, String(bytes))
+      setQuotaInfo({
+        storageQuota: Number(fresh.limitBytes),
+        storageUsed: Number(fresh.committedBytes),
+      })
+      setData(prev => ({
+        ...prev,
+        items: prev.items.map(u => u.id === quotaUserId ? { ...u, quota: fresh } : u),
+      }))
+      void fetchPool()
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 409) {
+        setQuotaError('超出存储池容量，请先按池自动分配或降低其他用户限额')
+        return
+      }
+      setQuotaError(err instanceof Error ? err.message : '保存失败')
+    }
   }
 
   return (
@@ -106,9 +176,80 @@ export default function AdminUsersPage() {
       <div className='flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between'>
         <h1 className='font-nothing-head text-2xl font-semibold text-nothing-display'>用户管理</h1>
         <div className='flex items-center gap-2'>
-          <Button onClick={fetchUsers} disabled={loading}>刷新</Button>
+          <Button onClick={() => { void fetchUsers(); void fetchPool() }} disabled={loading || poolLoading}>刷新</Button>
         </div>
       </div>
+
+      <Card>
+        <CardHeader className='flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between'>
+          <CardTitle className='text-base'>存储池</CardTitle>
+          <div className='flex flex-col items-stretch gap-2 sm:flex-row sm:items-center'>
+            <Button onClick={applyPoolRebalance} disabled={!canManage || rebalancing || poolLoading}>
+              按池自动分配
+            </Button>
+            {!canManage && (
+              <span className='text-xs text-nothing-secondary'>Superuser 可预览，仅 Admin 可执行</span>
+            )}
+          </div>
+        </CardHeader>
+        <CardContent className='space-y-4'>
+          {poolError && <div className='text-sm text-red-500'>{poolError}</div>}
+          {pool ? (
+            <>
+              <div className='grid gap-3 sm:grid-cols-4'>
+                <div>
+                  <div className='text-xs text-nothing-secondary'>池剩余</div>
+                  <div className='font-nothing-mono text-sm text-nothing-primary'>{formatPoolBytes(pool.allocableBytes)}</div>
+                </div>
+                <div>
+                  <div className='text-xs text-nothing-secondary'>已占用（含预留）</div>
+                  <div className='font-nothing-mono text-sm text-nothing-primary'>{formatPoolBytes(pool.occupiedBytes)}</div>
+                </div>
+                <div>
+                  <div className='text-xs text-nothing-secondary'>平台预留</div>
+                  <div className='font-nothing-mono text-sm text-nothing-primary'>{formatPoolBytes(pool.platformReserveBytes)}</div>
+                </div>
+                <div>
+                  <div className='text-xs text-nothing-secondary'>池容量</div>
+                  <div className='font-nothing-mono text-sm text-nothing-primary'>{formatPoolBytes(pool.poolBytes)}</div>
+                </div>
+              </div>
+              {pool.overcommitted && (
+                <div className='text-sm text-amber-500'>池已过订：活跃用户限额将压到当前占用，无法再分配余量。</div>
+              )}
+              <div className='rounded-[var(--nothing-r-md)] border border-nothing-line-2 overflow-hidden'>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>用户</TableHead>
+                      <TableHead>占用</TableHead>
+                      <TableHead>原限额</TableHead>
+                      <TableHead>新限额</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {pool.allocations.map((row) => (
+                      <TableRow key={row.userId}>
+                        <TableCell className='font-medium'>{emailById.get(row.userId) || row.userId}</TableCell>
+                        <TableCell className='font-nothing-mono text-xs'>{formatPoolBytes(row.occupiedBytes)}</TableCell>
+                        <TableCell className='font-nothing-mono text-xs'>{formatPoolBytes(row.previousLimitBytes)}</TableCell>
+                        <TableCell className='font-nothing-mono text-xs'>{formatPoolBytes(row.limitBytes)}</TableCell>
+                      </TableRow>
+                    ))}
+                    {pool.allocations.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={4} className='text-sm text-nothing-secondary'>暂无活跃配额账户</TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </>
+          ) : (
+            <div className='text-sm text-nothing-secondary'>{poolLoading ? '正在读取存储池...' : '暂无存储池数据'}</div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
@@ -152,6 +293,7 @@ export default function AdminUsersPage() {
                   <TableHead>Email</TableHead>
                   <TableHead>姓名</TableHead>
                   <TableHead>角色</TableHead>
+                  <TableHead>限额</TableHead>
                   <TableHead>创建时间</TableHead>
                   <TableHead className='text-right'>操作</TableHead>
                 </TableRow>
@@ -170,20 +312,26 @@ export default function AdminUsersPage() {
                     <TableCell>
                       <div className='flex items-center gap-2'>
                         <Badge variant={u.role === 'admin' ? 'default' : 'outline'}>{u.role.toUpperCase()}</Badge>
-                        <Select value={u.role} onValueChange={(v)=>changeRole(u.id, v as 'user' | 'admin')}>
-                          <SelectTrigger className='w-32'><SelectValue placeholder='角色' /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value='user'>user</SelectItem>
-                            <SelectItem value='admin'>admin</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        {canManage ? (
+                          <Select value={u.role} onValueChange={(v)=>changeRole(u.id, v as Role)}>
+                            <SelectTrigger className='w-32'><SelectValue placeholder='角色' /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value='user'>user</SelectItem>
+                              <SelectItem value='superuser'>superuser</SelectItem>
+                              <SelectItem value='admin'>admin</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        ) : null}
                       </div>
+                    </TableCell>
+                    <TableCell className='font-nothing-mono text-xs text-nothing-secondary'>
+                      {formatPoolBytes(u.quota?.limitBytes ?? '0')}
                     </TableCell>
                     <TableCell className='font-nothing-mono text-xs text-nothing-secondary'>{format(new Date(u.createdAt), 'yyyy-MM-dd HH:mm')}</TableCell>
                     <TableCell className='text-right'>
                       <div className='flex justify-end gap-2'>
                         <Button variant='outline' asChild><Link href={`/admin/users/${u.id}`}>详情</Link></Button>
-                        <Button variant='outline' onClick={()=>openQuota(u.id)}>存储</Button>
+                        <Button variant='outline' onClick={()=>openQuota(u.id)}>手动调整限额</Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -216,7 +364,7 @@ export default function AdminUsersPage() {
       <Dialog open={quotaDlgOpen} onOpenChange={setQuotaDlgOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>存储配额</DialogTitle>
+            <DialogTitle>手动调整限额</DialogTitle>
           </DialogHeader>
           {quotaInfo ? (
             <div className='space-y-5'>
@@ -269,8 +417,9 @@ export default function AdminUsersPage() {
               {/* Manual input */}
               <div className='flex items-center gap-2'>
                 <Input placeholder='例如: 500 MB / 20GB / 1048576 (bytes)' value={quotaInput} onChange={(e)=>setQuotaInput(e.target.value)} />
-                <Button onClick={saveQuota}>保存</Button>
+                <Button onClick={saveQuota} disabled={!canManage}>保存</Button>
               </div>
+              {quotaError && <div className='text-sm text-red-500'>{quotaError}</div>}
             </div>
           ) : (
             <div className='text-sm text-nothing-secondary'>正在加载...</div>
