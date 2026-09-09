@@ -1,14 +1,14 @@
 # CLAUDE.md
 
-Use this file as the agent operating guide. Read `README.md` for repository authority, `CONTRIBUTING.md` for the contribution workflow, and `SECURITY.md` for security boundaries.
+Agent operating guide. Read `README.md` for repository authority, `CONTRIBUTING.md` for the contribution workflow, and `SECURITY.md` for security boundaries.
 
-## Current architecture
+## Architecture
 
-MyWebDrive is Core-first. `services/core-api` owns control-plane state and the authoritative Prisma history; `services/storage` owns object transfer and storage workers; `services/email-provider` is private; `frontend/cruip-landing` is the active Web app. Production authority is `infrastructure/alicloud/docker-compose.core.yml` with `infrastructure/alicloud/deploy.sh` and `infrastructure/alicloud/rollback.sh`.
+MyWebDrive is Core-first. `services/core-api` owns control-plane state and the Prisma history. `services/storage` owns object transfer and workers. `services/email-provider` is private. `frontend/cruip-landing` is the Web app. Local compose is `infrastructure/alicloud/docker-compose.core.yml` plus `infrastructure/docker-compose.core-dev.yml`.
 
-The former split control plane is **SOFT-RETIRED** in `archive/`. It is excluded from default build, test, migration, local development, and deployment paths.
+The former split control plane is not on the default build, test, local start, or docs path. Recover it from git history if you need a comparison.
 
-## Supported local interface
+## Local interface
 
 ```bash
 ./manage-services.sh setup
@@ -17,18 +17,14 @@ The former split control plane is **SOFT-RETIRED** in `archive/`. It is excluded
 ./manage-services.sh status
 ./manage-services.sh logs [service]
 ./manage-services.sh config
-./manage-services.sh smoke
 ./manage-services.sh quality
+./manage-services.sh smoke
 ./manage-services.sh reset --confirm
-./manage-services.sh legacy:help
-./manage-services.sh legacy:status
 ```
 
-The local site is `http://127.0.0.1:8080`; the Compose project is `mywebdrive-core-dev`. See `docs/manage-services.md` for exact behavior. Unrecognized former commands warn `SOFT-RETIRED`, exit 64, and never start an archived topology.
+Site: `http://127.0.0.1:8080`. Compose project: `mywebdrive-core-dev`. Details: `docs/manage-services.md`. Unknown former commands exit 64.
 
-The compatibility whitelist contains only `legacy:help` and socket-only `legacy:status`; neither invokes archived code. Every other `legacy:*` command exits 64. Follow the event-based retirement clock and deletion rule in `docs/manage-services.md`.
-
-## Narrow verification
+## Checks
 
 ```bash
 pnpm run build:all
@@ -39,29 +35,18 @@ pnpm run test:docs
 pnpm run verify:docs
 bash scripts/test-repo-authority-contract.sh
 bash scripts/test-core-dev-contract.sh
-bash scripts/test-core-release-contract.sh
-bash scripts/test-core-cutover-contract.sh
 ```
 
-`./manage-services.sh quality` runs the full fail-closed gate without requiring a running stack. `./manage-services.sh smoke` delegates to `scripts/smoke-core-e2e.sh` and requires Docker.
+`./manage-services.sh quality` is the fail-closed gate without a running stack. `./manage-services.sh smoke` needs Docker and is optional.
 
-## Active boundaries
+## Boundaries
 
-- Browser traffic is same-origin. Nginx sends Storage transfer paths to Storage, other public API paths to Core, and blocks private callback paths.
-- Public API authority is `docs/openapi.yaml`; operational endpoints and private callbacks are excluded.
-- Core and Storage exchange dedicated Storage Grants and signed callbacks. Storage does not own control-plane state.
-- Core migrations run before Core starts in the production release contract. Never add a split-schema migration loop.
-- Prisma clients, native engines, `dist`, `.next`, `.tsbuildinfo`, PID files, and frontend npm lockfiles are generated outputs and remain untracked.
+- Browser traffic is same-origin. Nginx sends Storage transfer paths to Storage, other public API paths to Core, and blocks private callbacks.
+- Public API: `docs/openapi.yaml`. Operational endpoints and private callbacks are excluded.
+- Core issues Storage Grants; Storage does not own control-plane state.
+- Core migrations run before Core starts. Do not add a split-schema migration loop.
+- Prisma clients, `dist`, `.next`, `.tsbuildinfo`, PID files, and frontend npm lockfiles stay untracked.
 
-## Production release
+## Implementation
 
-Use only immutable `sha-<40 lowercase hex>` images through:
-
-- `infrastructure/alicloud/deploy.sh`
-- `infrastructure/alicloud/rollback.sh`
-
-Follow `infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md` and `docs/runbooks/core-cutover-and-rollback.md`. Never bypass their migration, lock, health, version, digest, or manifest checks, and never destroy persistent volumes as a recovery shortcut.
-
-## Implementation rules
-
-Use Node.js 20+, pnpm 9.7.0, strict TypeScript, ESM, two-space indentation, single quotes, and omitted semicolons. Keep changes focused, use `unknown` plus narrowing instead of broad `any`, route unexpected errors through structured logging, and never commit secrets or generated output. Add a failing contract or test before changing authority, release, migration, lifecycle, or documentation-verifier behavior.
+Node.js 20+, pnpm 9.7.0, strict TypeScript, ESM, two-space indent, single quotes, omitted semicolons. Prefer `unknown` plus narrowing over `any`. Do not commit secrets or generated output. Add a failing contract or test before changing authority, quota pool, migration, or documentation-verifier behavior.

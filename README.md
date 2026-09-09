@@ -1,30 +1,28 @@
 # MyWebDrive
 
-MyWebDrive 是一个 Node.js、TypeScript 与 Next.js 构建的文件存储和分发平台。当前仓库采用 Core-first 架构：Core 负责身份、文件、上传意图、配额、分享、发布和 Dashboard；Storage 负责对象传输与后台存储工作；Web 通过同源 Nginx 入口访问公开 API。
+MyWebDrive is a Core-first file storage and distribution platform. Core owns identity, files, upload intents, quota, sharing, publication, and dashboard facts. Storage owns object transfer and workers. The Web app is Next.js behind a same-origin Nginx entry.
 
-## 当前权威
+This repository is in **local-first development**. The former split Auth/User/Metadata/Sharing/Gateway control plane is gone from the default workflow; recover it from git history if needed.
 
-- 控制平面：`services/core-api`
-- 存储 API 与 Worker：`services/storage`
-- 私有邮件投递适配器：`services/email-provider`
-- 主前端：`frontend/cruip-landing`
-- 控制平面 schema 与 migrations：`services/core-api/prisma`
-- 本地编排：`infrastructure/alicloud/docker-compose.core.yml` + `infrastructure/docker-compose.core-dev.yml`
-- 生产编排：`infrastructure/alicloud/docker-compose.core.yml`
-- 生产部署与回滚：`infrastructure/alicloud/deploy.sh`、`infrastructure/alicloud/rollback.sh`
+## Authority
 
-曾经的拆分式控制平面已 **SOFT-RETIRED**，其归档副本仅用于观察，不属于默认构建、测试、迁移、开发或发布路径。
+- Control plane: `services/core-api`
+- Storage API and worker: `services/storage`
+- Private email adapter: `services/email-provider`
+- Web: `frontend/cruip-landing`
+- Schema: `services/core-api/prisma`
+- Local compose: `infrastructure/alicloud/docker-compose.core.yml` + `infrastructure/docker-compose.core-dev.yml`
 
-## 本地开发
+## Local development
 
-要求 Node.js 20+、Corepack、Docker Engine，以及 Docker Compose 2.24.4+。首次准备并启动完整 Core-first 栈：
+Requires Node.js 20+, Corepack, Docker Engine, and Docker Compose 2.24.4+.
 
 ```bash
 ./manage-services.sh setup
 ./manage-services.sh start
 ```
 
-应用入口为 <http://127.0.0.1:8080>，Compose project 固定为 `mywebdrive-core-dev`。完整命令说明见 [`docs/manage-services.md`](docs/manage-services.md)：
+Site: <http://127.0.0.1:8080>. Commands: [`docs/manage-services.md`](docs/manage-services.md).
 
 ```text
 setup
@@ -33,58 +31,39 @@ stop
 status
 logs [service]
 config
-smoke
 quality
+smoke
 reset --confirm
-legacy:help | legacy:status
 ```
 
-`reset` 只在显式提供 `--confirm` 时删除本地容器和卷。Legacy 兼容面只允许 `legacy:help` 和不调用归档脚本的 socket-only `legacy:status`；其他 `legacy:*` 命令退出 64。
-
-## 验证矩阵
+## Checks
 
 ```bash
-pnpm run build:all       # 权威 workspace 构建
-pnpm run typecheck       # TypeScript project references
-pnpm run lint:all        # 各活跃 package 的 lint
-pnpm run test:all        # 活跃 package、生成物合同
-pnpm run test:docs       # 文档权威 verifier 测试
-pnpm run verify:docs     # verifier + OpenAPI lint
+pnpm run build:all
+pnpm run typecheck
+pnpm run lint:all
+pnpm run test:all
+pnpm run test:docs
+pnpm run verify:docs
 ./manage-services.sh quality
-./manage-services.sh smoke
 ```
 
-`quality` 是无需启动容器的完整 fail-closed 质量门；`smoke` 使用 `scripts/smoke-core-e2e.sh` 构建隔离容器、临时卷并在结束时清理。历史测试只能显式运行 `pnpm run test:legacy`，不代表当前权威。
+`quality` does not need a running stack. `smoke` is optional and needs Docker.
 
-## API 与术语
+## API and language
 
-- 公共 HTTP 合同：[`docs/openapi.yaml`](docs/openapi.yaml)
-- 项目术语：[`CONTEXT.md`](CONTEXT.md)
-- Dashboard 语义：[`docs/context/dashboard-analytics.md`](docs/context/dashboard-analytics.md)
+- Public HTTP: [`docs/openapi.yaml`](docs/openapi.yaml)
+- Terms: [`CONTEXT.md`](CONTEXT.md)
+- Dashboard: [`docs/context/dashboard-analytics.md`](docs/context/dashboard-analytics.md)
 
-公开 API 包括邮箱一次性验证码、Session 刷新、文件与版本、上传意图与配额、分享、发布、Dashboard，以及 grant 授权的 Storage 传输。`/api/v1/internal/*`、`/metrics`、`/live`、`/ready` 和 `/version` 是私有或运维接口，不属于公共 OpenAPI。
+Public API covers email OTP, session refresh, files, upload intents, quota, shares, publications, dashboard, and grant-authorized Storage transfer. `/api/v1/internal/*`, `/metrics`, `/live`, `/ready`, and `/version` are private or operational.
 
-## 生产发布
+## Git
 
-生产只接受 CI 已发布的不可变镜像。按 [`infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md`](infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md) 准备环境，并使用：
+`main` is the GitHub default branch. `develop` is the next-release integration branch. Daily work branches from `develop` and returns by PR. See [`docs/git-workflow.md`](docs/git-workflow.md).
 
-```bash
-bash infrastructure/alicloud/deploy.sh "sha-<40-lowercase-hex>"
-bash infrastructure/alicloud/rollback.sh "sha-<40-lowercase-hex>"
-```
+## Security and contributing
 
-发布合同由 `infrastructure/alicloud/docker-compose.core.yml` 和 `scripts/smoke-core-e2e.sh` 支撑。不要绕过 migration、发布锁、健康/版本校验或 manifest 选择；不要通过删除持久卷回滚。
+Do not commit `.env`, credentials, tokens, database dumps, or generated artifacts. Read [`CONTRIBUTING.md`](CONTRIBUTING.md) and [`SECURITY.md`](SECURITY.md). Run `./manage-services.sh quality` before a PR.
 
-## 软退役观察与删除资格
-
-归档运行时仅供只读或对照观察，不得承载新开发、迁移、部署或生产写入。退役计时尚未开始；只有最终生产部署、回滚和重新部署验收成功并记录 UTC 完成时间后才开始。最早物理删除时间是该记录时间之后连续 14 个无依赖的 24 小时周期。完整规则与证据要求见 [`docs/manage-services.md`](docs/manage-services.md)。
-
-## Git 工作流
-
-仓库采用轻量双分支：`main` 是生产权威，`develop` 是下一版本的开发集成分支。日常修改从 `develop` 创建短期分支并通过 PR 回到 `develop`；发布通过 `develop -> main` PR 提升。完整规则见 [`docs/git-workflow.md`](docs/git-workflow.md)。
-
-## 安全与贡献
-
-不得提交 `.env`、凭据、token、数据库备份或生成产物。贡献前阅读 [`CONTRIBUTING.md`](CONTRIBUTING.md) 与 [`SECURITY.md`](SECURITY.md)，并运行 `./manage-services.sh quality`。
-
-本项目采用 MIT License，详见 [`LICENSE`](LICENSE)。
+MIT License: [`LICENSE`](LICENSE).

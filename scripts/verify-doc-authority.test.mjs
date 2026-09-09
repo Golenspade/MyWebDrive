@@ -461,16 +461,16 @@ test('rejects calendar retirement dates in active documentation', async (t) => {
   assert.match(result.stderr, /README\.md contains a hard-coded retirement date/)
 })
 
-test('requires the event-based retirement clock rule in active authority docs', async (t) => {
+test('requires the local-first development interface in active authority docs', async (t) => {
   const root = await fixture()
   t.after(() => rm(root, { recursive: true, force: true }))
   await mutate(root, 'docs/manage-services.md', (source) =>
-    source.replace('14 consecutive dependency-free 24-hour periods', 'fourteen quiet days'),
+    source.replace('127.0.0.1:8080', 'localhost:9999'),
   )
 
   const result = runVerifier(root)
   assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /docs\/manage-services\.md is missing the event-based retirement clock rule/)
+  assert.match(result.stderr, /docs\/manage-services\.md is missing the local-first development interface/)
 })
 
 test('rejects internal or operational paths exposed as public OpenAPI paths', async (t) => {
@@ -743,12 +743,12 @@ test('fails closed when OpenAPI cannot be parsed', async (t) => {
   assert.match(result.stderr, /could not parse docs\/openapi\.yaml/i)
 })
 
-test('fails closed when a referenced deployment authority is missing', async (t) => {
+test('fails closed when a referenced local authority is missing', async (t) => {
   const root = await fixture()
   t.after(() => rm(root, { recursive: true, force: true }))
-  await unlink(path.join(root, 'infrastructure/alicloud/deploy.sh'))
+  await unlink(path.join(root, 'manage-services.sh'))
 
   const result = runVerifier(root)
   assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /referenced authority path is missing: infrastructure\/alicloud\/deploy\.sh/)
+  assert.match(result.stderr, /referenced authority path is missing: manage-services\.sh/)
 })

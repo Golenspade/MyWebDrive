@@ -222,9 +222,6 @@ const classifiedCoreMounts = [
 const authorityPaths = [
   'manage-services.sh',
   'infrastructure/alicloud/docker-compose.core.yml',
-  'infrastructure/alicloud/deploy.sh',
-  'infrastructure/alicloud/rollback.sh',
-  'scripts/smoke-core-e2e.sh',
 ]
 
 const requiredOperationalExclusions = [
@@ -1860,15 +1857,10 @@ function verifyActiveDocs(failures, docs) {
     }
   }
 
-  const retirementAuthority = docs.get('docs/manage-services.md') ?? ''
-  const eventRule = [
-    'retirement clock has not started',
-    'final production deploy, rollback, and redeploy acceptance',
-    'recorded UTC completion timestamp',
-    '14 consecutive dependency-free 24-hour periods',
-  ]
-  if (!eventRule.every((phrase) => retirementAuthority.includes(phrase))) {
-    failures.push('docs/manage-services.md is missing the event-based retirement clock rule')
+  const localAuthority = docs.get('docs/manage-services.md') ?? ''
+  const localRule = ['setup', 'start', '127.0.0.1:8080']
+  if (!localRule.every((phrase) => localAuthority.includes(phrase))) {
+    failures.push('docs/manage-services.md is missing the local-first development interface')
   }
 
   const combined = [...docs.values()].filter((value) => value !== null).join('\n')

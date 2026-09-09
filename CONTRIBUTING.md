@@ -57,7 +57,7 @@ Historical tests are opt-in with `pnpm run test:legacy` and are not evidence for
 - The active frontend is `frontend/cruip-landing`.
 - Production changes must preserve `infrastructure/alicloud/docker-compose.core.yml`, `infrastructure/alicloud/deploy.sh`, `infrastructure/alicloud/rollback.sh`, and `scripts/smoke-core-e2e.sh` as the release authority.
 
-The archived split control plane is **SOFT-RETIRED**. Do not base new code, schema changes, or deployment instructions on it; its event-based observation and deletion rule is defined in `docs/manage-services.md`.
+Do not base new code or schema changes on the former split control plane. That source is recoverable from git history, not from the default workspace.
 
 ## Security and conduct
 

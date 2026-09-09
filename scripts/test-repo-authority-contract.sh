@@ -169,8 +169,7 @@ done
 
 for doc in "${WORKFLOW_DOCS[@]}"; do
   require_text "$doc" './manage-services.sh quality' "${doc#"$ROOT_DIR/"}"
-  require_text "$doc" './manage-services.sh smoke' "${doc#"$ROOT_DIR/"}"
-  require_text "$doc" 'SOFT-RETIRED' "${doc#"$ROOT_DIR/"}"
+  require_text "$doc" './manage-services.sh start' "${doc#"$ROOT_DIR/"}"
 done
 
 deploy_guide="$ROOT_DIR/infrastructure/alicloud/ALIYUN_DEPLOY_GUIDE.md"
