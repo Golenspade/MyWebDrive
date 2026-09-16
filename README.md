@@ -1,5 +1,7 @@
 # MyWebDrive
 
+[Documentation](https://fankex.com/en/docs/mywebdrive)
+
 MyWebDrive is a Core-first file storage and distribution platform. Core owns identity, files, upload intents, quota, sharing, publication, and dashboard facts. Storage owns object transfer and workers. The Web app is Next.js behind a same-origin Nginx entry.
 
 This repository is in **local-first development**. The former split Auth/User/Metadata/Sharing/Gateway control plane is gone from the default workflow; recover it from git history if needed.
